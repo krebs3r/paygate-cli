@@ -5,6 +5,11 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- When you add a profile, the environment choice now reads "Test system" or
+  "Production system" ("Testsystem" or "Produktivsystem" in German).
+
 ## [0.3.0]
 
 ### Added

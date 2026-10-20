@@ -289,7 +289,7 @@ func initWizard(o *initOptions, cfg *config.Config) error {
 			).Value(&o.brand),
 			huh.NewSelect[string]().Title("Environment").Options(
 				huh.NewOption("Test system", "test"),
-				huh.NewOption("Production (real money)", "prod"),
+				huh.NewOption("Production system", "prod"),
 			).Value(&o.env),
 		),
 		huh.NewGroup(

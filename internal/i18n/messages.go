@@ -46,7 +46,7 @@ var messages = map[string]msg{
 	"auth.basic":    {"Basic Auth", "Basic Auth"},
 	"auth.oauth2":   {"OAuth2 client credentials", "OAuth2 Client Credentials"},
 	"env.test":      {"Test system", "Testsystem"},
-	"env.prod":      {"Production (real money)", "Produktion (echtes Geld)"},
+	"env.prod":      {"Production system", "Produktivsystem"},
 
 	// Home
 	"home.welcome":     {"Welcome back", "Willkommen zurück"},
