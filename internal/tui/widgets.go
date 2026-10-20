@@ -65,10 +65,47 @@ func newSpinner() spinner.Model {
 	return s
 }
 
-// formKeyMap lets esc cancel an embedded form instead of quitting the app.
+// formKeyMap lets esc cancel an embedded form instead of quitting the app
+// and translates the key help shown below each form.
 func formKeyMap() *huh.KeyMap {
 	km := huh.NewDefaultKeyMap()
-	km.Quit = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel"))
+	km.Quit = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", t("key.cancel")))
+	h := func(b *key.Binding, k string) { b.SetHelp(b.Help().Key, t(k)) }
+
+	h(&km.Input.Next, "key.next")
+	h(&km.Input.Prev, "key.back")
+	h(&km.Input.Submit, "form.submit")
+	h(&km.Text.Next, "key.next")
+	h(&km.Text.Prev, "key.back")
+	h(&km.Text.Submit, "form.submit")
+	h(&km.Note.Next, "key.next")
+	h(&km.Note.Prev, "key.back")
+	h(&km.Note.Submit, "form.submit")
+
+	s := &km.Select
+	for b, k := range map[*key.Binding]string{
+		&s.Next: "key.select", &s.Prev: "key.back", &s.Submit: "form.submit", &s.Up: "form.up", &s.Down: "form.down",
+		&s.Left: "form.left", &s.Right: "form.right", &s.Filter: "key.filter", &s.SetFilter: "form.setfilter",
+		&s.ClearFilter: "form.clearfilter", &s.HalfPageUp: "form.pageup", &s.HalfPageDown: "form.pagedown",
+		&s.GotoTop: "form.top", &s.GotoBottom: "form.bottom",
+	} {
+		h(b, k)
+	}
+	ms := &km.MultiSelect
+	for b, k := range map[*key.Binding]string{
+		&ms.Next: "form.confirm", &ms.Prev: "key.back", &ms.Submit: "form.submit", &ms.Toggle: "form.toggle",
+		&ms.Up: "form.up", &ms.Down: "form.down", &ms.Filter: "key.filter", &ms.SetFilter: "form.setfilter",
+		&ms.ClearFilter: "form.clearfilter", &ms.HalfPageUp: "form.pageup", &ms.HalfPageDown: "form.pagedown",
+		&ms.GotoTop: "form.top", &ms.GotoBottom: "form.bottom", &ms.SelectAll: "form.selectall", &ms.SelectNone: "form.selectnone",
+	} {
+		h(b, k)
+	}
+	c := &km.Confirm
+	for b, k := range map[*key.Binding]string{
+		&c.Next: "key.next", &c.Prev: "key.back", &c.Submit: "form.submit", &c.Toggle: "form.toggle", &c.Accept: "yes", &c.Reject: "no",
+	} {
+		h(b, k)
+	}
 	return km
 }
 

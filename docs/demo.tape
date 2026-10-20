@@ -23,7 +23,7 @@ Env PAYGATE_NO_KEYCHAIN "1"
 Env XDG_CONFIG_HOME "/tmp/paygate-demo"
 
 Hide
-Type "rm -rf /tmp/paygate-demo && export PATH=$PWD:$PATH PS1='$ ' && paygate init --name demo-shop --merchant-id demo-shop --api-key demo-key >/dev/null && clear"
+Type@1ms "rm -rf /tmp/paygate-demo && export PATH=$PWD:$PATH PS1='$ ' && paygate init --name demo-shop --merchant-id demo-shop --api-key demo-key >/dev/null && clear"
 Enter
 Sleep 1s
 Show
@@ -49,9 +49,11 @@ Backspace 5
 Type "49.90"
 Sleep 400ms
 Enter
-Sleep 500ms
+Sleep 400ms
 Enter
-Sleep 500ms
+Sleep 400ms
+Enter
+Sleep 600ms
 Enter
 Sleep 3s
 

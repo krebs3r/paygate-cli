@@ -75,7 +75,6 @@ var messages = map[string]msg{
 	"prof.verifying":     {"Verifying credentials with %s …", "Prüfe Zugangsdaten bei %s …"},
 	"prof.verified":      {"Credentials verified with %s", "Zugangsdaten bestätigt bei %s"},
 	"prof.rejected":      {"Paygate rejected the credentials (401).", "Paygate hat die Zugangsdaten abgelehnt (401)."},
-	"prof.probing":       {"Checking test/production, Nexi/Computop and Basic/OAuth2 …", "Prüfe Test/Produktion, Nexi/Computop und Basic/OAuth2 …"},
 	"prof.match":         {"The credentials work with %s, not with your selection.", "Die Zugangsdaten funktionieren mit %s, nicht mit deiner Auswahl."},
 	"prof.match.use":     {"Use these settings?", "Diese Einstellungen übernehmen?"},
 	"prof.nomatch":       {"No combination accepted the credentials. Check that it is the REST API key (not Blowfish/HMAC) and that the merchant ID is correct.", "Keine Kombination hat die Zugangsdaten akzeptiert. Prüfe, ob es der REST-API-Key ist (nicht Blowfish/HMAC) und ob die Merchant ID stimmt."},
@@ -99,7 +98,6 @@ var messages = map[string]msg{
 	"cards.brand":              {"Brand", "Marke"},
 	"cards.number":             {"Number", "Nummer"},
 	"cards.scenario":           {"Scenario", "Szenario"},
-	"cards.expect":             {"Expected", "Erwartet"},
 	"cards.hint":               {"Any future expiry date and any CVC work. 3DS challenge OTP: 1234.", "Jedes zukünftige Ablaufdatum und jede CVC funktionieren. 3DS-OTP: 1234."},
 	"cards.prod":               {"Production profiles decline test cards. Use the simulation in New payment (order description Test:0000) instead.", "Produktivprofile lehnen Testkarten ab. Nutze stattdessen die Simulation unter Neue Zahlung (Beschreibung Test:0000)."},
 	"cards.copy":               {"copy number", "Nummer kopieren"},
@@ -222,7 +220,6 @@ var messages = map[string]msg{
 	"res.op.failed":     {"%s failed: %s", "%s fehlgeschlagen: %s"},
 	"res.3ds":           {"3-D Secure is required for this card. Use a card without 3DS, the simulation or the hosted page.", "Für diese Karte ist 3-D Secure nötig. Nutze eine Karte ohne 3DS, die Simulation oder die Bezahlseite."},
 	"res.prod.hint":     {"Real transaction on production with manual capture: press x to release the authorization.", "Echte Transaktion auf Produktion mit manuellem Capture: x gibt die Reservierung frei."},
-	"res.error":         {"The request failed", "Die Anfrage ist fehlgeschlagen"},
 	"res.sim":           {"Simulated with %s, no money moved.", "Simuliert mit %s, es ist kein Geld geflossen."},
 
 	// Receipt and splash
@@ -269,7 +266,6 @@ var messages = map[string]msg{
 	"pays.loading":     {"Loading payment …", "Lade Zahlung …"},
 	"pays.notfound":    {"Payment %s not found on %s.", "Zahlung %s auf %s nicht gefunden."},
 	"pays.timeline":    {"TIMELINE", "ZEITLEISTE"},
-	"pays.actions":     {"ACTIONS", "AKTIONEN"},
 	"pays.offline":     {"Could not refresh from Paygate, showing the stored state:", "Aktualisieren bei Paygate fehlgeschlagen, zeige den gespeicherten Stand:"},
 	"pays.captured":    {"Captured", "Eingezogen"},
 	"pays.refunded":    {"Refunded", "Erstattet"},
@@ -332,6 +328,23 @@ var messages = map[string]msg{
 	"pal.nolast":      {"No payment yet", "Noch keine Zahlung"},
 	"key.commands":    {"commands", "Befehle"},
 	"help.palette":    {"command palette: search every action", "Befehlssuche: alle Aktionen durchsuchen"},
+
+	// Form key help
+	"form.submit":      {"submit", "absenden"},
+	"form.up":          {"up", "hoch"},
+	"form.down":        {"down", "runter"},
+	"form.confirm":     {"confirm", "bestätigen"},
+	"form.toggle":      {"toggle", "umschalten"},
+	"form.selectall":   {"select all", "alle wählen"},
+	"form.selectnone":  {"select none", "keine wählen"},
+	"form.left":        {"left", "links"},
+	"form.right":       {"right", "rechts"},
+	"form.setfilter":   {"set filter", "Filter setzen"},
+	"form.clearfilter": {"clear filter", "Filter löschen"},
+	"form.top":         {"go to start", "zum Anfang"},
+	"form.bottom":      {"go to end", "zum Ende"},
+	"form.pageup":      {"½ page up", "½ Seite hoch"},
+	"form.pagedown":    {"½ page down", "½ Seite runter"},
 
 	// About
 	"about.made":     {"Made by Martin Krebs", "Entwickelt von Martin Krebs"},

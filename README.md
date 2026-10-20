@@ -2,32 +2,37 @@
 
 Send real Nexi / Computop Paygate payments from your terminal.
 
-![Version](https://img.shields.io/badge/version-0.1.0-3d7eff)
+![Version](https://img.shields.io/badge/version-0.2.0-3d7eff)
 ![Go](https://img.shields.io/badge/go-1.27-00add8)
 ![Status](https://img.shields.io/badge/status-MVP-f59e0b)
 
-![paygate pay: interactive card payment and a declined card](docs/demo.gif)
+![The paygate app: start screen, new payment, receipt](docs/demo-app.gif)
 
-`paygate` talks to the Paygate REST API v2. Create a payment in seconds, watch a
-hosted checkout complete live, then capture, refund or cancel it. Test cards are
-built in and every request can be exported as `curl`.
+`paygate` talks to the Paygate REST API v2. Type `paygate` for a full-screen
+app with a menu, or use single commands in scripts. Create a payment in
+seconds, watch a hosted checkout complete live, then capture, refund or
+release it. Test cards and a simulation mode for production are built in, and
+every request can be inspected or exported as `curl`.
 
 ## Features
 
-- **Guided or scriptable**: an interactive wizard (`paygate pay`) or plain flags
-  for scripts and CI.
+- **App and commands**: a full-screen app (`paygate`) with menu, key hints and
+  command palette, and the same functions as single commands for scripts and CI.
 - **All integration types**: hosted payment page, hosted single method (PayPal,
   iDEAL, SEPA, Klarna and more) and direct card payments.
+- **Safe on production**: simulation with `Test:0000` / `Test:0305`, 0.01 as
+  default amount and manual capture with one-key release.
 - **Live status**: checkout URL with QR code; paygate waits until the payment is
   final.
-- **Follow-up operations**: capture, refund and cancel with confirmation and
-  automatic amounts.
-- **Developer friendly**: `-o json`, `--curl`, HTTP logging with redacted
-  secrets, test card aliases and multiple merchant profiles.
+- **Payments and follow-ups**: local history, lookup by ID, capture, refund and
+  release with confirmation and automatic amounts.
+- **Developer friendly**: Inspector with every request and response, `-o json`,
+  `--curl`, HTTP logging with redacted secrets, test card aliases and multiple
+  merchant profiles. English and German interface.
 
-![paygate pay --hosted: QR code and live status](docs/demo-hosted.gif)
+![Payments, capture, Inspector and command palette](docs/demo-app-2.gif)
 
-<sub>Both recordings run against the built-in mock server (`make mock`, `make demo`).</sub>
+<sub>All recordings run against the built-in mock server (`make mock`, `make demo`).</sub>
 
 ## Installation
 
@@ -83,7 +88,7 @@ updated `PATH`.
 paygate --version
 ```
 
-You should see `paygate 0.1.0`. Continue with the [Quickstart](#quickstart).
+You should see `paygate 0.2.0`. Continue with the [Quickstart](#quickstart).
 
 </details>
 
@@ -127,7 +132,7 @@ that folder to your `PATH`. It ends with `Done. Next steps`.
 paygate --version
 ```
 
-You should see `paygate 0.1.0`. Continue with the [Quickstart](#quickstart).
+You should see `paygate 0.2.0`. Continue with the [Quickstart](#quickstart).
 
 </details>
 
@@ -196,6 +201,12 @@ paygate get <payId>                # 3. look at it again later
 3. **`paygate get`** shows status, amounts and response codes of any payment.
 
 ## Commands
+
+Single commands work without the app, for example in scripts:
+
+![paygate pay: card payment and a declined card](docs/demo.gif)
+
+![paygate pay --hosted: QR code and live status](docs/demo-hosted.gif)
 
 | Command | Purpose | Example |
 | --- | --- | --- |

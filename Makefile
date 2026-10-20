@@ -24,6 +24,8 @@ mock: ## Run the local mock Paygate on 127.0.0.1:8089
 	go run ./tools/mockpaygate
 
 demo: build ## Record the README GIFs (needs vhs and a running mock)
+	vhs docs/demo-app.tape
+	vhs docs/demo-app-2.tape
 	vhs docs/demo.tape
 	vhs docs/demo-hosted.tape
 
