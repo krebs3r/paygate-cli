@@ -234,7 +234,7 @@ func (s *newPaymentScreen) startForm(ctx *Context) tea.Cmd {
 			huh.NewOption(t("flow.direct"), string(core.FlowDirect)),
 			huh.NewOption(t("flow.hosted"), string(core.FlowHosted)),
 			huh.NewOption(t("flow.method"), string(core.FlowMethod)),
-		).Value(&s.flow).Description(s.endpoint(ctx)).DescriptionFunc(func() string { return s.endpoint(ctx) }, &s.flow)),
+		).Value(&s.flow), ui.LiveNote(func() string { return s.endpoint(ctx) })),
 		huh.NewGroup(huh.NewMultiSelect[string]().Title(t("new.methods")).Description(t("new.methods.desc")).
 			Options(multi...).Value(&s.methods)).
 			WithHideFunc(func() bool { return s.flow != string(core.FlowHosted) }),

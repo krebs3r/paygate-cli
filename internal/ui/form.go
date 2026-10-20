@@ -57,6 +57,36 @@ func FormTheme() *huh.Theme {
 	return t
 }
 
+// LiveNote is a muted line below the fields of a group. It is drawn anew
+// with every view, so it follows the choice made in the fields above, such
+// as the URL the calls go to. Unlike a huh note it adds no blank lines.
+func LiveNote(text func() string) huh.Field {
+	return &liveNote{Note: huh.NewNote(), text: text}
+}
+
+type liveNote struct {
+	*huh.Note // skipped when moving through the form
+	text      func() string
+	style     lipgloss.Style
+	width     int
+}
+
+func (n *liveNote) Update(tea.Msg) (tea.Model, tea.Cmd) { return n, nil }
+
+func (n *liveNote) WithTheme(t *huh.Theme) huh.Field {
+	n.style = t.Blurred.Card
+	return n
+}
+
+func (n *liveNote) WithWidth(w int) huh.Field {
+	n.width = w
+	return n
+}
+
+func (n *liveNote) View() string {
+	return n.style.Width(n.width).Render(Muted.Render(n.text()))
+}
+
 // RunForm runs a huh form with the CLI theme and maps aborts to ErrAborted.
 func RunForm(groups ...*huh.Group) error {
 	// Replace huh's default program options to drop focus reporting, which

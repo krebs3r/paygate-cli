@@ -233,6 +233,9 @@ func TestProfileFormShowsWhereCallsGo(t *testing.T) {
 	expect("API https://test.computop-paygate.com/api/v2")
 	send(m, enter, down) // production
 	expect("API https://www.computop-paygate.com/api/v2")
+	if v := ansi.Strip(m.View()); strings.Index(v, "API https") < strings.Index(v, "Production system") {
+		t.Fatalf("the API URL belongs below the options:\n%s", v)
+	}
 	send(m, enter, keys("demo-shop"), enter, keys("demo-key"), enter)
 	expect("Merchant ID and API key with every request")
 	send(m, down) // OAuth2

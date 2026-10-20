@@ -214,7 +214,8 @@ func (s *profilesScreen) startForm(ctx *Context, errText string) tea.Cmd {
 			huh.NewSelect[string]().Title(t("f.environment")).Options(
 				huh.NewOption(t("env.test"), "test"),
 				huh.NewOption(t("env.prod"), "prod"),
-			).Value(&s.fEnv).Description(s.apiTarget()).DescriptionFunc(s.apiTarget, []*string{&s.fBrand, &s.fEnv}),
+			).Value(&s.fEnv),
+			ui.LiveNote(s.apiTarget),
 		),
 		huh.NewGroup(
 			huh.NewInput().Title(t("f.merchant")).Value(&s.fMID).Validate(required),
@@ -222,7 +223,8 @@ func (s *profilesScreen) startForm(ctx *Context, errText string) tea.Cmd {
 			huh.NewSelect[string]().Title(t("f.auth")).Options(
 				huh.NewOption(t("auth.basic"), "basic"),
 				huh.NewOption(t("auth.oauth2"), "oauth2"),
-			).Value(&s.fAuth).Description(s.authTarget()).DescriptionFunc(s.authTarget, []*string{&s.fBrand, &s.fEnv, &s.fAuth}),
+			).Value(&s.fAuth),
+			ui.LiveNote(s.authTarget),
 		),
 	)
 	return s.form.Init()

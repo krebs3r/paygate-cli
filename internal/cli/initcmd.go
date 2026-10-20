@@ -290,7 +290,8 @@ func initWizard(o *initOptions, cfg *config.Config) error {
 			huh.NewSelect[string]().Title("Environment").Options(
 				huh.NewOption("Test system", "test"),
 				huh.NewOption("Production system", "prod"),
-			).Value(&o.env).Description(o.apiTarget()).DescriptionFunc(o.apiTarget, []*string{&o.brand, &o.env}),
+			).Value(&o.env),
+			ui.LiveNote(o.apiTarget),
 		),
 		huh.NewGroup(
 			huh.NewInput().Title("Merchant ID").Value(&o.merchantID).Validate(nonEmpty("merchant ID")),
@@ -298,7 +299,8 @@ func initWizard(o *initOptions, cfg *config.Config) error {
 			huh.NewSelect[string]().Title("Authentication").Options(
 				huh.NewOption("Basic Auth (merchant ID + API key)", "basic"),
 				huh.NewOption("OAuth2 client credentials", "oauth2"),
-			).Value(&o.auth).Description(o.authTarget()).DescriptionFunc(o.authTarget, []*string{&o.brand, &o.env, &o.auth}),
+			).Value(&o.auth),
+			ui.LiveNote(o.authTarget),
 		),
 	)
 }
