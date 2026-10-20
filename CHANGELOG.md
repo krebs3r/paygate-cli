@@ -26,7 +26,7 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   zone is one module (a real Paygate link fits 120 × 30). If it still does
   not fit, `z` shows the code full screen while the app keeps waiting.
 
-## [0.2.0] - 2026-10-20
+## [0.2.0]
 
 ### Added
 
@@ -70,7 +70,7 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Spaces, line breaks and invisible characters around pasted merchant IDs and
   API keys no longer cause 401 errors.
 
-## [0.1.0] - 2026-10-20
+## [0.1.0]
 
 First MVP.
 
