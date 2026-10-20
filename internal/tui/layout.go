@@ -13,9 +13,8 @@ import (
 func t(key string) string { return i18n.T(key) }
 
 const (
-	sidebarW  = 31
-	wideMinW  = 100
-	frameRows = 4 // header, separator, separator, footer
+	sidebarW = 31
+	wideMinW = 100
 	// sidebarItemsTop is the first menu row below the logo.
 	sidebarItemsTop = 4
 )
@@ -23,59 +22,88 @@ const (
 type layoutInfo struct {
 	wide     bool
 	innerW   int
-	innerH   int
 	bodyH    int
 	bodyTop  int // absolute screen row of the first body line
 	sidebarW int
 	contentW int
 }
 
+// The frame: the top border carries version and profile, the bottom border a
+// small stamp; menu, content and footer are joined with proper junctions.
+//
+//	╭─ ◆ 0.2.0 ──────┬── TEST nexi · shop ─╮
+//	│ menu           │ content             │
+//	├────────────────┴─────────────────────┤
+//	│ key hints                            │
+//	╰────────────────── ▰ PAYGATE · CLI ▰ ─╯
 func (m *model) layout() layoutInfo {
-	l := layoutInfo{innerW: m.width - 2, innerH: m.height - 2, bodyTop: 3, sidebarW: sidebarW}
-	l.bodyH = l.innerH - frameRows
+	l := layoutInfo{innerW: m.width - 2, bodyTop: 1, sidebarW: sidebarW}
 	l.wide = m.width >= wideMinW
 	if l.wide {
+		l.bodyH = m.height - 4 // top border, footer separator, footer, bottom border
 		l.contentW = l.innerW - sidebarW - 1
 	} else {
+		l.bodyH = m.height - 6 // plus tabs and their separator
 		l.contentW = l.innerW
 	}
 	return l
 }
 
+func frame(s string) string { return lipgloss.NewStyle().Foreground(ui.ColFrame).Render(s) }
+
 func (m *model) render() string {
 	l := m.layout()
-	sep := lipgloss.NewStyle().Foreground(ui.ColBorder).Render(strings.Repeat("─", l.innerW))
-
-	var body string
+	rows := []string{m.topBorder(l)}
 	if l.wide {
-		vsep := lipgloss.NewStyle().Foreground(ui.ColBorder).Render(strings.TrimSuffix(strings.Repeat("│\n", l.bodyH), "\n"))
-		body = lipgloss.JoinHorizontal(lipgloss.Top, m.renderSidebar(l.bodyH), vsep, m.renderContent(l.contentW, l.bodyH))
+		side := strings.Split(m.renderSidebar(l.bodyH), "\n")
+		content := strings.Split(m.renderContent(l.contentW, l.bodyH), "\n")
+		for i := 0; i < l.bodyH; i++ {
+			rows = append(rows, frame("│")+side[i]+frame("│")+content[i]+frame("│"))
+		}
+		rows = append(rows, frame("├"+strings.Repeat("─", sidebarW)+"┴"+strings.Repeat("─", l.contentW)+"┤"))
 	} else {
-		tabs := m.renderTabs(l.innerW)
-		body = tabs + "\n" + sep + "\n" + m.renderContent(l.contentW, l.bodyH-2)
+		rows = append(rows, frame("│")+m.renderTabs(l.innerW)+frame("│"))
+		rows = append(rows, frame("├"+strings.Repeat("─", l.innerW)+"┤"))
+		for _, c := range strings.Split(m.renderContent(l.contentW, l.bodyH), "\n") {
+			rows = append(rows, frame("│")+c+frame("│"))
+		}
+		rows = append(rows, frame("├"+strings.Repeat("─", l.innerW)+"┤"))
 	}
-
-	inner := strings.Join([]string{m.renderHeader(l.innerW), sep, body, sep, m.renderFooter(l.innerW)}, "\n")
-	frame := ui.ColBorder
-	if m.ctx.IsProd() {
-		frame = ui.ColDanger
-	}
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(frame).
-		Width(l.innerW).
-		Height(l.innerH).
-		MaxHeight(m.height).
-		Render(inner)
+	rows = append(rows, frame("│")+m.renderFooter(l.innerW)+frame("│"), m.bottomBorder(l))
+	return strings.Join(rows, "\n")
 }
 
-func (m *model) renderHeader(w int) string {
-	left := " " + ui.Accent.Render("◆") + " " + ui.Label.Render(shortVersion(m.ctx.Version))
-	right := ui.Muted.Render(t("no.profile")) + " "
+// topBorder embeds version (left) and the active profile (right).
+func (m *model) topBorder(l layoutInfo) string {
+	left := " " + ui.Accent.Render("◆") + " " + ui.Label.Render(shortVersion(m.ctx.Version)) + " "
+	right := " " + ui.Muted.Render(t("no.profile")) + " "
 	if s := m.ctx.Session; s != nil {
-		right = ui.EnvBadge(s.Profile.IsProd()) + " " + ui.Label.Render(s.Profile.Brand+" · "+s.Name) + " " + ui.Muted.Render(s.Profile.MerchantID) + " "
+		right = " " + ui.EnvBadge(s.Profile.IsProd()) + " " + ui.Label.Render(s.Profile.Brand+" · "+s.Name) + " " + ui.Muted.Render(s.Profile.MerchantID) + " "
 	}
-	return spread(left, right, w)
+	lw, rw := lipgloss.Width(left), lipgloss.Width(right)
+	if l.wide {
+		leftFill := max(sidebarW-1-lw, 0)
+		rightFill := l.contentW - 1 - rw
+		if rightFill < 0 {
+			right, rightFill = "", l.contentW-1
+		}
+		return frame("╭─") + left + frame(strings.Repeat("─", leftFill)+"┬"+strings.Repeat("─", rightFill)) + right + frame("─╮")
+	}
+	fill := l.innerW - 2 - lw - rw
+	if fill < 0 {
+		right, fill = "", l.innerW-2-lw
+	}
+	return frame("╭─") + left + frame(strings.Repeat("─", max(fill, 0))) + right + frame("─╮")
+}
+
+// bottomBorder ends the frame with a small brand stamp.
+func (m *model) bottomBorder(l layoutInfo) string {
+	stamp := " " + ui.Stamp() + " "
+	fill := l.innerW - 2 - lipgloss.Width(stamp)
+	if fill < 2 {
+		return frame("╰" + strings.Repeat("─", l.innerW) + "╯")
+	}
+	return frame("╰"+strings.Repeat("─", fill)) + stamp + frame("──╯")
 }
 
 // shortVersion hides Go pseudo-versions of development builds.

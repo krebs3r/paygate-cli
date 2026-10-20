@@ -3,6 +3,17 @@
 All notable changes to this project are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- New app frame: version and profile sit in the top border, menu, content and
+  footer are joined with proper junctions, a small PAYGATE · CLI stamp closes
+  the frame. Production no longer turns the whole frame red; the PROD badge
+  stays red.
+- QR codes are drawn with fixed black and white colours and a quiet zone, so
+  they scan in every colour scheme and with extra line spacing.
+
 ## [0.2.0] - 2026-10-20
 
 ### Added

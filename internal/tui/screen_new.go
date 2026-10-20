@@ -678,9 +678,6 @@ func (s *newPaymentScreen) reviewView(ctx *Context, w, h int) string {
 		[2]string{t("rev.host"), ctx.Session.Host() + "  " + ui.EnvBadge(p.IsProd())},
 	)
 	border := ui.ColBorder
-	if p.IsProd() {
-		border = ui.ColDanger
-	}
 	out := box(kv(rows), min(w, 72), border) + "\n"
 	if p.IsProd() {
 		if s.simulate != "off" {

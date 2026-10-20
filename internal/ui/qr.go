@@ -1,27 +1,87 @@
 package ui
 
 import (
-	"bytes"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mdp/qrterminal/v3"
+	"github.com/muesli/termenv"
+	"rsc.io/qr"
 )
 
-// QR renders text as a compact half-block QR code.
+// qrQuiet is the light border around the code (modules).
+const qrQuiet = 2
+
+// QR renders text as a QR code that scanners read reliably in any terminal:
+// dark modules on a light background, two modules per character cell. Each
+// cell sets both foreground and background colour, so the code does not
+// depend on the colour scheme and has no gaps with extra line spacing.
 func QR(text string) string {
-	var buf bytes.Buffer
-	qrterminal.GenerateWithConfig(text, qrterminal.Config{
-		Level:          qrterminal.L,
-		Writer:         &buf,
-		HalfBlocks:     true,
-		BlackChar:      qrterminal.BLACK_BLACK,
-		WhiteBlackChar: qrterminal.WHITE_BLACK,
-		WhiteChar:      qrterminal.WHITE_WHITE,
-		BlackWhiteChar: qrterminal.BLACK_WHITE,
-		QuietZone:      1,
-	})
-	return strings.TrimRight(buf.String(), "\n")
+	code, err := qr.Encode(text, qr.L)
+	if err != nil {
+		return ""
+	}
+	dark := func(x, y int) bool {
+		x, y = x-qrQuiet, y-qrQuiet
+		if x < 0 || y < 0 || x >= code.Size || y >= code.Size {
+			return false
+		}
+		return code.Black(x, y)
+	}
+	size := code.Size + 2*qrQuiet
+
+	if lipgloss.ColorProfile() == termenv.Ascii {
+		return qrPlain(size, dark)
+	}
+
+	black, white := lipgloss.Color("0"), lipgloss.Color("15")
+	cell := map[[2]bool]string{}
+	for _, top := range []bool{false, true} {
+		for _, bottom := range []bool{false, true} {
+			fg, bg := white, white
+			if top {
+				fg = black
+			}
+			if bottom {
+				bg = black
+			}
+			cell[[2]bool{top, bottom}] = lipgloss.NewStyle().Foreground(fg).Background(bg).Render("▀")
+		}
+	}
+	var b strings.Builder
+	for y := 0; y < size; y += 2 {
+		for x := 0; x < size; x++ {
+			b.WriteString(cell[[2]bool{dark(x, y), dark(x, y+1)}])
+		}
+		if y+2 < size {
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
+}
+
+// qrPlain is the colourless fallback (NO_COLOR): light modules are drawn
+// with block characters, dark ones are left blank.
+func qrPlain(size int, dark func(x, y int) bool) string {
+	var b strings.Builder
+	for y := 0; y < size; y += 2 {
+		for x := 0; x < size; x++ {
+			top, bottom := !dark(x, y), !dark(x, y+1)
+			switch {
+			case top && bottom:
+				b.WriteString("█")
+			case top:
+				b.WriteString("▀")
+			case bottom:
+				b.WriteString("▄")
+			default:
+				b.WriteString(" ")
+			}
+		}
+		if y+2 < size {
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
 }
 
 // CheckoutBlock shows a QR code (optional) with a short explanation and the

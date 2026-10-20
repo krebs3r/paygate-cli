@@ -69,6 +69,13 @@ func CLIDivider(w int) string {
 		rule.Render(strings.Repeat("─", w-side-len(label)))
 }
 
+// Stamp is the small brand mark in the bottom frame line.
+func Stamp() string {
+	return lipgloss.NewStyle().Foreground(logoGradient[1]).Render("▰") + " " +
+		Muted.Render("P A Y G A T E · C L I") + " " +
+		lipgloss.NewStyle().Foreground(logoGradient[5]).Render("▰")
+}
+
 // SmallLogoWidth is the width of the small logo in cells.
 var SmallLogoWidth = lipgloss.Width(smallLogo[0])
 

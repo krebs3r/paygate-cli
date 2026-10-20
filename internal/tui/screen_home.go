@@ -89,9 +89,6 @@ func (s *homeScreen) View(ctx *Context, w, h int) string {
 		{t("f.auth"), auth},
 	})
 	border := ui.ColBorder
-	if p.IsProd() {
-		border = ui.ColDanger
-	}
 
 	out := title(t("home.welcome")) + "\n\n" + box(card, min(w, 64), border) + "\n"
 	switch {
