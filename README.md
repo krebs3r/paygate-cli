@@ -21,6 +21,24 @@ seconds, watch a hosted checkout complete live, then capture, refund or
 release it. Test cards and a simulation mode for production are built in, and
 every request can be inspected or exported as `curl`.
 
+## Contents
+
+- [Features](#features)
+- [Installation](#installation)
+  - [macOS](#installation-on-macos)
+  - [Windows 10 / 11](#installation-on-windows)
+  - [Update](#update)
+  - [Uninstall](#uninstall)
+  - [Still `command not found`?](#still-command-not-found)
+- [Quickstart](#quickstart)
+- [Commands](#commands)
+- [Configuration and security](#configuration-and-security)
+- [Test transactions on production](#test-transactions-on-production)
+- [Test data](#test-data)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
+- [Credits](#credits)
+
 ## Features
 
 - **App and commands**: a full-screen app (`paygate`) with menu, key hints and
@@ -47,6 +65,7 @@ You need about five minutes. Every step shows what you should see, so you know
 it worked before you continue. The repository is private for now: you need
 access to it, and Git asks you to sign in to GitHub when you download it.
 
+<a id="installation-on-macos"></a>
 <details open>
 <summary><b>macOS</b></summary>
 
@@ -99,6 +118,7 @@ You should see `paygate 0.2.0`. Continue with the [Quickstart](#quickstart).
 
 </details>
 
+<a id="installation-on-windows"></a>
 <details open>
 <summary><b>Windows 10 / 11</b></summary>
 
