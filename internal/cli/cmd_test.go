@@ -76,8 +76,24 @@ func TestInitRejectsBadCredentials(t *testing.T) {
 	if !errors.As(err, &ex) {
 		t.Fatalf("expected exit error, got %v", err)
 	}
-	if !strings.Contains(stderr, "rejected the credentials") {
-		t.Errorf("stderr = %s", stderr)
+	for _, want := range []string{"rejected the credentials", "5 characters, ends with …rong", "Common causes", "REST API key"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr misses %q:\n%s", want, stderr)
+		}
+	}
+}
+
+func TestInitTrimsPastedCredentials(t *testing.T) {
+	setup(t)
+	out, stderr, err := run(t, "init", "--name", "mock", "--merchant-id", " demo-shop\u200b", "--api-key", "  demo-key \r\n")
+	if err != nil {
+		t.Fatalf("init with padded key: %v\n%s", err, stderr)
+	}
+	if !strings.Contains(out, "Removed spaces or invisible characters around the pasted API key") || !strings.Contains(out, "Credentials verified") {
+		t.Errorf("output:\n%s", out)
+	}
+	if p := payJSON(t, "pay", "--card", "visa-ok"); p["status"] != "OK" {
+		t.Errorf("payment with cleaned key: %v", p)
 	}
 }
 

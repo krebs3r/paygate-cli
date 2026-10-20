@@ -87,15 +87,22 @@ func runInit(app *App, o *initOptions) error {
 		}
 	}
 	o.brand, o.env, o.auth = strings.ToLower(o.brand), strings.ToLower(o.env), strings.ToLower(o.auth)
+	if cleaned := config.CleanSecret(o.apiKey); cleaned != o.apiKey {
+		o.apiKey = cleaned
+		ui.Println(ui.Info("Removed spaces or invisible characters around the pasted API key."))
+	}
+	if cleaned := config.CleanSecret(o.merchantID); cleaned != o.merchantID {
+		o.merchantID = cleaned
+		ui.Println(ui.Info("Removed spaces or invisible characters around the merchant ID."))
+	}
 	if !profileNameRe.MatchString(o.name) {
 		return fmt.Errorf("invalid profile name %q (letters, digits, . _ -)", o.name)
 	}
 	if o.auth != string(paygate.AuthBasic) && o.auth != string(paygate.AuthOAuth2) {
 		return fmt.Errorf("unknown auth %q (use basic or oauth2)", o.auth)
 	}
-	prof := &config.Profile{Brand: o.brand, Env: o.env, MerchantID: strings.TrimSpace(o.merchantID), Auth: o.auth}
-	origin, err := app.Origin(prof)
-	if err != nil {
+	prof := &config.Profile{Brand: o.brand, Env: o.env, MerchantID: o.merchantID, Auth: o.auth}
+	if _, err := app.Origin(prof); err != nil {
 		return err
 	}
 	if existing, ok := cfg.Profiles[o.name]; ok {
@@ -114,15 +121,7 @@ func runInit(app *App, o *initOptions) error {
 	}
 
 	if !o.noVerify {
-		client, err := app.newClient(prof, o.apiKey)
-		if err != nil {
-			return err
-		}
-		err = ui.Spin("Verifying credentials with "+hostOf(origin)+" …", func() error {
-			return client.Verify(context.Background())
-		})
-		if err != nil {
-			ui.Eprintln(renderError(err))
+		if err := verifyCredentials(app, prof, o.apiKey); err != nil {
 			if !ui.Interactive() {
 				return errSilentFail
 			}
@@ -133,9 +132,11 @@ func runInit(app *App, o *initOptions) error {
 			if !save {
 				return errSilentFail
 			}
-		} else {
-			ui.Println(ui.OK("Credentials verified with " + hostOf(origin)))
 		}
+	}
+	origin, err := app.Origin(prof)
+	if err != nil {
+		return err
 	}
 
 	store, err := config.StoreAPIKey(o.name, prof, o.apiKey)
@@ -170,6 +171,95 @@ func runInit(app *App, o *initOptions) error {
 	ui.Println(ui.Next("paygate pay", "paygate testcards", "paygate profile list"))
 	ui.Println()
 	return nil
+}
+
+// verifyCredentials checks the credentials. On 401 it tries the other host
+// family and auth mode, because Nexi and Computop merchant IDs only work on
+// their own hosts and some merchants are set up for OAuth2 only. If nothing
+// works it prints what was sent (without the secret) and the usual causes.
+func verifyCredentials(app *App, prof *config.Profile, apiKey string) error {
+	origin, err := app.Origin(prof)
+	if err != nil {
+		return err
+	}
+	client, err := app.newClient(prof, apiKey)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	err = ui.Spin("Verifying credentials with "+hostOf(origin)+" …", func() error {
+		return client.Verify(ctx)
+	})
+	if err == nil {
+		ui.Println(ui.OK("Credentials verified with " + hostOf(origin)))
+		return nil
+	}
+	if !errors.Is(err, paygate.ErrUnauthorized) {
+		ui.Eprintln(renderError(err))
+		return err
+	}
+
+	if os.Getenv("PAYGATE_BASE_URL") == "" {
+		var match *config.Profile
+		_ = ui.Spin("Trying the other Paygate host and authentication …", func() error {
+			for _, brand := range []string{string(paygate.BrandNexi), string(paygate.BrandComputop)} {
+				for _, auth := range []string{string(paygate.AuthBasic), string(paygate.AuthOAuth2)} {
+					if brand == prof.Brand && auth == prof.Auth {
+						continue
+					}
+					alt := *prof
+					alt.Brand, alt.Auth = brand, auth
+					c, err := app.newClient(&alt, apiKey)
+					if err == nil && c.Verify(ctx) == nil {
+						match = &alt
+						return nil
+					}
+				}
+			}
+			return nil
+		})
+		if match != nil {
+			altOrigin, _ := app.Origin(match)
+			what := paygate.BrandLabel(paygate.Brand(match.Brand)) + " with " + authLabel(match.Auth)
+			ui.Println(ui.Warn("The credentials work with " + ui.Bold.Render(what) + ", not with your selection."))
+			use := app.Yes
+			if !use && ui.Interactive() {
+				if use, err = ui.Confirm("Use "+what+" for this profile?", hostOf(altOrigin), true); err != nil {
+					return err
+				}
+			}
+			if use {
+				prof.Brand, prof.Auth = match.Brand, match.Auth
+				ui.Println(ui.OK("Credentials verified with " + hostOf(altOrigin)))
+				return nil
+			}
+		}
+	}
+
+	ui.Eprintln(ui.ErrorBox("Paygate rejected the credentials (401 Unauthorized)", []string{
+		ui.Label.Render("Host         ") + hostOf(origin),
+		ui.Label.Render("Merchant ID  ") + prof.MerchantID,
+		ui.Label.Render("API key      ") + fmt.Sprintf("%d characters, ends with %s", len([]rune(apiKey)), keyEnding(apiKey)),
+		ui.Label.Render("Auth         ") + authLabel(prof.Auth),
+	}, ""))
+	ui.Eprintln(ui.Muted.Render("   Common causes:"))
+	for _, c := range []string{
+		"The key is not the REST API key. Blowfish and HMAC keys do not work here.",
+		"The test system is not enabled for this merchant ID (ask Paygate Support).",
+		"Merchant ID or key belong to the other platform (Nexi vs. Computop).",
+	} {
+		ui.Eprintln("   " + ui.Accent.Render("•") + " " + ui.Label.Render(c))
+	}
+	ui.Eprintln()
+	return err
+}
+
+func keyEnding(k string) string {
+	r := []rune(k)
+	if len(r) <= 4 {
+		return "…"
+	}
+	return "…" + string(r[len(r)-4:])
 }
 
 func initWizard(o *initOptions, cfg *config.Config) error {
