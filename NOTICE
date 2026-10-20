@@ -1,0 +1,15 @@
+Paygate CLI
+Copyright 2026 Martin Krebs
+
+This product includes software developed by Martin Krebs
+(https://github.com/krebs3r/paygate-cli).
+
+The command design was inspired by mollie-cli by Florian Bender and
+Hannes Reinberger (https://github.com/fjbender/mollie-cli).
+
+Paygate CLI is an independent developer tool. It is not made, endorsed or
+supported by Nexi or Computop. Product names are trademarks of their
+respective owners.
+
+Third-party components and their licenses are listed in
+THIRD_PARTY_NOTICES.md.

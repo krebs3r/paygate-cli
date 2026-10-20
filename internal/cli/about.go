@@ -20,7 +20,7 @@ func newAboutCmd(app *App) *cobra.Command {
 				{Label: "Commit", Value: ui.Muted.Render(b.Commit)},
 				{Label: "Built", Value: ui.Muted.Render(b.Date)},
 				{Label: "Author", Value: "Martin Krebs"},
-				{Label: "License", Value: "All rights reserved (public license to be announced)"},
+				{Label: "License", Value: "Apache-2.0 · keep the NOTICE file when you redistribute"},
 				{Label: "Inspired by", Value: "mollie-cli by Florian Bender and Hannes Reinberger"},
 				{Label: "", Value: ui.Link.Render("https://github.com/fjbender/mollie-cli")},
 			}

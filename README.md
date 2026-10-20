@@ -5,6 +5,7 @@ Send real Nexi / Computop Paygate payments from your terminal.
 ![Version](https://img.shields.io/badge/version-0.2.0-3d7eff)
 ![Go](https://img.shields.io/badge/go-1.27-00add8)
 ![Status](https://img.shields.io/badge/status-MVP-f59e0b)
+![License](https://img.shields.io/badge/license-Apache--2.0-22c55e)
 
 > [!WARNING]
 > **Unofficial tool.** paygate is a private side project and is not made,
@@ -315,8 +316,11 @@ paygate pay
 
 ## License
 
-Copyright © 2026 Martin Krebs. All rights reserved. A public license will be
-announced with the first public release.
+Paygate CLI is licensed under the [Apache License 2.0](LICENSE): you may use,
+change and share it, also commercially. When you redistribute it or build on
+it, keep the [NOTICE](NOTICE) file with the credits. It comes without warranty.
+Third-party components are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Contributions are welcome, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Credits
 

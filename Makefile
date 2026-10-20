@@ -3,7 +3,7 @@ COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE    := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
-.PHONY: build install uninstall test vet mock demo clean
+.PHONY: build install uninstall test vet mock demo notices clean
 
 build: ## Build ./paygate
 	go build -ldflags "$(LDFLAGS)" -o paygate ./cmd/paygate
@@ -28,6 +28,9 @@ demo: build ## Record the README GIFs (needs vhs and a running mock)
 	vhs docs/demo-app-2.tape
 	vhs docs/demo.tape
 	vhs docs/demo-hosted.tape
+
+notices: ## Regenerate THIRD_PARTY_NOTICES.md
+	./scripts/notices.sh
 
 clean:
 	rm -f paygate
