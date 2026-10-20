@@ -380,6 +380,9 @@ func (s *Server) operation(kind string) http.HandlerFunc {
 				fail = "Capture amount exceeds the authorized amount."
 			} else {
 				rec.Captured += b.Amount.Value
+				if rec.Captured == rec.Amount {
+					rec.Status = "OK"
+				}
 			}
 		case "refund":
 			if rec.Refunded+b.Amount.Value > rec.Captured {

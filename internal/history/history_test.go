@@ -33,6 +33,11 @@ func TestUpsertMergesAndOrders(t *testing.T) {
 	if !ok || r.Status != "OK" || r.Amount != 100 || len(r.Events) != 2 {
 		t.Fatalf("merged record = %+v", r)
 	}
+	// Repeating an unchanged status must not grow the timeline.
+	_ = Upsert(Record{Profile: "p", TransID: "T1", Status: "OK", Events: []Event{{Kind: "status", Status: "OK"}}})
+	if r, _ := Find("p", "T1"); len(r.Events) != 2 {
+		t.Errorf("unchanged status added an event: %d events", len(r.Events))
+	}
 
 	p, _ := Path()
 	info, _ := os.Stat(p)

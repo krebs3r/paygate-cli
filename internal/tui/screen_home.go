@@ -2,10 +2,13 @@ package tui
 
 import (
 	"errors"
+	"fmt"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/krebs3r/paygate-cli/internal/config"
+	"github.com/krebs3r/paygate-cli/internal/history"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
 	"github.com/krebs3r/paygate-cli/internal/ui"
 )
@@ -54,7 +57,11 @@ func (s *homeScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 	case "down", "j":
 		s.sel = clamp(s.sel+1, len(homeActions))
 	case "enter":
-		return switchTo(homeActions[s.sel].target, nil)
+		a := homeActions[s.sel]
+		if a.label == "act.lookup" {
+			return switchTo(a.target, "lookup")
+		}
+		return switchTo(a.target, nil)
 	}
 	return nil
 }
@@ -100,6 +107,45 @@ func (s *homeScreen) View(ctx *Context, w, h int) string {
 	for i, a := range homeActions {
 		row := ui.Accent.Render(a.key) + "  " + t(a.label)
 		out += selectable(row, i == s.sel, min(w, 40)) + "\n"
+	}
+	return out + recentPayments(ctx, w)
+}
+
+// recentPayments summarises today's payments and lists the latest ones.
+func recentPayments(ctx *Context, w int) string {
+	all, _ := history.Load()
+	var mine []history.Record
+	for _, r := range all {
+		if r.Profile == ctx.Session.Name {
+			mine = append(mine, r)
+		}
+	}
+	if len(mine) == 0 {
+		return ""
+	}
+	today, ok, failed, open := 0, 0, 0, 0
+	now := time.Now()
+	for _, r := range mine {
+		if r.Time.Local().YearDay() != now.YearDay() || r.Time.Local().Year() != now.Year() {
+			continue
+		}
+		today++
+		switch paygate.OutcomeOf(&paygate.Payment{Status: r.Status, ResponseCode: paygate.Code(r.Code)}) {
+		case paygate.OutcomeSuccess:
+			ok++
+		case paygate.OutcomeFailed:
+			failed++
+		default:
+			open++
+		}
+	}
+	out := "\n" + section(t("home.today")) + "  " + ui.Label.Render(fmt.Sprintf(t("home.today.line"), today, ok, failed, open)) + "\n"
+	out += "\n" + section(t("home.recent")) + "  " + ui.Muted.Render("l") + "\n"
+	for i, r := range mine {
+		if i == 3 {
+			break
+		}
+		out += "  " + listRow(r, w-4) + "\n"
 	}
 	return out
 }

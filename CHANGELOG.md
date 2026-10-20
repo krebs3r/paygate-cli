@@ -20,6 +20,11 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   0.01 and manual capture.
 - Local payment history (`history.jsonl`, IDs, amounts and states only) for
   payments, lookups and follow-up operations.
+- Payments in the app: history with filter, lookup by payId or transId,
+  details with captured/refunded amounts, timeline, request JSON, and capture,
+  refund (full or partial), release and refresh. Home shows today's numbers
+  and the latest payments. `paygate history` lists the same on the command
+  line (`--all`, `--limit`, `-o json`).
 - ASCII art: start screen with the large PAYGATE logo (credentials are checked
   meanwhile; can be switched off in Settings or with PAYGATE_NO_SPLASH), small
   logo in the sidebar and results printed as a receipt (d shows the details).

@@ -167,6 +167,17 @@ area in the menu on the left with the arrow keys or the mouse, the bottom line
 always shows the keys you can use, and <kbd>?</kbd> lists all shortcuts. On first
 start it walks you through adding your merchant.
 
+| Area | What you do there |
+| --- | --- |
+| Home | Active profile, credential check, today's numbers, latest payments |
+| New payment | Form, review (request JSON, copy as curl), send, receipt; QR code and live status for hosted pages |
+| Payments | Local history with filter (`/`), lookup by ID (`g`), details with capture, refund, release and refresh |
+| Test cards | Test cards with aliases; `y` copies a number |
+| Profiles | Add (with credential check), switch, verify, delete |
+| Settings | Language, start screen, currency, payment page language, callback URLs, customer IP |
+
+Everything in the app also works as a single command, for scripts and CI.
+
 Prefer single commands, for example in scripts?
 
 ```bash
@@ -191,6 +202,7 @@ paygate get <payId>                # 3. look at it again later
 | `paygate pay --hosted` | Hosted payment page with all or selected methods | `paygate pay --hosted --methods card,paypal --open` |
 | `paygate pay --method` | Hosted form for a single method | `paygate pay --method ideal --amount 5` |
 | `paygate get` | Show a payment by payId or transId | `paygate get --trans-id TIDMVGGX4YZ9I9APE` |
+| `paygate history` | List payments created or looked up with paygate | `paygate history --limit 50` |
 | `paygate capture` | Capture an authorized payment | `paygate capture <payId>` |
 | `paygate refund` | Refund fully or partially | `paygate refund <payId> --amount 5` |
 | `paygate cancel` | Cancel (reverse) before capture | `paygate cancel <payId>` |

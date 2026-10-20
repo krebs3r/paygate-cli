@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/krebs3r/paygate-cli/internal/history"
 	"github.com/krebs3r/paygate-cli/internal/i18n"
 	"github.com/krebs3r/paygate-cli/internal/mockpaygate"
+	"github.com/krebs3r/paygate-cli/internal/paygate"
 )
 
 // setup isolates config and keychain and points the client to a mock.
@@ -354,5 +356,98 @@ func TestResultReceipt(t *testing.T) {
 	send(m, keys("d"))
 	if !s.details || !strings.Contains(m.View(), "Correlation") {
 		t.Errorf("d should show the detail card:\n%s", m.View())
+	}
+}
+
+// createPayment sends a payment directly and records it like the app does.
+func createPayment(t *testing.T, m *model, in core.PaymentInput) *paygate.Payment {
+	t.Helper()
+	s := m.ctx.Session
+	req, label, err := core.BuildPaymentRequest(in, s.Profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.Client.CreatePayment(context.Background(), req)
+	core.RecordPayment(s.Name, s.Profile, in.Flow, req, label, res, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res.Payment
+}
+
+func TestPaymentsListDetailAndCapture(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	p := createPayment(t, m, core.PaymentInput{Flow: core.FlowDirect, Card: "visa-ok", Capture: "manual", Amount: "20"})
+
+	send(m, keys("l"))
+	s := m.current().(*paymentsScreen)
+	if !strings.Contains(m.View(), "20.00 EUR") || !strings.Contains(m.View(), "AUTHORIZED") {
+		t.Fatalf("list view:\n%s", m.View())
+	}
+	send(m, enter)
+	if s.mode != paysDetail || s.payment == nil || s.payment.PayID != p.PayID {
+		t.Fatalf("detail not loaded: mode %d payment %+v", s.mode, s.payment)
+	}
+	if !s.can(paygate.OpCapture) || !s.can(paygate.OpReversal) || s.can(paygate.OpRefund) {
+		t.Errorf("authorized payment: capture/cancel expected, no refund")
+	}
+	send(m, keys("c"), enter, enter) // amount (prefilled 20.00), confirm
+	if s.payment.Amount.CapturedValue != 2000 {
+		t.Fatalf("capture not applied: %+v (message %q)", s.payment.Amount, s.message)
+	}
+	if !s.can(paygate.OpRefund) || s.can(paygate.OpCapture) {
+		t.Error("captured payment: refund expected, no capture")
+	}
+	bs := tea.KeyMsg{Type: tea.KeyBackspace}
+	send(m, keys("f"), bs, bs, bs, bs, bs, keys("5"), enter, enter) // replace 20.00 with 5
+	if s.payment.Amount.RefundedValue != 500 {
+		t.Fatalf("partial refund not applied: %+v", s.payment.Amount)
+	}
+	rec, _ := history.Find("shop-test", p.PayID)
+	kinds := ""
+	for _, ev := range rec.Events {
+		kinds += ev.Kind + " "
+	}
+	if !strings.Contains(kinds, "create") || !strings.Contains(kinds, "capture") || !strings.Contains(kinds, "refund") {
+		t.Errorf("timeline = %s", kinds)
+	}
+	send(m, esc)
+	if s.mode != paysList {
+		t.Error("esc should return to the list")
+	}
+}
+
+func TestPaymentsLookupAndFilter(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	t.Setenv("PAYGATE_NO_HISTORY", "1")
+	p := createPayment(t, m, core.PaymentInput{Flow: core.FlowDirect, Card: "mc-ok", Amount: "9"})
+	t.Setenv("PAYGATE_NO_HISTORY", "")
+
+	send(m, keys("l"))
+	s := m.current().(*paymentsScreen)
+	if len(s.records) != 0 {
+		t.Fatalf("history should be empty, got %d", len(s.records))
+	}
+	send(m, keys("g"), keys(p.PayID), enter)
+	if s.mode != paysDetail || s.payment == nil || s.payment.TransID != p.TransID {
+		t.Fatalf("lookup failed: %q mode %d", s.message, s.mode)
+	}
+	send(m, esc)
+	if len(s.records) != 1 {
+		t.Errorf("looked-up payment should join the history")
+	}
+	send(m, keys("/"), keys("nothing-like-this"), enter)
+	if !strings.Contains(m.View(), "No payment matches") {
+		t.Errorf("filter view:\n%s", m.View())
+	}
+	send(m, esc)
+	if s.filter != "" {
+		t.Error("esc should clear the filter")
+	}
+	send(m, keys("g"), keys("UNKNOWN123"), enter)
+	if !strings.Contains(s.message, "not found") {
+		t.Errorf("unknown ID message = %q", s.message)
 	}
 }

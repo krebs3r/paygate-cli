@@ -278,3 +278,23 @@ func TestPaySimulation(t *testing.T) {
 		t.Errorf("history = %+v", recs)
 	}
 }
+
+func TestHistoryCommand(t *testing.T) {
+	setup(t)
+	mustInit(t)
+	out, _, err := run(t, "history")
+	if err != nil || !strings.Contains(out, "No payments yet") {
+		t.Fatalf("empty history: %v\n%s", err, out)
+	}
+	payJSON(t, "pay", "--card", "visa-ok", "--amount", "4.20")
+	payJSON(t, "pay", "--card", "visa-ok", "--simulate", "ok")
+	out, _, err = run(t, "history")
+	if err != nil || !strings.Contains(out, "4.20 EUR") || !strings.Contains(out, "◆ simulated") {
+		t.Fatalf("history table: %v\n%s", err, out)
+	}
+	js, _, err := run(t, "history", "-o", "json", "--limit", "1")
+	var recs []map[string]any
+	if err != nil || json.Unmarshal([]byte(js), &recs) != nil || len(recs) != 1 || recs[0]["simulation"] != "Test:0000" {
+		t.Fatalf("history json: %v\n%s", err, js)
+	}
+}

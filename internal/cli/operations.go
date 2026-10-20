@@ -105,7 +105,7 @@ func runOperation(app *App, k opKind, o *opOptions, payID string) error {
 			return err
 		}
 	} else {
-		value = defaultOperationAmount(k, original)
+		value = core.RemainingAmount(k.op, original)
 		if value <= 0 {
 			return fmt.Errorf("nothing left to %s on this payment — pass --amount to override", k.verb)
 		}
@@ -181,32 +181,6 @@ func runOperation(app *App, k opKind, o *opOptions, payID string) error {
 		return errSilentFail
 	}
 	return nil
-}
-
-// defaultOperationAmount derives the remaining amount from the payment.
-func defaultOperationAmount(k opKind, p *paygate.Payment) int64 {
-	if p == nil || p.Amount == nil {
-		return 0
-	}
-	a := p.Amount
-	switch k.op {
-	case paygate.OpCapture:
-		if a.CapturedKnown {
-			return a.Value - a.CapturedValue
-		}
-		return a.Value
-	case paygate.OpRefund:
-		base := a.Value
-		if a.CapturedKnown && a.CapturedValue > 0 {
-			base = a.CapturedValue
-		}
-		if a.RefundedKnown {
-			return base - a.RefundedValue
-		}
-		return base
-	default:
-		return a.Value
-	}
 }
 
 func titleCase(s string) string {

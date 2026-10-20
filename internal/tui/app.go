@@ -62,7 +62,7 @@ func newModel(ctx *Context) *model {
 		screens: []Screen{
 			newHomeScreen(),
 			newNewPaymentScreen(),
-			newSoonScreen("payments", "menu.payments", "l", 3, "soon.payments", "paygate get <payId>"),
+			newPaymentsScreen(),
 			newCardsScreen(),
 			newProfilesScreen(),
 			newSoonScreen("inspect", "menu.inspect", "i", 4, "soon.inspect", "paygate pay --card visa-ok -v"),

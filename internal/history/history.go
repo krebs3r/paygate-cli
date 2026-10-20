@@ -152,6 +152,15 @@ func Find(profile, id string) (Record, bool) {
 
 func merge(old, upd Record) Record {
 	out := old
+	// A status lookup that found nothing new does not belong in the timeline.
+	var events []Event
+	for _, ev := range upd.Events {
+		if ev.Kind == "status" && ev.Status == old.Status && ev.Code == old.Code {
+			continue
+		}
+		events = append(events, ev)
+	}
+	upd.Events = events
 	set := func(dst *string, v string) {
 		if v != "" {
 			*dst = v
