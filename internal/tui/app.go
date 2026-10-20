@@ -13,12 +13,13 @@ import (
 // Options configure Run.
 type Options struct {
 	Version string
+	Commit  string
 	Profile string // --profile flag
 }
 
 // Run starts the full-screen app and blocks until the user quits.
 func Run(opts Options) error {
-	ctx := &Context{Version: opts.Version, ProfileFlag: opts.Profile}
+	ctx := &Context{Version: opts.Version, Commit: opts.Commit, ProfileFlag: opts.Profile}
 	ctx.Reload()
 	m := newModel(ctx)
 	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()

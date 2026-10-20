@@ -46,7 +46,7 @@ func (s *aboutScreen) Back(*Context) (bool, tea.Cmd)    { return false, nil }
 func (s *aboutScreen) Hints(*Context) []Hint            { return nil }
 func (s *aboutScreen) Update(*Context, tea.Msg) tea.Cmd { return nil }
 func (s *aboutScreen) View(ctx *Context, w, h int) string {
-	return ui.Accent.Render("◆ ") + title("paygate · Paygate CLI") + " " + ui.Muted.Render(ctx.Version) + "\n\n" +
+	return ui.Accent.Render("◆ ") + title("paygate · Paygate CLI") + " " + ui.Muted.Render(ctx.Version) + commitTag(ctx) + "\n\n" +
 		ui.Label.Render(t("about.made")) + "\n" +
 		ui.Label.Render(wrap(t("about.inspired"), w)) + "\n" +
 		ui.Link.Render("https://github.com/fjbender/mollie-cli") + "\n\n" +

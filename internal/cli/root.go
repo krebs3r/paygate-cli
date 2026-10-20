@@ -155,7 +155,7 @@ func NewRootCmd(build BuildInfo) *cobra.Command {
 			"and runs follow-up operations such as capture, refund and cancel.\n\n" +
 			"Run paygate without a command to open the full-screen app, or start with\n" +
 			"`paygate init` and `paygate pay`.",
-		Version:       build.Version,
+		Version:       build.Version + " (" + build.Commit + ")",
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -180,7 +180,7 @@ func NewRootCmd(build BuildInfo) *cobra.Command {
 			if !ui.Interactive() || app.JSON() {
 				return cmd.Help()
 			}
-			return tui.Run(tui.Options{Version: build.Version, Profile: app.ProfileName})
+			return tui.Run(tui.Options{Version: build.Version, Commit: build.Commit, Profile: app.ProfileName})
 		},
 	}
 	root.SetVersionTemplate("paygate {{.Version}}\n")

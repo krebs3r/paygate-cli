@@ -62,6 +62,10 @@ ok "Go found ($(go version | awk '{print $3}'))"
 
 VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION")"
 COMMIT="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+# Uncommitted changes make the build differ from the commit.
+if [ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]; then
+  COMMIT="$COMMIT-dirty"
+fi
 DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 mkdir -p "$BIN_DIR"
@@ -69,7 +73,7 @@ printf '  %s… building (the first build downloads dependencies and takes a min
 if ! (cd "$ROOT" && go build -ldflags "-s -w -X main.version=$VERSION -X main.commit=$COMMIT -X main.date=$DATE" -o "$BIN_DIR/paygate" ./cmd/paygate); then
   fail "The build failed. See the error above."
 fi
-ok "Installed paygate $VERSION to $(pretty "$BIN_DIR/paygate")"
+ok "Installed paygate $VERSION ($COMMIT) to $(pretty "$BIN_DIR/paygate")"
 
 NEW_WINDOW=0
 case ":$PATH:" in

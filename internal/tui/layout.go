@@ -84,7 +84,7 @@ func (m *model) render() string {
 
 // topBorder embeds version (left) and the active profile (right).
 func (m *model) topBorder(l layoutInfo) string {
-	left := " " + ui.Accent.Render("◆") + " " + ui.Label.Render(shortVersion(m.ctx.Version)) + " "
+	left := " " + ui.Accent.Render("◆") + " " + ui.Label.Render(shortVersion(m.ctx.Version)) + commitTag(m.ctx) + " "
 	right := " " + ui.Muted.Render(t("no.profile")) + " "
 	if s := m.ctx.Session; s != nil {
 		right = " " + ui.EnvBadge(s.Profile.IsProd()) + " " + ui.Label.Render(s.Profile.Brand+" · "+s.Name) + " " + ui.Muted.Render(s.Profile.MerchantID) + " "
@@ -121,6 +121,15 @@ func shortVersion(v string) string {
 		return "dev"
 	}
 	return v
+}
+
+// commitTag shows the commit after the version, so a rebuilt binary is easy
+// to tell apart from the previous one.
+func commitTag(c *Context) string {
+	if c.Commit == "" || c.Commit == "unknown" {
+		return ""
+	}
+	return ui.Muted.Render(" · " + c.Commit)
 }
 
 func (m *model) renderSidebar(h int) string {
@@ -310,7 +319,7 @@ func (m *model) renderSplash() string {
 		"",
 		ui.Label.Render(t("splash.tagline")),
 		"",
-		ui.Accent.Render("◆") + " " + ui.Bold.Render(shortVersion(m.ctx.Version)) + "  " + profile,
+		ui.Accent.Render("◆") + " " + ui.Bold.Render(shortVersion(m.ctx.Version)) + commitTag(m.ctx) + "  " + profile,
 		progress,
 		"",
 		ui.Muted.Render(t("splash.skip")),

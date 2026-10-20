@@ -144,6 +144,18 @@ func TestWelcomeWithoutProfile(t *testing.T) {
 	}
 }
 
+func TestTopBorderShowsCommit(t *testing.T) {
+	m := setup(t, nil, "")
+	m.ctx.Commit = "abc1234"
+	if top := strings.SplitN(m.View(), "\n", 2)[0]; !strings.Contains(top, "test · abc1234") {
+		t.Errorf("top border misses version and commit: %q", top)
+	}
+	m.ctx.Commit = "unknown"
+	if top := strings.SplitN(m.View(), "\n", 2)[0]; strings.Contains(top, "unknown") {
+		t.Errorf("an unknown commit should be left out: %q", top)
+	}
+}
+
 func TestNavigationAndShortcuts(t *testing.T) {
 	m := setup(t, twoProfiles(), "shop-test")
 	i18n.Set(i18n.EN)

@@ -1,5 +1,5 @@
 VERSION ?= $(shell cat VERSION)
-COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)$(shell test -z "$$(git status --porcelain 2>/dev/null)" || echo -dirty)
 DATE    := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 

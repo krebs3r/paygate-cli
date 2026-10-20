@@ -54,6 +54,7 @@ type Context struct {
 	Session     *core.Session
 	SessionErr  error
 	Version     string
+	Commit      string
 	ProfileFlag string
 	// Width and Height are the size of the content area, so screens can
 	// build forms before their first View.

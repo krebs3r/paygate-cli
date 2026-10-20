@@ -5,6 +5,13 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- The app shows the commit next to the version (top border, start screen,
+  About), and so does `paygate --version`, so you can tell a fresh build
+  apart. Builds with uncommitted changes add `-dirty`, and the install
+  script names the commit too.
+
 ### Changed
 
 - When you add a profile, the environment choice now reads "Test system" or

@@ -24,16 +24,25 @@ func buildInfo() cli.BuildInfo {
 		if b.Version == "" && info.Main.Version != "" && info.Main.Version != "(devel)" {
 			b.Version = info.Main.Version
 		}
+		revision, modified := "", false
 		for _, s := range info.Settings {
 			switch s.Key {
 			case "vcs.revision":
-				if b.Commit == "" && len(s.Value) >= 7 {
-					b.Commit = s.Value[:7]
+				if len(s.Value) >= 7 {
+					revision = s.Value[:7]
 				}
+			case "vcs.modified":
+				modified = s.Value == "true"
 			case "vcs.time":
 				if b.Date == "" {
 					b.Date = s.Value
 				}
+			}
+		}
+		if b.Commit == "" && revision != "" {
+			b.Commit = revision
+			if modified {
+				b.Commit += "-dirty"
 			}
 		}
 	}
