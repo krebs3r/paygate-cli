@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/krebs3r/paygate-cli/internal/config"
+	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
 	"github.com/krebs3r/paygate-cli/internal/ui"
 )
@@ -188,7 +189,9 @@ func verifyCredentials(app *App, prof *config.Profile, apiKey string) error {
 	}
 	ctx := context.Background()
 	err = ui.Spin("Verifying credentials with "+hostOf(origin)+" …", func() error {
-		return client.Verify(ctx)
+		vctx, cancel := context.WithTimeout(ctx, core.ProbeTimeout)
+		defer cancel()
+		return client.Verify(vctx)
 	})
 	if err == nil {
 		ui.Println(ui.OK("Credentials verified with " + hostOf(origin)))
@@ -201,27 +204,19 @@ func verifyCredentials(app *App, prof *config.Profile, apiKey string) error {
 
 	if os.Getenv("PAYGATE_BASE_URL") == "" {
 		var match *config.Profile
-		_ = ui.Spin("Trying the other Paygate host and authentication …", func() error {
-			for _, brand := range []string{string(paygate.BrandNexi), string(paygate.BrandComputop)} {
-				for _, auth := range []string{string(paygate.AuthBasic), string(paygate.AuthOAuth2)} {
-					if brand == prof.Brand && auth == prof.Auth {
-						continue
-					}
-					alt := *prof
-					alt.Brand, alt.Auth = brand, auth
-					c, err := app.newClient(&alt, apiKey)
-					if err == nil && c.Verify(ctx) == nil {
-						match = &alt
-						return nil
-					}
-				}
-			}
+		_ = ui.Spin("Checking test/production, Nexi/Computop and Basic/OAuth2 …", func() error {
+			match, _ = core.FindWorkingSettings(ctx, prof, func(p *config.Profile) (*paygate.Client, error) {
+				return app.newClient(p, apiKey)
+			})
 			return nil
 		})
 		if match != nil {
 			altOrigin, _ := app.Origin(match)
-			what := paygate.BrandLabel(paygate.Brand(match.Brand)) + " with " + authLabel(match.Auth)
+			what := paygate.BrandLabel(paygate.Brand(match.Brand)) + " " + envName(match.Env) + " with " + authLabel(match.Auth)
 			ui.Println(ui.Warn("The credentials work with " + ui.Bold.Render(what) + ", not with your selection."))
+			if match.IsProd() && !prof.IsProd() {
+				ui.Println(ui.Warn(ui.Danger.Render("This is the PRODUCTION system: payments move real money.")))
+			}
 			use := app.Yes
 			if !use && ui.Interactive() {
 				if use, err = ui.Confirm("Use "+what+" for this profile?", hostOf(altOrigin), true); err != nil {
@@ -229,7 +224,7 @@ func verifyCredentials(app *App, prof *config.Profile, apiKey string) error {
 				}
 			}
 			if use {
-				prof.Brand, prof.Auth = match.Brand, match.Auth
+				prof.Brand, prof.Env, prof.Auth = match.Brand, match.Env, match.Auth
 				ui.Println(ui.OK("Credentials verified with " + hostOf(altOrigin)))
 				return nil
 			}
@@ -246,12 +241,19 @@ func verifyCredentials(app *App, prof *config.Profile, apiKey string) error {
 	for _, c := range []string{
 		"The key is not the REST API key. Blowfish and HMAC keys do not work here.",
 		"The test system is not enabled for this merchant ID (ask Paygate Support).",
-		"Merchant ID or key belong to the other platform (Nexi vs. Computop).",
+		"Merchant ID and key were mistyped, or the key was rotated in the portal.",
 	} {
 		ui.Eprintln("   " + ui.Accent.Render("•") + " " + ui.Label.Render(c))
 	}
 	ui.Eprintln()
 	return err
+}
+
+func envName(env string) string {
+	if env == string(paygate.EnvProd) {
+		return "production"
+	}
+	return "test"
 }
 
 func keyEnding(k string) string {
