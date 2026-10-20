@@ -9,6 +9,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/krebs3r/paygate-cli/internal/config"
+	"github.com/krebs3r/paygate-cli/internal/core"
+	"github.com/krebs3r/paygate-cli/internal/history"
 	"github.com/krebs3r/paygate-cli/internal/i18n"
 	"github.com/krebs3r/paygate-cli/internal/mockpaygate"
 )
@@ -87,7 +89,7 @@ func run(cmd tea.Cmd) tea.Msg {
 	select {
 	case msg := <-ch:
 		return msg
-	case <-time.After(300 * time.Millisecond):
+	case <-time.After(80 * time.Millisecond):
 		return nil
 	}
 }
@@ -204,5 +206,107 @@ func TestTooSmall(t *testing.T) {
 	send(m, tea.WindowSizeMsg{Width: 50, Height: 12})
 	if !strings.Contains(m.View(), "larger") {
 		t.Errorf("expected a resize hint, got:\n%s", m.View())
+	}
+}
+
+func TestNewPaymentDirectCard(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	send(m, keys("n"))
+	if m.current().ID() != "new" || !m.current().Capturing() {
+		t.Fatalf("n should open the payment form, got %s", m.current().ID())
+	}
+	s := m.current().(*newPaymentScreen)
+	if s.amount != core.DefaultAmount || s.simulate != "off" {
+		t.Errorf("test profile defaults: amount %s simulate %s", s.amount, s.simulate)
+	}
+	// flow (direct), card (visa-ok), amount, currency, description, simulation, capture
+	send(m, enter, enter, enter, enter, enter, enter, enter)
+	if s.stage != stageReview || !strings.Contains(m.View(), "VISA •••• 1111") {
+		t.Fatalf("expected review, got stage %d:\n%s", s.stage, m.View())
+	}
+	send(m, keys("j"))
+	if !strings.Contains(m.View(), "•••• 1111") || strings.Contains(m.View(), "4111111111111111") {
+		t.Error("the JSON preview must mask the card number")
+	}
+	send(m, enter)
+	if s.stage != stageResult || s.result == nil || s.result.Status != "OK" {
+		t.Fatalf("expected a successful result, got stage %d result %+v", s.stage, s.result)
+	}
+	if !strings.Contains(m.View(), "Payment successful") {
+		t.Errorf("result view:\n%s", m.View())
+	}
+	recs, _ := history.Load()
+	if len(recs) != 1 || recs[0].Status != "OK" || recs[0].Profile != "shop-test" {
+		t.Errorf("history = %+v", recs)
+	}
+	// Refund the captured payment right from the result.
+	send(m, keys("f"), enter)
+	if s.opKind != "refund" {
+		t.Errorf("refund not executed: note %q", s.note)
+	}
+}
+
+func TestNewPaymentSimulatedOnProduction(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-prod")
+	i18n.Set(i18n.EN)
+	send(m, keys("n"))
+	s := m.current().(*newPaymentScreen)
+	if s.amount != core.ProdDefaultAmount || s.simulate != "ok" || s.capture != "manual" {
+		t.Fatalf("production defaults: amount %s simulate %s capture %s", s.amount, s.simulate, s.capture)
+	}
+	send(m, enter, enter, enter, enter, enter, enter, enter)
+	if s.req.Order.Description != core.SimSuccess {
+		t.Fatalf("description = %q, want %s", s.req.Order.Description, core.SimSuccess)
+	}
+	if !strings.Contains(m.View(), "simulated with Test:0000") {
+		t.Errorf("review must explain the simulation:\n%s", m.View())
+	}
+	send(m, enter)
+	if s.result == nil || s.result.Status != "AUTHORIZED" || !s.canRelease() {
+		t.Fatalf("expected an authorization to release, got %+v", s.result)
+	}
+	send(m, keys("x"), enter)
+	if s.opKind != "cancel" {
+		t.Errorf("release not executed")
+	}
+}
+
+func TestNewPaymentSimulatedDecline(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	send(m, keys("n"))
+	s := m.current().(*newPaymentScreen)
+	s.simulate = "decline"
+	s.form = nil
+	send(m, enter) // rebuilds the form with the decline preset
+	send(m, enter, enter, enter, enter, enter, enter, enter, enter)
+	if s.result == nil || s.result.Status != "FAILED" {
+		t.Fatalf("expected a simulated decline, got stage %d %+v\n%s", s.stage, s.result, m.View())
+	}
+}
+
+func TestNewPaymentHostedWaitsForCustomer(t *testing.T) {
+	firstPoll, pollInterval = 5*time.Millisecond, 5*time.Millisecond
+	defer func() { firstPoll, pollInterval = 500*time.Millisecond, 2*time.Second }()
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	send(m, keys("n"))
+	s := m.current().(*newPaymentScreen)
+	send(m, down, enter) // hosted payment page
+	send(m, enter)       // methods: all
+	send(m, enter, enter, enter, enter, enter)
+	if s.stage != stageReview {
+		t.Fatalf("expected review, got %d:\n%s", s.stage, m.View())
+	}
+	send(m, enter)
+	for i := 0; i < 20 && s.stage == stageWaiting; i++ {
+		send(m, run(s.poll(m.ctx, time.Millisecond)))
+	}
+	if s.stage != stageResult || s.result == nil || s.result.Status != "OK" {
+		t.Fatalf("hosted payment did not complete: stage %d %+v", s.stage, s.result)
+	}
+	if !strings.Contains(m.View(), "Paid with PayPal") {
+		t.Errorf("result view:\n%s", m.View())
 	}
 }

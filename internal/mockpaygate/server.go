@@ -34,10 +34,10 @@ type Server struct {
 }
 
 type record struct {
-	PayID, TransID, Status, Code, Desc, Method, Currency, Capture string
-	Amount, Captured, Refunded                                    int64
-	Hosted                                                        bool
-	Brand, Last4                                                  string
+	PayID, TransID, Status, Code, Desc, Method, Currency, Capture, Sim string
+	Amount, Captured, Refunded                                         int64
+	Hosted                                                             bool
+	Brand, Last4                                                       string
 }
 
 // New returns a mock that accepts the given credentials.
@@ -133,6 +133,9 @@ type paymentBody struct {
 	CaptureMethod *struct {
 		Type string `json:"type"`
 	} `json:"captureMethod"`
+	Order *struct {
+		Description string `json:"description"`
+	} `json:"order"`
 	URLs *struct {
 		Return  string `json:"return"`
 		Cancel  string `json:"cancel"`
@@ -216,8 +219,10 @@ func (s *Server) createPayment(w http.ResponseWriter, r *http.Request) {
 	}
 	rec := s.newRecord(b)
 	rec.Method, rec.Brand, rec.Last4 = "CARD", strings.ToUpper(card.Brand), card.Number[len(card.Number)-4:]
+	simDecline := rec.Sim != "" && rec.Sim != "0000"
+	simOK := rec.Sim == "0000"
 	switch {
-	case declineCards[card.Number]:
+	case simDecline || (declineCards[card.Number] && !simOK):
 		rec.Status, rec.Code, rec.Desc = "FAILED", "422", "Payment could not be processed."
 		s.store(rec)
 		writeJSON(w, 422, map[string]any{
@@ -229,7 +234,7 @@ func (s *Server) createPayment(w http.ResponseWriter, r *http.Request) {
 			}},
 		})
 		return
-	case challengeCards[card.Number]:
+	case challengeCards[card.Number] && !simOK:
 		rec.Status, rec.Code, rec.Desc, rec.Hosted = "AUTHORIZE_REQUEST", "70000001", "3-D Secure challenge required", true
 		s.store(rec)
 		out := s.paymentJSON(rec)
@@ -253,10 +258,15 @@ func (s *Server) newRecord(b *paymentBody) *record {
 	if b.CaptureMethod != nil && strings.EqualFold(b.CaptureMethod.Type, "MANUAL") {
 		capture = "MANUAL"
 	}
-	return &record{
+	rec := &record{
 		PayID: randHex(16), TransID: b.TransID, Amount: b.Amount.Value,
 		Currency: strings.ToUpper(b.Amount.Currency), Capture: capture,
 	}
+	// Like Paygate: the order description Test:<code> simulates the result.
+	if b.Order != nil && strings.HasPrefix(b.Order.Description, "Test:") {
+		rec.Sim = strings.TrimPrefix(b.Order.Description, "Test:")
+	}
+	return rec
 }
 
 func (s *Server) store(rec *record) {
@@ -304,6 +314,8 @@ func (s *Server) getByTransID(w http.ResponseWriter, r *http.Request) {
 			return
 		case n <= s.NotFoundPolls+s.PendingPolls:
 			rec.Status, rec.Code, rec.Desc = "AUTHORIZE_REQUEST", "60000000", "waiting for customer"
+		case rec.Sim != "" && rec.Sim != "0000":
+			rec.Status, rec.Code, rec.Desc = "FAILED", "21000"+rec.Sim[1:], "simulated decline"
 		default:
 			rec.Status, rec.Code, rec.Desc = "OK", "00000000", "success"
 			if rec.Method == "CARD" && rec.Brand == "" {

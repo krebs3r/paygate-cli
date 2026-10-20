@@ -49,7 +49,7 @@ func newModel(ctx *Context) *model {
 		ctx: ctx,
 		screens: []Screen{
 			newHomeScreen(),
-			newSoonScreen("new", "menu.new", "n", 2, "soon.new", "paygate pay"),
+			newNewPaymentScreen(),
 			newSoonScreen("payments", "menu.payments", "l", 3, "soon.payments", "paygate get <payId>"),
 			newCardsScreen(),
 			newProfilesScreen(),
@@ -112,6 +112,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, s.Update(m.ctx, msg))
 		}
 		return m, tea.Batch(cmds...)
+
+	case focusMenuMsg:
+		m.focus = focusMenu
+		return m, nil
 
 	case toastMsg:
 		m.toastSeq++

@@ -236,6 +236,22 @@ Global flags work with every command:
 | `PAYGATE_API_KEY` | API key override (CI) |
 | `PAYGATE_BASE_URL` | Send requests to another host (mock server, proxy) |
 | `PAYGATE_NO_KEYCHAIN` | Store keys in the config file instead of the keychain |
+| `PAYGATE_NO_HISTORY` | Do not keep the local payment history |
+
+## Test transactions on production
+
+Paygate treats a payment whose order description is `Test:0000` as a test
+transaction, even on production; `Test:0305` simulates a decline. paygate calls
+this **simulation**:
+
+```bash
+paygate pay --card visa-ok --simulate ok        # Test:0000, succeeds
+paygate pay --card visa-ok --simulate decline   # Test:0305, declined
+```
+
+In the app, New payment switches the simulation on by default for production
+profiles, suggests 0.01 as amount and uses manual capture, so a real
+authorization can be released with one key right after.
 
 ## Test data
 

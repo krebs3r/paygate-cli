@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/krebs3r/paygate-cli/internal/history"
 	"github.com/krebs3r/paygate-cli/internal/mockpaygate"
 	"github.com/krebs3r/paygate-cli/internal/ui"
 )
@@ -251,5 +252,29 @@ func TestAboutCredits(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("about misses %q", want)
 		}
+	}
+}
+
+func TestPaySimulation(t *testing.T) {
+	setup(t)
+	mustInit(t)
+	// A decline card succeeds when simulated with Test:0000 ...
+	ok := payJSON(t, "pay", "--card", "visa-decline", "--simulate", "ok")
+	if ok["status"] != "OK" {
+		t.Errorf("simulated success = %v", ok["status"])
+	}
+	// ... and a good card fails with Test:0305.
+	out, _, err := run(t, "pay", "--card", "visa-ok", "--simulate", "decline")
+	var ex exitError
+	if !errors.As(err, &ex) || !strings.Contains(out, "FAILED") {
+		t.Fatalf("simulated decline: %v\n%s", err, out)
+	}
+	curl, _, err := run(t, "pay", "--card", "visa-ok", "--simulate", "0305", "--curl")
+	if err != nil || !strings.Contains(curl, `"description": "Test:0305"`) {
+		t.Errorf("curl must carry the simulation description: %v\n%s", err, curl)
+	}
+	recs, _ := history.Load()
+	if len(recs) != 2 || recs[0].Simulation != "Test:0305" {
+		t.Errorf("history = %+v", recs)
 	}
 }

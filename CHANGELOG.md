@@ -11,6 +11,15 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Test cards, Profiles (add, switch, verify, delete) and Settings; footer key
   hints, `?` help, mouse support and tabs in narrow windows. New payment,
   Payments and Inspector follow in the next steps.
+- New payment in the app: form, review with request JSON and copy as curl,
+  send, result. Hosted pages and 3-D Secure show a QR code and live status;
+  results can be sent again, released (manual capture) or refunded.
+- Simulation: `--simulate ok|decline|<code>` and a switch in the app send the
+  order description `Test:0000` / `Test:0305`, which Paygate treats as a test
+  transaction even on production. Production profiles default to simulation,
+  0.01 and manual capture.
+- Local payment history (`history.jsonl`, IDs, amounts and states only) for
+  payments, lookups and follow-up operations.
 - English and German interface, chosen automatically or in Settings.
 - `init` checks test and production, Nexi and Computop, Basic and OAuth2 in
   parallel when the credentials are rejected.

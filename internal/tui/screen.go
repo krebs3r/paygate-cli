@@ -72,6 +72,7 @@ type (
 		data any
 	}
 	sessionChangedMsg struct{}
+	focusMenuMsg      struct{}
 	toastMsg          struct {
 		text string
 		tone ui.Tone

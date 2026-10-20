@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/money"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
 	"github.com/krebs3r/paygate-cli/internal/ui"
@@ -57,6 +58,9 @@ func newGetCmd(app *App) *cobra.Command {
 				res, e = client.Exec(context.Background(), prepared)
 				return e
 			})
+			if err == nil {
+				core.RecordStatus(name, res.Payment)
+			}
 			if err != nil {
 				if app.JSON() {
 					if e, ok := paygate.AsAPIError(err); ok && e.Response != nil {
@@ -70,8 +74,8 @@ func newGetCmd(app *App) *cobra.Command {
 				return nil
 			}
 			ui.Println(paymentCard(res.Payment, res.Response, cardOpts{
-				title: "Payment details",
-				extra: amountRows(res.Payment),
+				Title: "Payment details",
+				Extra: amountRows(res.Payment),
 			}))
 			ui.Println()
 			return nil

@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/ids"
 	"github.com/krebs3r/paygate-cli/internal/money"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
@@ -151,8 +152,9 @@ func runOperation(app *App, k opKind, o *opOptions, payID string) error {
 		res, e = client.Exec(context.Background(), prepared)
 		return e
 	})
+	core.RecordOperation(name, transID, k.use, value, res, err)
 	if err != nil {
-		if failureFromError(app, err, cardOpts{title: k.noun + " failed", amount: amountStr}) {
+		if failureFromError(app, err, cardOpts{Title: k.noun + " failed", Amount: amountStr}) {
 			return errSilentFail
 		}
 		return err
@@ -170,7 +172,7 @@ func runOperation(app *App, k opKind, o *opOptions, payID string) error {
 		case paygate.OutcomePending:
 			title = k.noun + " pending"
 		}
-		ui.Println(paymentCard(res.Payment, res.Response, cardOpts{title: title, amount: amountStr}))
+		ui.Println(paymentCard(res.Payment, res.Response, cardOpts{Title: title, Amount: amountStr}))
 		ui.Println()
 		ui.Println(ui.Next("paygate get " + short(payID)))
 		ui.Println()

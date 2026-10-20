@@ -14,22 +14,19 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/krebs3r/paygate-cli/internal/cards"
-	"github.com/krebs3r/paygate-cli/internal/config"
+	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/export"
-	"github.com/krebs3r/paygate-cli/internal/ids"
 	"github.com/krebs3r/paygate-cli/internal/money"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
 	"github.com/krebs3r/paygate-cli/internal/ui"
 )
 
 const (
-	flowHosted = "hosted"
-	flowMethod = "method"
-	flowDirect = "direct"
+	flowHosted = string(core.FlowHosted)
+	flowMethod = string(core.FlowMethod)
+	flowDirect = string(core.FlowDirect)
 
-	manualCard    = "__manual__"
-	defaultAmount = "12.99"
-	defaultDesc   = "Paygate CLI demo order"
+	manualCard = "__manual__"
 )
 
 type payOptions struct {
@@ -51,6 +48,7 @@ type payOptions struct {
 	language    string
 	channel     string
 	skip3DS     bool
+	simulate    string
 	open        bool
 	noWait      bool
 	noQR        bool
@@ -76,7 +74,8 @@ with flags for scripts:
   paygate pay --card visa-ok --amount 12.99
   paygate pay --hosted --amount 49 --methods card,paypal,ideal --open
   paygate pay --method paypal --amount 5 --currency EUR
-  paygate pay --card visa-ok --curl`,
+  paygate pay --card visa-ok --curl
+  paygate pay --card visa-ok --simulate ok        # test transaction on production`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runPay(app, o, cmd)
@@ -91,7 +90,7 @@ with flags for scripts:
 	f.StringVar(&o.expiry, "expiry", "", "card expiry YYYYMM (default: December, four years ahead)")
 	f.StringVar(&o.cvc, "cvc", "123", "card security code")
 	f.StringVar(&o.holder, "holder", "Paygate Tester", "card holder name")
-	f.StringVarP(&o.amount, "amount", "a", "", "amount, e.g. 12.99 (default "+defaultAmount+")")
+	f.StringVarP(&o.amount, "amount", "a", "", "amount, e.g. 12.99 (default "+core.DefaultAmount+", on production "+core.ProdDefaultAmount+")")
 	f.StringVarP(&o.currency, "currency", "c", "", "ISO currency (default: profile currency, EUR)")
 	f.StringVarP(&o.description, "description", "d", "", "order description")
 	f.StringVar(&o.transID, "trans-id", "", "your transaction ID (default: generated)")
@@ -100,6 +99,7 @@ with flags for scripts:
 	f.StringVar(&o.language, "language", "", "language of the hosted page, e.g. de, en")
 	f.StringVar(&o.channel, "channel", "ECOM", "channel for direct payments: ECOM or MOTO")
 	f.BoolVar(&o.skip3DS, "skip-3ds", false, "direct card payments: ask Paygate to skip 3-D Secure (MID permitting)")
+	f.StringVar(&o.simulate, "simulate", "", "test transaction, also on production: ok (Test:0000), decline (Test:0305) or a 4-digit code")
 	f.BoolVar(&o.open, "open", false, "open the checkout URL in the browser")
 	f.BoolVar(&o.noWait, "no-wait", false, "do not wait for the hosted payment to complete")
 	f.BoolVar(&o.noQR, "no-qr", false, "do not show a QR code for the checkout URL")
@@ -110,7 +110,7 @@ with flags for scripts:
 		return cards.Aliases(), cobra.ShellCompDirectiveNoFileComp
 	})
 	_ = cmd.RegisterFlagCompletionFunc("method", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-		return methodAliases(), cobra.ShellCompDirectiveNoFileComp
+		return core.MethodAliases(), cobra.ShellCompDirectiveNoFileComp
 	})
 	return cmd
 }
@@ -156,31 +156,22 @@ func runPay(app *App, o *payOptions, cmd *cobra.Command) error {
 		}
 		app.PrintHeader(name, prof)
 		headerShown = true
-		if err := payWizard(o); err != nil {
+		if err := payWizard(o, prof.IsProd()); err != nil {
 			return err
 		}
 		if !cmd.Flags().Changed("open") {
 			o.open = true
 		}
 	}
-	if o.amount == "" {
-		o.amount = defaultAmount
-	}
-	if o.description == "" {
-		o.description = defaultDesc
+	if o.amount == "" && prof.IsProd() {
+		o.amount = core.ProdDefaultAmount
 	}
 
-	req, cardLabel, err := buildPaymentRequest(o, prof)
+	req, cardLabel, err := core.BuildPaymentRequest(o.input(), prof)
 	if err != nil {
 		return err
 	}
-
-	var prepared *paygate.Prepared
-	if o.flow == flowHosted {
-		prepared, err = client.CreateSessionRequest(req)
-	} else {
-		prepared, err = client.CreatePaymentRequest(req)
-	}
+	prepared, err := core.Prepare(client, core.Flow(o.flow), req)
 	if err != nil {
 		return err
 	}
@@ -188,8 +179,10 @@ func runPay(app *App, o *payOptions, cmd *cobra.Command) error {
 		printCurl(app, prepared, client)
 		return nil
 	}
-	if err := app.ConfirmProd(prof, "send this payment"); err != nil {
-		return err
+	if o.simulate == "" {
+		if err := app.ConfirmProd(prof, "send this payment"); err != nil {
+			return err
+		}
 	}
 	if !headerShown {
 		app.PrintHeader(name, prof)
@@ -202,16 +195,17 @@ func runPay(app *App, o *payOptions, cmd *cobra.Command) error {
 		res, e = client.Exec(context.Background(), prepared)
 		return e
 	})
+	core.RecordPayment(name, prof, core.Flow(o.flow), req, cardLabel, res, err)
 	amountStr := money.Format(req.Amount.Value, req.Amount.Currency)
 	if err != nil {
-		if failureFromError(app, err, cardOpts{amount: amountStr, extra: []ui.Row{{Label: "Method", Value: cardLabel}}}) {
+		if failureFromError(app, err, cardOpts{Amount: amountStr, Extra: []ui.Row{{Label: "Method", Value: cardLabel}}}) {
 			return errSilentFail
 		}
 		return err
 	}
 
 	if url := res.Payment.RedirectURL(); url != "" {
-		return handleRedirect(app, client, req, res, o)
+		return handleRedirect(app, name, client, req, res, o)
 	}
 	if res.Payment.TransID == "" {
 		res.Payment.TransID = req.TransID
@@ -221,7 +215,7 @@ func runPay(app *App, o *payOptions, cmd *cobra.Command) error {
 	} else {
 		ui.Println(ui.OK("Payment processed " + ui.Muted.Render("in "+paygate.FormatDuration(res.Response.Duration))))
 		ui.Println()
-		ui.Println(paymentCard(res.Payment, res.Response, cardOpts{amount: amountStr}))
+		ui.Println(paymentCard(res.Payment, res.Response, cardOpts{Amount: amountStr}))
 		ui.Println()
 	}
 	switch paygate.OutcomeOf(res.Payment) {
@@ -243,117 +237,18 @@ func runPay(app *App, o *payOptions, cmd *cobra.Command) error {
 	}
 }
 
-func buildPaymentRequest(o *payOptions, prof *config.Profile) (*paygate.PaymentRequest, string, error) {
-	value, err := money.Parse(o.amount, o.currency)
-	if err != nil {
-		return nil, "", err
-	}
-	transID := o.transID
-	if transID == "" {
-		transID = ids.NewTransID()
-	}
-	captureType := "AUTOMATIC"
-	switch strings.ToLower(o.capture) {
-	case "auto", "automatic", "":
-	case "manual":
-		captureType = "MANUAL"
-	default:
-		return nil, "", fmt.Errorf("unknown capture method %q (use auto or manual)", o.capture)
-	}
-	req := &paygate.PaymentRequest{
-		TransID:       transID,
-		RefNr:         o.refNr,
-		Amount:        paygate.Amount{Value: value, Currency: strings.ToUpper(o.currency)},
-		Language:      o.language,
-		CaptureMethod: &paygate.CaptureMethod{Type: captureType},
-		Order:         &paygate.Order{Description: o.description, MerchantReference: transID},
-	}
-	urls := &paygate.URLs{Return: prof.Return(), Cancel: prof.Cancel(), Webhook: prof.Webhook()}
-
-	switch o.flow {
-	case flowHosted:
-		req.URLs = urls
-		for _, m := range o.methods {
-			for _, part := range strings.Split(m, ",") {
-				if strings.TrimSpace(part) == "" {
-					continue
-				}
-				pm, err := resolveMethod(part)
-				if err != nil {
-					return nil, "", err
-				}
-				req.AllowedPaymentMethods = append(req.AllowedPaymentMethods, pm.Type)
-			}
-		}
-		return req, "", nil
-
-	case flowMethod:
-		pm, err := resolveMethod(o.method)
-		if err != nil {
-			return nil, "", err
-		}
-		req.URLs = urls
-		req.PaymentMethods = &paygate.PaymentMethods{Type: pm.Type, IntegrationType: "HOSTED"}
-		if pm.Type == "IDEAL" {
-			req.PaymentMethods.Ideal = &paygate.SubTyped{SubType: "IDEAL"}
-		}
-		return req, pm.Name, nil
-
-	case flowDirect:
-		number, brand, threeDS := o.cardNumber, "", false
-		if o.card != "" {
-			c, ok := cards.FindCard(o.card)
-			if !ok {
-				return nil, "", fmt.Errorf("unknown test card %q (see `paygate testcards`)", o.card)
-			}
-			number, brand, threeDS = c.Number, c.Brand, c.ThreeDS
-		}
-		number = strings.ReplaceAll(number, " ", "")
-		if brand == "" {
-			brand = cards.DetectBrand(number)
-		}
-		expiry := o.expiry
-		if expiry == "" {
-			expiry = cards.DefaultExpiry()
-		}
-		card := &paygate.Card{
-			Number:         number,
-			CardHolderName: o.holder,
-			ExpiryDate:     expiry,
-			SecurityCode:   o.cvc,
-			Brand:          brand,
-		}
-		if o.skip3DS {
-			card.ThreeDsPolicy = &paygate.ThreeDsPolicy{Skip: "THIS_TRANSACTION"}
-		}
-		req.Channel = strings.ToUpper(o.channel)
-		req.BrowserInfo = defaultBrowserInfo(o.language)
-		req.PaymentMethods = &paygate.PaymentMethods{Type: "CARD", IntegrationType: "DIRECT", Card: card}
-		if threeDS {
-			req.URLs = urls
-		}
-		label := strings.TrimSpace(brand + " " + cards.Mask(number))
-		return req, label, nil
-	}
-	return nil, "", errors.New("no payment flow selected")
-}
-
-func defaultBrowserInfo(lang string) *paygate.BrowserInfo {
-	_, offset := time.Now().Zone()
-	return &paygate.BrowserInfo{
-		AcceptHeaders:     "text/html,application/json",
-		JavaEnabled:       false,
-		JavaScriptEnabled: true,
-		Language:          strings.ToUpper(lang),
-		ColorDepth:        24,
-		ScreenHeight:      1080,
-		ScreenWidth:       1920,
-		TimeZoneOffset:    fmt.Sprint(-offset / 60),
-		UserAgent:         "Mozilla/5.0 (paygate-cli)",
+// input maps the flags to the shared payment input.
+func (o *payOptions) input() core.PaymentInput {
+	return core.PaymentInput{
+		Flow: core.Flow(o.flow), Methods: o.methods, Method: o.method,
+		Card: o.card, CardNumber: o.cardNumber, Expiry: o.expiry, CVC: o.cvc, Holder: o.holder,
+		Amount: o.amount, Currency: o.currency, Description: o.description,
+		TransID: o.transID, RefNr: o.refNr, Capture: o.capture, Language: o.language,
+		Channel: o.channel, Skip3DS: o.skip3DS, Simulate: o.simulate,
 	}
 }
 
-func handleRedirect(app *App, client *paygate.Client, req *paygate.PaymentRequest, res *paygate.Result, o *payOptions) error {
+func handleRedirect(app *App, profileName string, client *paygate.Client, req *paygate.PaymentRequest, res *paygate.Result, o *payOptions) error {
 	checkout := res.Payment.RedirectURL()
 	transID := req.TransID
 
@@ -362,7 +257,7 @@ func handleRedirect(app *App, client *paygate.Client, req *paygate.PaymentReques
 		if o.flow == flowDirect {
 			what = "Customer action required (3-D Secure)"
 		} else if o.flow == flowMethod {
-			what = methodName(req.PaymentMethods.Type) + " checkout created"
+			what = core.MethodName(req.PaymentMethods.Type) + " checkout created"
 		}
 		ui.Println(ui.OK(what + "  " + ui.Muted.Render(durationLine(res.Response))))
 		ui.Println()
@@ -429,15 +324,16 @@ func handleRedirect(app *App, client *paygate.Client, req *paygate.PaymentReques
 	case result.Err != nil:
 		return result.Err
 	case result.Done && last != nil:
+		core.RecordStatus(profileName, last.Payment)
 		if app.JSON() {
 			printJSON(last.Response.Body)
 		} else {
 			p := last.Payment
 			title := outcomeTitle(p, "Payment")
 			if m := p.Method(); m.Type != "" && m.Type != "CARD" && paygate.OutcomeOf(p) == paygate.OutcomeSuccess {
-				title = "Paid with " + methodName(m.Type)
+				title = "Paid with " + core.MethodName(m.Type)
 			}
-			ui.Println(paymentCard(p, nil, cardOpts{title: title, extra: []ui.Row{{Label: "Waited", Value: ui.Muted.Render(result.Elapsed.Round(time.Second).String())}}}))
+			ui.Println(paymentCard(p, nil, cardOpts{Title: title, Extra: []ui.Row{{Label: "Waited", Value: ui.Muted.Render(result.Elapsed.Round(time.Second).String())}}}))
 			ui.Println()
 			if paygate.OutcomeOf(p) == paygate.OutcomeSuccess {
 				ui.Println(ui.Next("paygate refund "+short(p.PayID), "paygate get "+short(p.PayID)))
@@ -464,15 +360,25 @@ func handleRedirect(app *App, client *paygate.Client, req *paygate.PaymentReques
 	}
 }
 
-func payWizard(o *payOptions) error {
+func payWizard(o *payOptions, prod bool) error {
 	if o.flow == "" {
 		o.flow = flowDirect
 	}
 	if o.amount == "" {
-		o.amount = defaultAmount
+		o.amount = core.DefaultAmount
+		if prod {
+			o.amount = core.ProdDefaultAmount
+		}
 	}
 	if o.description == "" {
-		o.description = defaultDesc
+		o.description = core.DefaultDescription
+	}
+	if o.simulate == "" && prod {
+		o.simulate = "ok"
+	}
+	simulate := o.simulate
+	if simulate == "" {
+		simulate = "off"
 	}
 	cardChoice := "visa-ok"
 	if o.card != "" {
@@ -495,12 +401,12 @@ func payWizard(o *payOptions) error {
 
 	var multiOpts []huh.Option[string]
 	for _, a := range []string{"card", "paypal", "ideal", "sepa", "klarna", "applepay", "googlepay", "bancontact", "eps", "twint"} {
-		pm, _ := resolveMethod(a)
+		pm, _ := core.ResolveMethod(a)
 		multiOpts = append(multiOpts, huh.NewOption(pm.Name, pm.Alias))
 	}
 	var singleOpts []huh.Option[string]
-	for _, a := range hostedSingleMethods {
-		pm, _ := resolveMethod(a)
+	for _, a := range core.HostedSingleMethods {
+		pm, _ := core.ResolveMethod(a)
 		singleOpts = append(singleOpts, huh.NewOption(pm.Name, pm.Alias))
 	}
 	currencyOpts := huh.NewOptions(money.Common...)
@@ -557,10 +463,22 @@ func payWizard(o *payOptions) error {
 			}),
 			huh.NewSelect[string]().Title("Currency").Options(currencyOpts...).Inline(true).Value(&o.currency),
 			huh.NewInput().Title("Description").Value(&o.description),
+			huh.NewSelect[string]().
+				Title("Simulation").
+				Description("Test transaction via order description, works on production too.").
+				Options(
+					huh.NewOption("Off · real transaction", "off"),
+					huh.NewOption("Success · Test:0000", "ok"),
+					huh.NewOption("Decline · Test:0305", "decline"),
+				).Value(&simulate),
 		),
 	)
 	if err != nil {
 		return err
+	}
+	o.simulate = simulate
+	if simulate == "off" {
+		o.simulate = ""
 	}
 	switch o.flow {
 	case flowMethod:

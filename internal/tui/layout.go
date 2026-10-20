@@ -157,7 +157,11 @@ func (m *model) renderFooter(w int) string {
 		hints = []Hint{{"↑↓", t("key.navigate")}, {"enter", t("key.open")}}
 	default:
 		hints = m.current().Hints(m.ctx)
-		if !m.current().Capturing() {
+		hasEsc := false
+		for _, h := range hints {
+			hasEsc = hasEsc || h.Key == "esc"
+		}
+		if !m.current().Capturing() && !hasEsc {
 			hints = append(hints, Hint{"esc", t("key.menu")})
 		}
 	}
