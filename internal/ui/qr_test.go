@@ -10,7 +10,7 @@ import (
 	"rsc.io/qr"
 )
 
-var sgrCell = regexp.MustCompile(`\x1b\[([0-9;]+)m(?:\x1b\[([0-9;]+)m)?([▀ ])`)
+var sgrCell = regexp.MustCompile(`\x1b\[([0-9;]+)m(?:\x1b\[([0-9;]+)m)?([▄ ])`)
 
 // decode turns the coloured terminal QR back into a module matrix.
 func decode(t *testing.T, s string) [][]bool {
@@ -32,7 +32,8 @@ func decode(t *testing.T, s string) [][]bool {
 			if m[3] == " " { // uniform cell: only the background counts
 				fgDark = bgDark
 			}
-			top, bottom = append(top, fgDark), append(bottom, bgDark)
+			// "▄": the background is the top module, the glyph the bottom one
+			top, bottom = append(top, bgDark), append(bottom, fgDark)
 		}
 		rows = append(rows, top, bottom)
 	}

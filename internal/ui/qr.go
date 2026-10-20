@@ -20,8 +20,15 @@ const (
 // QR renders text as a QR code that scanners read reliably in any terminal:
 // dark modules on a light background, two modules per character cell.
 // Uniform cells are drawn as coloured spaces, which fill the whole cell even
-// with extra line spacing; only mixed cells use the half block "▀" with both
+// with extra line spacing; only mixed cells use a half block with both
 // foreground and background colour set.
+//
+// The half block is "▄" (background = top module, glyph = bottom module).
+// Terminals that draw it from the font (Terminal.app) leave a strip of
+// background above the glyph; with "▀" that strip showed the bottom module's
+// colour and cut through the centre of the finder patterns. With "▄" the top
+// strip has the right colour, and a strip below the glyph only narrows the
+// light rows of the finder patterns, which land on bottom halves.
 func QR(text string) string {
 	code, err := qr.Encode(text, qr.L)
 	if err != nil {
@@ -55,7 +62,7 @@ func QR(text string) string {
 				cell[[2]bool{top, bottom}] = lipgloss.NewStyle().Background(colour(top)).Render(" ")
 				continue
 			}
-			cell[[2]bool{top, bottom}] = lipgloss.NewStyle().Foreground(colour(top)).Background(colour(bottom)).Render("▀")
+			cell[[2]bool{top, bottom}] = lipgloss.NewStyle().Foreground(colour(bottom)).Background(colour(top)).Render("▄")
 		}
 	}
 	var b strings.Builder

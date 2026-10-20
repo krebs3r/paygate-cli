@@ -19,7 +19,9 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the frame. Production no longer turns the whole frame red; the PROD badge
   stays red.
 - QR codes are drawn with fixed black and white colours and a quiet zone, so
-  they scan in every colour scheme and with extra line spacing.
+  they scan in every colour scheme and with extra line spacing. They also
+  scan in terminals that draw block characters from the font, such as
+  Terminal.app.
 - The QR code fits smaller windows: the URL moved next to it and the quiet
   zone is one module (a real Paygate link fits 120 × 30). If it still does
   not fit, `z` shows the code full screen while the app keeps waiting.
