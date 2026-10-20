@@ -1,0 +1,37 @@
+package cli
+
+import (
+	"github.com/spf13/cobra"
+
+	"github.com/krebs3r/paygate-cli/internal/ui"
+)
+
+func newAboutCmd(app *App) *cobra.Command {
+	return &cobra.Command{
+		Use:   "about",
+		Short: "Version, license and credits",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			b := app.Build
+			rows := []ui.Row{
+				{Label: "Version", Value: b.Version},
+				{Label: "Commit", Value: ui.Muted.Render(b.Commit)},
+				{Label: "Built", Value: ui.Muted.Render(b.Date)},
+				{Label: "Author", Value: "Martin Krebs"},
+				{Label: "License", Value: "All rights reserved (public license to be announced)"},
+				{Label: "Inspired by", Value: "mollie-cli by Florian Bender and Hannes Reinberger"},
+				{Label: "", Value: ui.Link.Render("https://github.com/fjbender/mollie-cli")},
+			}
+			ui.Println()
+			ui.Println(ui.Card{
+				Badge: ui.Accent.Render("◆"),
+				Title: "paygate · Paygate CLI",
+				Rows:  rows,
+				Footer: ui.Muted.Render("Independent developer tool. Not an official product of Nexi or Computop.") + "\n" +
+					ui.Muted.Render("Sister project: ") + ui.Link.Render("https://paygate.paytest.dev"),
+			}.String())
+			ui.Println()
+			return nil
+		},
+	}
+}

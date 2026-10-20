@@ -1,0 +1,157 @@
+# Paygate CLI
+
+Send real Nexi / Computop Paygate payments from your terminal.
+
+![Version](https://img.shields.io/badge/version-0.1.0-3d7eff)
+![Go](https://img.shields.io/badge/go-1.27-00add8)
+![Status](https://img.shields.io/badge/status-MVP-f59e0b)
+
+![paygate pay: interactive card payment and a declined card](docs/demo.gif)
+
+`paygate` talks to the Paygate REST API v2. Create a payment in seconds, watch a
+hosted checkout complete live, then capture, refund or cancel it. Test cards are
+built in and every request can be exported as `curl`.
+
+## Features
+
+- **Guided or scriptable**: an interactive wizard (`paygate pay`) or plain flags
+  for scripts and CI.
+- **All integration types**: hosted payment page, hosted single method (PayPal,
+  iDEAL, SEPA, Klarna and more) and direct card payments.
+- **Live status**: checkout URL with QR code; paygate waits until the payment is
+  final.
+- **Follow-up operations**: capture, refund and cancel with confirmation and
+  automatic amounts.
+- **Developer friendly**: `-o json`, `--curl`, HTTP logging with redacted
+  secrets, test card aliases and multiple merchant profiles.
+
+![paygate pay --hosted: QR code and live status](docs/demo-hosted.gif)
+
+<sub>Both recordings run against the built-in mock server (`make mock`, `make demo`).</sub>
+
+## Installation
+
+Paygate CLI is a single binary. Build it from source with Go 1.27 or newer:
+
+```bash
+git clone https://github.com/krebs3r/paygate-cli.git
+cd paygate-cli
+make install        # installs paygate into $(go env GOPATH)/bin
+```
+
+Homebrew and prebuilt binaries will follow with the first public release.
+
+## Quickstart
+
+```bash
+paygate init                       # 1. add merchant ID + REST API key
+paygate pay                        # 2. send a payment with the wizard
+paygate get <payId>                # 3. look at it again later
+```
+
+1. **`paygate init`** asks for your merchant ID and REST API key (Paygate Merchant
+   Portal → Key management), checks them and stores the key in your system
+   keychain.
+2. **`paygate pay`** guides you through flow, test card, amount and currency.
+3. **`paygate get`** shows status, amounts and response codes of any payment.
+
+## Commands
+
+| Command | Purpose | Example |
+| --- | --- | --- |
+| `paygate init` | Add or update a merchant profile | `paygate init` |
+| `paygate pay` | Create a payment (wizard without flags) | `paygate pay --card visa-ok --amount 12.99` |
+| `paygate pay --hosted` | Hosted payment page with all or selected methods | `paygate pay --hosted --methods card,paypal --open` |
+| `paygate pay --method` | Hosted form for a single method | `paygate pay --method ideal --amount 5` |
+| `paygate get` | Show a payment by payId or transId | `paygate get --trans-id TIDMVGGX4YZ9I9APE` |
+| `paygate capture` | Capture an authorized payment | `paygate capture <payId>` |
+| `paygate refund` | Refund fully or partially | `paygate refund <payId> --amount 5` |
+| `paygate cancel` | Cancel (reverse) before capture | `paygate cancel <payId>` |
+| `paygate testcards` | List test cards and aliases | `paygate testcards` |
+| `paygate profile` | List, switch, show, edit, delete profiles | `paygate profile use shop-prod` |
+| `paygate about` | Version, license and credits | `paygate about` |
+
+Global flags work with every command:
+
+| Flag | Effect |
+| --- | --- |
+| `-p, --profile <name>` | Use another profile for this call |
+| `-o json` | Print the raw API response as JSON (pipe it into `jq`) |
+| `--curl` | Print the request as a `curl` command instead of sending it |
+| `-v` / `-vv` | Log HTTP bodies / headers to stderr, credentials redacted |
+| `-y, --yes` | Skip confirmations (required in scripts for capture, refund, cancel) |
+| `--no-color` | Plain output (`NO_COLOR` works too) |
+
+## Configuration and security
+
+- **Profiles** live in `~/.config/paygate-cli/config.toml` (permissions `0600`).
+  Each profile stores platform (Nexi or Computop), environment, merchant ID and
+  auth mode (Basic Auth or OAuth2).
+- **API keys** are kept in the macOS Keychain, Windows Credential Manager or the
+  Linux Secret Service. Without a keychain, paygate falls back to the config file
+  and says so.
+- **Test first**: new profiles default to the test system. Production profiles
+  show a red `PROD` badge and ask before sending anything.
+- **Callback URLs**: Paygate only calls HTTPS URLs on port 443, so `localhost`
+  cannot receive redirects or webhooks. paygate does not need them: it polls the
+  payment status itself. By default the customer lands on
+  `https://paygate.paytest.dev/cli/return`. Use your own URLs per profile:
+
+  ```bash
+  paygate profile set return-url  https://shop.example.com/paygate/return
+  paygate profile set webhook-url https://shop.example.com/paygate/webhook
+  ```
+
+| Environment variable | Purpose |
+| --- | --- |
+| `PAYGATE_PROFILE` | Profile to use |
+| `PAYGATE_API_KEY` | API key override (CI) |
+| `PAYGATE_BASE_URL` | Send requests to another host (mock server, proxy) |
+| `PAYGATE_NO_KEYCHAIN` | Store keys in the config file instead of the keychain |
+
+## Test data
+
+`paygate testcards` lists the official test cards with short aliases such as
+`visa-ok`, `visa-decline` or `visa-3ds-challenge`. Any future expiry date and any
+CVC work; the 3-D Secure challenge OTP is `1234`. Details are in the
+[Nexi test card guide](https://docs.paygate.nexigroup.com/nexi-developer/test-credit-card).
+
+**No credentials yet?** Start the built-in mock server and try every flow
+locally:
+
+```bash
+make mock                                          # terminal 1
+export PAYGATE_BASE_URL=http://127.0.0.1:8089      # terminal 2
+paygate init --name mock --merchant-id demo-shop --api-key demo-key
+paygate pay
+```
+
+## Troubleshooting
+
+| Problem | Solution |
+| --- | --- |
+| `401 Unauthorized` | Check merchant ID, API key and auth mode with `paygate profile show`, then run `paygate init` again. |
+| Every lookup returns `404` | The payment was created on another system. Check test vs. production and Nexi vs. Computop in the profile. |
+| Test payments are rejected | Paygate Support has to enable the test system (and 3-D Secure) for your merchant ID. |
+| "3-D Secure authentication is required" | Use a non-3DS card such as `visa-ok`, add `--skip-3ds` if your MID allows it, or pay with `--hosted`. |
+| Waiting timed out | The customer did not finish the checkout. Check later with `paygate get --trans-id <id>`. |
+
+## License
+
+Copyright © 2026 Martin Krebs. All rights reserved. A public license will be
+announced with the first public release.
+
+## Credits
+
+Paygate CLI is made by **Martin Krebs**, author of the
+[Paygate Payment Tester](https://paygate.paytest.dev).
+
+The command design was inspired by [mollie-cli](https://github.com/fjbender/mollie-cli)
+by **Florian Bender** and **Hannes Reinberger**. Thank you for showing how
+pleasant a payments CLI can be.
+
+Built with [Cobra](https://github.com/spf13/cobra) and the
+[Charm](https://charm.sh) libraries Bubble Tea, Bubbles, Lip Gloss and Huh.
+
+This is an independent developer tool and not an official product of Nexi or
+Computop. Product names are trademarks of their respective owners.

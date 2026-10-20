@@ -1,0 +1,16 @@
+# Build output
+/paygate
+/dist/
+*.exe
+*.test
+*.out
+coverage.*
+
+# Local tooling / editors
+.DS_Store
+.idea/
+.vscode/
+
+# Local secrets
+.env
+*.local.toml
