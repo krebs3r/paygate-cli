@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -74,11 +75,18 @@ type Config struct {
 // ErrNoProfile means no profile has been set up yet.
 var ErrNoProfile = errors.New("no profile configured — run `paygate init` first")
 
-// Dir returns the configuration directory ($XDG_CONFIG_HOME/paygate-cli or
-// ~/.config/paygate-cli).
+// Dir returns the configuration directory: $XDG_CONFIG_HOME/paygate-cli,
+// %AppData%\paygate-cli on Windows, otherwise ~/.config/paygate-cli.
 func Dir() (string, error) {
 	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
 		return filepath.Join(x, "paygate-cli"), nil
+	}
+	if runtime.GOOS == "windows" {
+		appData, err := os.UserConfigDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(appData, "paygate-cli"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

@@ -1,15 +1,18 @@
-VERSION ?= 0.1.0
+VERSION ?= $(shell cat VERSION)
 COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE    := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
-.PHONY: build install test vet mock demo clean
+.PHONY: build install uninstall test vet mock demo clean
 
 build: ## Build ./paygate
 	go build -ldflags "$(LDFLAGS)" -o paygate ./cmd/paygate
 
-install: ## Install paygate into $(go env GOPATH)/bin
-	go install -ldflags "$(LDFLAGS)" ./cmd/paygate
+install: ## Install paygate into ~/.local/bin and add it to PATH
+	./scripts/install.sh
+
+uninstall:
+	./scripts/install.sh --uninstall
 
 test: ## Run all tests with the race detector
 	go test -race ./...

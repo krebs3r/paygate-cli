@@ -31,15 +31,134 @@ built in and every request can be exported as `curl`.
 
 ## Installation
 
-Paygate CLI is a single binary. Build it from source with Go 1.27 or newer:
+You need about five minutes. Every step shows what you should see, so you know
+it worked before you continue. The repository is private for now: you need
+access to it, and Git asks you to sign in to GitHub when you download it.
+
+<details open>
+<summary><b>macOS</b></summary>
+
+**1. Open the Terminal.** Press <kbd>⌘ Cmd</kbd> + <kbd>Space</kbd>, type
+`Terminal` and press <kbd>Enter</kbd>.
+
+**2. Install Homebrew** (skip this step if `brew --version` already prints a
+version number):
 
 ```bash
-git clone https://github.com/krebs3r/paygate-cli.git
-cd paygate-cli
-make install        # installs paygate into $(go env GOPATH)/bin
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
-Homebrew and prebuilt binaries will follow with the first public release.
+At the end, Homebrew prints "Next steps" with two or three commands. Copy and
+run them, then close the Terminal and open a new one.
+
+**3. Install Go and Git:**
+
+```bash
+brew install go git
+```
+
+Check: `go version` prints something like `go version go1.27.3 darwin/arm64`.
+
+**4. Download the Paygate CLI:**
+
+```bash
+git clone https://github.com/krebs3r/paygate-cli.git ~/paygate-cli
+```
+
+**5. Run the installer:**
+
+```bash
+~/paygate-cli/scripts/install.sh
+```
+
+It builds `paygate`, copies it to `~/.local/bin` and adds that folder to your
+`PATH`. It ends with `Done. Next steps`.
+
+**6. Close the Terminal window and open a new one.** Only new windows know the
+updated `PATH`.
+
+**7. Check the installation:**
+
+```bash
+paygate --version
+```
+
+You should see `paygate 0.1.0`. Continue with the [Quickstart](#quickstart).
+
+</details>
+
+<details open>
+<summary><b>Windows 10 / 11</b></summary>
+
+**1. Open PowerShell.** Click Start, type `PowerShell` and press
+<kbd>Enter</kbd>. (Windows Terminal works too and shows colours and QR codes
+best.)
+
+**2. Install Go and Git:**
+
+```powershell
+winget install --id GoLang.Go -e
+winget install --id Git.Git -e
+```
+
+Confirm the prompts, then **close PowerShell and open a new window**.
+Check: `go version` prints something like `go version go1.27.3 windows/amd64`.
+
+**3. Download the Paygate CLI:**
+
+```powershell
+git clone https://github.com/krebs3r/paygate-cli.git $HOME\paygate-cli
+```
+
+**4. Run the installer:**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File $HOME\paygate-cli\scripts\install.ps1
+```
+
+It builds `paygate.exe`, copies it to `%LOCALAPPDATA%\Programs\paygate` and adds
+that folder to your `PATH`. It ends with `Done. Next steps`.
+
+**5. Close PowerShell and open a new window.**
+
+**6. Check the installation:**
+
+```powershell
+paygate --version
+```
+
+You should see `paygate 0.1.0`. Continue with the [Quickstart](#quickstart).
+
+</details>
+
+### Update
+
+Download the latest version and run the installer again (macOS shown; on
+Windows use the commands from step 3 and 4 above):
+
+```bash
+git -C ~/paygate-cli pull
+~/paygate-cli/scripts/install.sh
+```
+
+### Uninstall
+
+| | Command |
+| --- | --- |
+| macOS | `~/paygate-cli/scripts/install.sh --uninstall` |
+| Windows | `powershell -ExecutionPolicy Bypass -File $HOME\paygate-cli\scripts\install.ps1 -Uninstall` |
+
+Your profiles and API keys are kept. Remove them first with
+`paygate profile delete <name>` if you want a clean slate.
+
+### Still `command not found`?
+
+| Symptom | Fix |
+| --- | --- |
+| macOS: `zsh: command not found: paygate` | You are still in the old window. Close it and open a new one. If it persists, run `source ~/.zshrc`. |
+| Windows: `paygate : The term 'paygate' is not recognized` | Close **all** PowerShell windows and open a new one. If it persists, sign out of Windows and back in. |
+| `command not found: go` | Go is missing or the window is too old. Repeat step 3 (macOS) or 2 (Windows) and open a new window. |
+| Windows: "running scripts is disabled on this system" | Start the installer exactly as shown, with `-ExecutionPolicy Bypass`. |
 
 ## Quickstart
 
@@ -84,7 +203,8 @@ Global flags work with every command:
 
 ## Configuration and security
 
-- **Profiles** live in `~/.config/paygate-cli/config.toml` (permissions `0600`).
+- **Profiles** live in `~/.config/paygate-cli/config.toml` on macOS and Linux and
+  in `%APPDATA%\paygate-cli\config.toml` on Windows (readable only by you).
   Each profile stores platform (Nexi or Computop), environment, merchant ID and
   auth mode (Basic Auth or OAuth2).
 - **API keys** are kept in the macOS Keychain, Windows Credential Manager or the
