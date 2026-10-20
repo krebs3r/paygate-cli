@@ -49,6 +49,7 @@ type payOptions struct {
 	channel     string
 	skip3DS     bool
 	simulate    string
+	ip          string
 	open        bool
 	noWait      bool
 	noQR        bool
@@ -99,6 +100,7 @@ with flags for scripts:
 	f.StringVar(&o.language, "language", "", "language of the hosted page, e.g. de, en")
 	f.StringVar(&o.channel, "channel", "ECOM", "channel for direct payments: ECOM or MOTO")
 	f.BoolVar(&o.skip3DS, "skip-3ds", false, "direct card payments: ask Paygate to skip 3-D Secure (MID permitting)")
+	f.StringVar(&o.ip, "ip", "", "customer IP for direct card payments (default: profile setting or this computer)")
 	f.StringVar(&o.simulate, "simulate", "", "test transaction, also on production: ok (Test:0000), decline (Test:0305) or a 4-digit code")
 	f.BoolVar(&o.open, "open", false, "open the checkout URL in the browser")
 	f.BoolVar(&o.noWait, "no-wait", false, "do not wait for the hosted payment to complete")
@@ -244,7 +246,7 @@ func (o *payOptions) input() core.PaymentInput {
 		Card: o.card, CardNumber: o.cardNumber, Expiry: o.expiry, CVC: o.cvc, Holder: o.holder,
 		Amount: o.amount, Currency: o.currency, Description: o.description,
 		TransID: o.transID, RefNr: o.refNr, Capture: o.capture, Language: o.language,
-		Channel: o.channel, Skip3DS: o.skip3DS, Simulate: o.simulate,
+		Channel: o.channel, Skip3DS: o.skip3DS, Simulate: o.simulate, IP: o.ip,
 	}
 }
 

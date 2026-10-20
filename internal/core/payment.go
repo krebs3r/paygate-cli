@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"net"
 	"regexp"
 	"strings"
 	"time"
@@ -48,6 +49,7 @@ type PaymentInput struct {
 	Language    string
 	Channel     string // ECOM | MOTO
 	Skip3DS     bool
+	IP          string // browserInfo.ipAddress; default: profile setting or this computer
 	// Simulate turns the payment into a test transaction, also on
 	// production, by sending the order description "Test:<code>".
 	Simulate string
@@ -196,7 +198,17 @@ func BuildPaymentRequest(in PaymentInput, prof *config.Profile) (*paygate.Paymen
 			channel = "ECOM"
 		}
 		req.Channel = channel
-		req.BrowserInfo = DefaultBrowserInfo(language)
+		ip := in.IP
+		if ip == "" {
+			ip = prof.CustomerIP
+		}
+		if ip == "" {
+			ip = LocalIP()
+		}
+		if net.ParseIP(ip) == nil {
+			return nil, "", fmt.Errorf("%q is not a valid IP address", ip)
+		}
+		req.BrowserInfo = DefaultBrowserInfo(language, ip)
 		req.PaymentMethods = &paygate.PaymentMethods{Type: "CARD", IntegrationType: "DIRECT", Card: card}
 		if threeDS {
 			req.URLs = urls
@@ -207,10 +219,13 @@ func BuildPaymentRequest(in PaymentInput, prof *config.Profile) (*paygate.Paymen
 }
 
 // DefaultBrowserInfo is the browser data sent with direct card payments.
-func DefaultBrowserInfo(lang string) *paygate.BrowserInfo {
+// Paygate requires the customer's IP address; with the CLI the customer is
+// the person at this computer.
+func DefaultBrowserInfo(lang, ip string) *paygate.BrowserInfo {
 	_, offset := time.Now().Zone()
 	return &paygate.BrowserInfo{
 		AcceptHeaders:     "text/html,application/json",
+		IPAddress:         ip,
 		JavaEnabled:       false,
 		JavaScriptEnabled: true,
 		Language:          strings.ToUpper(lang),
@@ -220,6 +235,20 @@ func DefaultBrowserInfo(lang string) *paygate.BrowserInfo {
 		TimeZoneOffset:    fmt.Sprint(-offset / 60),
 		UserAgent:         "Mozilla/5.0 (paygate-cli)",
 	}
+}
+
+// LocalIP returns the address this computer uses for outgoing traffic.
+// Dialing UDP only consults the routing table; no packet is sent.
+func LocalIP() string {
+	conn, err := net.Dial("udp", "8.8.8.8:53")
+	if err != nil {
+		return "127.0.0.1"
+	}
+	defer conn.Close()
+	if a, ok := conn.LocalAddr().(*net.UDPAddr); ok && a.IP != nil {
+		return a.IP.String()
+	}
+	return "127.0.0.1"
 }
 
 // Prepare builds the HTTP request for a payment without sending it.

@@ -29,6 +29,9 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Direct card payments send `browserInfo.ipAddress`, which Paygate requires
+  ("Browser Info Ip Address must not be empty"). It defaults to this computer's
+  address and can be set per profile (`customer-ip`, Settings) or with `--ip`.
 - Spaces, line breaks and invisible characters around pasted merchant IDs and
   API keys no longer cause 401 errors.
 

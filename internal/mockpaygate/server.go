@@ -136,6 +136,9 @@ type paymentBody struct {
 	Order *struct {
 		Description string `json:"description"`
 	} `json:"order"`
+	BrowserInfo *struct {
+		IPAddress string `json:"ipAddress"`
+	} `json:"browserInfo"`
 	URLs *struct {
 		Return  string `json:"return"`
 		Cancel  string `json:"cancel"`
@@ -215,6 +218,11 @@ func (s *Server) createPayment(w http.ResponseWriter, r *http.Request) {
 	card := b.PaymentMethods.Card
 	if card == nil || card.Number == "" {
 		problem(w, map[string][]string{"paymentMethods.card.number": {"Mandatory when paymentMethods.integrationType=DIRECT."}})
+		return
+	}
+	// Like Paygate: direct card payments need the customer's IP address.
+	if b.BrowserInfo == nil || b.BrowserInfo.IPAddress == "" {
+		problemTitle(w, "Validation failed", map[string][]string{"BrowserInfo.IpAddress": {"'Browser Info Ip Address' must not be empty."}})
 		return
 	}
 	rec := s.newRecord(b)
@@ -407,9 +415,13 @@ func (s *Server) checkoutPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func problem(w http.ResponseWriter, errs map[string][]string) {
+	problemTitle(w, "One or more validation errors occurred.", errs)
+}
+
+func problemTitle(w http.ResponseWriter, title string, errs map[string][]string) {
 	writeJSON(w, 400, map[string]any{
 		"type":    "https://tools.ietf.org/html/rfc9110#section-15.5.1",
-		"title":   "One or more validation errors occurred.",
+		"title":   title,
 		"status":  400,
 		"traceId": "00-" + randHex(16) + "-" + randHex(8) + "-00",
 		"errors":  errs,

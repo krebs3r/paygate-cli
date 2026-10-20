@@ -52,8 +52,8 @@ type model struct {
 
 // Splash timing: shown at least splashMin, at most splashMax.
 var (
-	splashMin = 1100 * time.Millisecond
-	splashMax = 2500 * time.Millisecond
+	splashMin = 2500 * time.Millisecond
+	splashMax = 4 * time.Second
 )
 
 func newModel(ctx *Context) *model {

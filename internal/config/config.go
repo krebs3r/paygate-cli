@@ -41,6 +41,7 @@ type Profile struct {
 	ReturnURL   string `toml:"return_url,omitempty"`
 	CancelURL   string `toml:"cancel_url,omitempty"`
 	WebhookURL  string `toml:"webhook_url,omitempty"`
+	CustomerIP  string `toml:"customer_ip,omitempty"` // browserInfo.ipAddress; empty = this computer
 }
 
 // Return / Cancel / Webhook fall back to the defaults.

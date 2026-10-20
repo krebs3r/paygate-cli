@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -54,10 +55,10 @@ func newProfileCmd(app *App) *cobra.Command {
 		},
 		&cobra.Command{
 			Use:   "set <key> <value>",
-			Short: "Change a profile setting (currency, language, return-url, cancel-url, webhook-url, auth)",
+			Short: "Change a profile setting (currency, language, return-url, cancel-url, webhook-url, customer-ip, auth)",
 			Long: `Change a setting of the active profile (or --profile).
 
-Keys: currency, language, return-url, cancel-url, webhook-url, auth.
+Keys: currency, language, return-url, cancel-url, webhook-url, customer-ip, auth.
 Use the value "default" to reset a setting.
 
 Paygate only calls HTTPS URLs on port 443, so callback URLs cannot point
@@ -279,13 +280,18 @@ func profileSet(app *App, key, value string) error {
 			return err
 		}
 		p.WebhookURL = v
+	case "customer-ip":
+		if v != "" && net.ParseIP(v) == nil {
+			return fmt.Errorf("%q is not a valid IP address", v)
+		}
+		p.CustomerIP = v
 	case "auth":
 		if v != string(paygate.AuthBasic) && v != string(paygate.AuthOAuth2) {
 			return fmt.Errorf("auth must be basic or oauth2")
 		}
 		p.Auth = v
 	default:
-		return fmt.Errorf("unknown setting %q (currency, language, return-url, cancel-url, webhook-url, auth)", key)
+		return fmt.Errorf("unknown setting %q (currency, language, return-url, cancel-url, webhook-url, customer-ip, auth)", key)
 	}
 	if err := cfg.Save(); err != nil {
 		return err

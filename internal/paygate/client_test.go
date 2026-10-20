@@ -24,8 +24,9 @@ func newMock(t *testing.T) (*mockpaygate.Server, string) {
 
 func cardRequest(number string) *paygate.PaymentRequest {
 	return &paygate.PaymentRequest{
-		TransID: "TID1",
-		Amount:  paygate.Amount{Value: 1299, Currency: "EUR"},
+		TransID:     "TID1",
+		Amount:      paygate.Amount{Value: 1299, Currency: "EUR"},
+		BrowserInfo: &paygate.BrowserInfo{IPAddress: "203.0.113.7", JavaScriptEnabled: true},
 		PaymentMethods: &paygate.PaymentMethods{Type: "CARD", IntegrationType: "DIRECT",
 			Card: &paygate.Card{Number: number, Brand: "VISA", ExpiryDate: "203012", SecurityCode: "123"}},
 	}

@@ -35,6 +35,15 @@ func TestBuildPaymentRequest(t *testing.T) {
 	if req.Order.Description != SimSuccess {
 		t.Errorf("simulation must replace the description, got %q", req.Order.Description)
 	}
+	if req.BrowserInfo == nil || req.BrowserInfo.IPAddress == "" {
+		t.Error("direct card payments must send browserInfo.ipAddress")
+	}
+	if r2, _, _ := BuildPaymentRequest(PaymentInput{Flow: FlowDirect, Card: "visa-ok", IP: "203.0.113.7"}, prof); r2.BrowserInfo.IPAddress != "203.0.113.7" {
+		t.Errorf("--ip override ignored: %s", r2.BrowserInfo.IPAddress)
+	}
+	if _, _, err := BuildPaymentRequest(PaymentInput{Flow: FlowDirect, Card: "visa-ok", IP: "nope"}, prof); err == nil {
+		t.Error("invalid IP must fail")
+	}
 	if label != "VISA •••• 1111" || req.PaymentMethods.Card.Number != "4111111111111111" || req.BrowserInfo == nil {
 		t.Errorf("card request = %q %+v", label, req.PaymentMethods.Card)
 	}

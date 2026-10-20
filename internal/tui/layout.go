@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -69,13 +70,10 @@ func (m *model) render() string {
 }
 
 func (m *model) renderHeader(w int) string {
-	left := " " + ui.Accent.Render("◆") + " " + ui.Bold.Render("paygate") + " " + ui.Muted.Render(shortVersion(m.ctx.Version))
+	left := " " + ui.Accent.Render("◆") + " " + ui.Label.Render(shortVersion(m.ctx.Version))
 	right := ui.Muted.Render(t("no.profile")) + " "
 	if s := m.ctx.Session; s != nil {
 		right = ui.EnvBadge(s.Profile.IsProd()) + " " + ui.Label.Render(s.Profile.Brand+" · "+s.Name) + " " + ui.Muted.Render(s.Profile.MerchantID) + " "
-	}
-	if lipgloss.Width(left)+lipgloss.Width(right) >= w {
-		left = " " + ui.Accent.Render("◆") + " " + ui.Bold.Render("paygate")
 	}
 	return spread(left, right, w)
 }
@@ -90,7 +88,7 @@ func shortVersion(v string) string {
 
 func (m *model) renderSidebar(h int) string {
 	logo := strings.Split(ui.SmallLogo(), "\n")
-	lines := []string{"  " + logo[0], "  " + logo[1], ui.Muted.Render(" " + strings.Repeat("─", sidebarW-2)), ""}
+	lines := []string{"  " + logo[0], "  " + logo[1], " " + ui.CLIDivider(sidebarW-2), ""}
 	for i, s := range m.screens {
 		title := truncate(s.Title(), sidebarW-6)
 		key := ui.Muted.Render(s.Shortcut())
@@ -236,23 +234,26 @@ func (m *model) helpView(w int) string {
 
 func (m *model) renderSplash() string {
 	frame := m.splashFrame
-	logo := ui.BigLogo(frame / 2)
-	if m.width < ui.BigLogoWidth+6 || m.height < 16 {
-		logo = ui.SmallLogo()
+	logo := ui.BigLogo(frame/2) + "\n" + ui.CLILabel(ui.BigLogoWidth)
+	if m.width < ui.BigLogoWidth+6 || m.height < 18 {
+		logo = ui.SmallLogo() + "\n" + ui.CLILabel(ui.SmallLogoWidth)
 	}
-	status := ""
-	bar := 14
-	filled := min(bar, frame)
+	// The bar fills over the minimum splash time and completes once the
+	// credential check has answered.
+	bar := 24
+	filled := int(float64(bar) * float64(time.Since(m.splashStart)) / float64(splashMin))
+	filled = max(0, min(bar-1, filled))
+	status := ui.Muted.Render(t("splash.verifying"))
 	switch {
 	case m.ctx.Session == nil:
-		filled, status = bar, ui.Label.Render(t("splash.noprofile"))
-	case !m.ctx.VerifyDone:
-		status = ui.Muted.Render(t("splash.verifying"))
-		filled = min(bar-2, frame%(bar+1))
-	case m.ctx.Verified:
-		filled, status = bar, ui.Success.Render("✓ "+t("splash.ok"))
-	default:
-		filled, status = bar, ui.Danger.Render("✗ "+t("splash.fail"))
+		status = ui.Label.Render(t("splash.noprofile"))
+	case m.ctx.VerifyDone && m.ctx.Verified:
+		status = ui.Success.Render("✓ " + t("splash.ok"))
+	case m.ctx.VerifyDone:
+		status = ui.Danger.Render("✗ " + t("splash.fail"))
+	}
+	if (m.ctx.Session == nil || m.ctx.VerifyDone) && time.Since(m.splashStart) >= splashMin {
+		filled = bar
 	}
 	progress := ui.Link.Render(strings.Repeat("▰", filled)) + ui.Muted.Render(strings.Repeat("▱", bar-filled)) + "  " + status
 

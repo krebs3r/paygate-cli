@@ -3,11 +3,13 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 
+	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/i18n"
 	"github.com/krebs3r/paygate-cli/internal/money"
 	"github.com/krebs3r/paygate-cli/internal/ui"
@@ -28,6 +30,7 @@ func settingsList() []setting {
 		{"return_url", "set.return", true},
 		{"cancel_url", "set.cancel", true},
 		{"webhook_url", "set.webhook", true},
+		{"customer_ip", "set.ip", true},
 	}
 }
 
@@ -101,6 +104,11 @@ func (s *settingsScreen) current(ctx *Context, id string) (value string, isDefau
 		return p.Cancel(), p.CancelURL == ""
 	case "webhook_url":
 		return p.Webhook(), p.WebhookURL == ""
+	case "customer_ip":
+		if p.CustomerIP == "" {
+			return core.LocalIP() + " " + t("set.ip.auto"), true
+		}
+		return p.CustomerIP, false
 	}
 	return "", true
 }
@@ -167,6 +175,14 @@ func (s *settingsScreen) edit(ctx *Context, st setting) tea.Cmd {
 			huh.NewOption("English", "en"), huh.NewOption("Deutsch", "de"), huh.NewOption("Français", "fr"),
 			huh.NewOption("Español", "es"), huh.NewOption("Italiano", "it"), huh.NewOption("Nederlands", "nl"),
 		).Value(&s.value)
+	case "customer_ip":
+		s.value = ctx.Session.Profile.CustomerIP
+		field = huh.NewInput().Title(t(st.label)).Description(t("set.ip.desc")).Placeholder(core.LocalIP()).Value(&s.value).Validate(func(v string) error {
+			if v = strings.TrimSpace(v); v != "" && net.ParseIP(v) == nil {
+				return errors.New(t("set.ip.invalid"))
+			}
+			return nil
+		})
 	default:
 		s.value, _ = s.current(ctx, st.id)
 		field = huh.NewInput().Title(t(st.label)).Description(t("set.https")).Value(&s.value).Validate(func(v string) error {
@@ -203,6 +219,8 @@ func (s *settingsScreen) apply(ctx *Context) tea.Cmd {
 			p.CancelURL = v
 		case "webhook_url":
 			p.WebhookURL = v
+		case "customer_ip":
+			p.CustomerIP = v
 		}
 	}
 	if err := ctx.Cfg.Save(); err != nil {
@@ -229,7 +247,7 @@ func (s *settingsScreen) View(ctx *Context, w, h int) string {
 		}
 		lastProfile = st.profile
 		val, def := s.current(ctx, st.id)
-		if def && st.id != "ui_language" && st.id != "splash" {
+		if def && st.id != "ui_language" && st.id != "splash" && st.id != "customer_ip" {
 			val += ui.Muted.Render("  " + t("set.default"))
 		}
 		row := fmt.Sprintf("%-26s ", truncate(t(st.label), 26)) + val

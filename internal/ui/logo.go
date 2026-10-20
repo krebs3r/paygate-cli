@@ -46,6 +46,29 @@ func SmallLogo() string {
 		lipgloss.NewStyle().Foreground(logoGradient[4]).Render(smallLogo[1])
 }
 
+// CLILabel is the "C L I" line shown centred below a logo of width w.
+func CLILabel(w int) string {
+	label := "C L I"
+	left := (w - len(label)) / 2
+	if left < 0 {
+		left = 0
+	}
+	return strings.Repeat(" ", left) + lipgloss.NewStyle().Foreground(logoGradient[5]).Bold(true).Render(label)
+}
+
+// CLIDivider is a horizontal rule of width w with "C L I" in the middle.
+func CLIDivider(w int) string {
+	label := " C L I "
+	side := (w - len(label)) / 2
+	if side < 1 {
+		return CLILabel(w)
+	}
+	rule := lipgloss.NewStyle().Foreground(ColBorder)
+	return rule.Render(strings.Repeat("─", side)) +
+		lipgloss.NewStyle().Foreground(logoGradient[5]).Bold(true).Render(label) +
+		rule.Render(strings.Repeat("─", w-side-len(label)))
+}
+
 // SmallLogoWidth is the width of the small logo in cells.
 var SmallLogoWidth = lipgloss.Width(smallLogo[0])
 
