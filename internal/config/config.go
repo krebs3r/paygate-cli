@@ -67,6 +67,7 @@ func orDefault(v, d string) string {
 // Config is the whole configuration file.
 type Config struct {
 	ActiveProfile string              `toml:"active_profile"`
+	UILanguage    string              `toml:"ui_language,omitempty"` // auto | en | de
 	Profiles      map[string]*Profile `toml:"profiles"`
 
 	path string

@@ -11,7 +11,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/krebs3r/paygate-cli/internal/config"
+	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
+	"github.com/krebs3r/paygate-cli/internal/tui"
 	"github.com/krebs3r/paygate-cli/internal/ui"
 )
 
@@ -85,21 +87,13 @@ func (a *App) Client() (string, *config.Profile, *paygate.Client, error) {
 // Origin returns the API origin of a profile; PAYGATE_BASE_URL overrides it
 // (mock server, proxies).
 func (a *App) Origin(p *config.Profile) (string, error) {
-	if o := os.Getenv("PAYGATE_BASE_URL"); o != "" {
-		return strings.TrimRight(o, "/"), nil
-	}
-	return paygate.Origin(paygate.Brand(p.Brand), paygate.Env(p.Env))
+	return core.Origin(p)
 }
 
 func (a *App) newClient(p *config.Profile, apiKey string) (*paygate.Client, error) {
-	origin, err := a.Origin(p)
-	if err != nil {
-		return nil, err
-	}
-	c := paygate.New(origin, p.MerchantID, apiKey, paygate.AuthMode(p.Auth))
-	c.UserAgent = "paygate-cli/" + a.Build.Version
+	opts := core.ClientOptions{Version: a.Build.Version}
 	if a.Verbose > 0 {
-		c.HTTP.Transport = &paygate.LoggingTransport{
+		opts.Transport = &paygate.LoggingTransport{
 			Level: a.Verbose,
 			Out:   ui.Stderr,
 			Style: func(kind, s string) string {
@@ -114,7 +108,7 @@ func (a *App) newClient(p *config.Profile, apiKey string) (*paygate.Client, erro
 			},
 		}
 	}
-	return c, nil
+	return core.NewClient(p, apiKey, opts)
 }
 
 // PrintHeader shows the banner in human mode.
@@ -159,8 +153,10 @@ func NewRootCmd(build BuildInfo) *cobra.Command {
 		Short: "Send real Nexi / Computop Paygate payments from your terminal",
 		Long: "paygate sends payments to the Nexi / Computop Paygate REST API v2, shows their status\n" +
 			"and runs follow-up operations such as capture, refund and cancel.\n\n" +
-			"Get started with `paygate init`, then `paygate pay`.",
+			"Run paygate without a command to open the full-screen app, or start with\n" +
+			"`paygate init` and `paygate pay`.",
 		Version:       build.Version,
+		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -173,6 +169,14 @@ func NewRootCmd(build BuildInfo) *cobra.Command {
 				return fmt.Errorf("unknown output format %q (use table or json)", app.Output)
 			}
 			return nil
+		},
+		// Without a command, paygate opens the full-screen app in a terminal
+		// and prints the help otherwise (pipes, CI, -o json).
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !ui.Interactive() || app.JSON() {
+				return cmd.Help()
+			}
+			return tui.Run(tui.Options{Version: build.Version, Profile: app.ProfileName})
 		},
 	}
 	root.SetVersionTemplate("paygate {{.Version}}\n")

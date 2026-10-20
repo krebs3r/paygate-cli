@@ -162,6 +162,13 @@ Your profiles and API keys are kept. Remove them first with
 
 ## Quickstart
 
+Type `paygate` and press <kbd>Enter</kbd>. The full-screen app opens: pick an
+area in the menu on the left with the arrow keys or the mouse, the bottom line
+always shows the keys you can use, and <kbd>?</kbd> lists all shortcuts. On first
+start it walks you through adding your merchant.
+
+Prefer single commands, for example in scripts?
+
 ```bash
 paygate init                       # 1. add merchant ID + REST API key
 paygate pay                        # 2. send a payment with the wizard
@@ -178,6 +185,7 @@ paygate get <payId>                # 3. look at it again later
 
 | Command | Purpose | Example |
 | --- | --- | --- |
+| `paygate` | Open the full-screen app | `paygate` |
 | `paygate init` | Add or update a merchant profile | `paygate init` |
 | `paygate pay` | Create a payment (wizard without flags) | `paygate pay --card visa-ok --amount 12.99` |
 | `paygate pay --hosted` | Hosted payment page with all or selected methods | `paygate pay --hosted --methods card,paypal --open` |

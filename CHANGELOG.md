@@ -3,6 +3,23 @@
 All notable changes to this project are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- Full-screen app: `paygate` without a command opens it. Sidebar with Home,
+  Test cards, Profiles (add, switch, verify, delete) and Settings; footer key
+  hints, `?` help, mouse support and tabs in narrow windows. New payment,
+  Payments and Inspector follow in the next steps.
+- English and German interface, chosen automatically or in Settings.
+- `init` checks test and production, Nexi and Computop, Basic and OAuth2 in
+  parallel when the credentials are rejected.
+
+### Fixed
+
+- Spaces, line breaks and invisible characters around pasted merchant IDs and
+  API keys no longer cause 401 errors.
+
 ## [0.1.0] - 2026-10-20
 
 First MVP.

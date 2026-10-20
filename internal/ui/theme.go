@@ -23,6 +23,8 @@ var (
 	ColMuted   = lipgloss.AdaptiveColor{Light: "#94a3b8", Dark: "#5c6e88"}
 	ColMuted2  = lipgloss.AdaptiveColor{Light: "#475569", Dark: "#8fa3bf"}
 	ColBorder  = lipgloss.AdaptiveColor{Light: "#b0bdd0", Dark: "#2a3448"}
+	// ColSelection is the background of the selected list row.
+	ColSelection = lipgloss.AdaptiveColor{Light: "#dbeafe", Dark: "#162036"}
 
 	colSuccessBg = lipgloss.AdaptiveColor{Light: "#dcfce7", Dark: "#0c2a17"}
 	colDangerBg  = lipgloss.AdaptiveColor{Light: "#fee2e2", Dark: "#2a0f10"}
