@@ -101,6 +101,7 @@ type newPaymentScreen struct {
 	pendingOp string
 	confirmOp bool
 	details   bool // show the detail card instead of the receipt
+	zoom      bool // QR code full screen while waiting
 	paidAt    time.Time
 }
 
@@ -132,6 +133,10 @@ func (s *newPaymentScreen) Back(ctx *Context) bool {
 		s.form = nil
 		return true
 	case stageWaiting:
+		if s.zoom {
+			s.zoom = false
+			return true
+		}
 		s.stopWaiting()
 		return true
 	}
@@ -148,7 +153,7 @@ func (s *newPaymentScreen) Hints(ctx *Context) []Hint {
 	case stageReview:
 		return []Hint{{"enter", t("key.send")}, {"e", t("key.edit")}, {"j", t("key.json")}, {"c", t("key.curl")}, {"esc", t("key.edit")}}
 	case stageWaiting:
-		return []Hint{{"o", t("key.openbrowser")}, {"c", t("key.copyurl")}, {"esc", t("key.stop")}}
+		return []Hint{{"z", t("key.qrzoom")}, {"o", t("key.openbrowser")}, {"c", t("key.copyurl")}, {"esc", t("key.stop")}}
 	case stageResult:
 		hints := []Hint{{"r", t("key.again")}, {"n", t("key.new")}}
 		if s.result != nil {
@@ -391,6 +396,8 @@ func (s *newPaymentScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 		}
 	case stageWaiting:
 		switch km.String() {
+		case "z":
+			s.zoom = !s.zoom
 		case "o":
 			return s.openBrowser()
 		case "c":
@@ -434,7 +441,7 @@ func (s *newPaymentScreen) send(ctx *Context) tea.Cmd {
 	s.seq++
 	seq, client, prepared := s.seq, ctx.Session.Client, s.prepared
 	s.stage, s.result, s.response, s.errText, s.errLines, s.note = stageSending, nil, nil, "", nil, ""
-	s.opKind, s.waitStart, s.details = "", time.Time{}, false
+	s.opKind, s.waitStart, s.details, s.zoom = "", time.Time{}, false, false
 	return tea.Batch(s.spin.Tick, func() tea.Msg {
 		c, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
@@ -703,7 +710,8 @@ func (s *newPaymentScreen) reviewView(ctx *Context, w, h int) string {
 	return out
 }
 
-func (s *newPaymentScreen) waitView(w, h int) string {
+// waitText is the status column shown next to (or instead of) the QR code.
+func (s *newPaymentScreen) waitText() string {
 	heading, hint := t("wait.title"), t("wait.scan")
 	if core.Flow(s.flow) == core.FlowDirect {
 		heading, hint = t("wait.3ds.title"), t("wait.3ds")
@@ -713,19 +721,61 @@ func (s *newPaymentScreen) waitView(w, h int) string {
 		status = t("wait.none")
 	}
 	el := time.Since(s.waitStart).Round(time.Second)
-	text := ui.Bold.Render(heading) + "\n" +
+	return ui.Bold.Render(heading) + "\n" +
 		ui.Label.Render(money.Format(s.req.Amount.Value, s.req.Amount.Currency)+" · "+s.req.TransID) + "\n\n" +
 		ui.Muted.Render(hint) + "\n\n" +
 		s.spin.View() + " " + ui.Label.Render(fmt.Sprintf(t("wait.status"), status, fmt.Sprintf("%d:%02d", int(el.Minutes()), int(el.Seconds())%60)))
+}
+
+func (s *newPaymentScreen) waitView(w, h int) string {
 	qr := ui.QR(s.checkout)
-	block := text
-	switch {
-	case lipgloss.Height(qr)+4 <= h && lipgloss.Width(qr)+40 <= w:
-		block = lipgloss.JoinHorizontal(lipgloss.Center, qr, "   ", text)
-	default:
-		block = text + "\n\n" + ui.Muted.Render(t("wait.small"))
+	qrW, qrH := lipgloss.Width(qr), lipgloss.Height(qr)
+	textW := w - qrW - 3
+	// The URL sits in the column next to the code, so the code only needs
+	// its own height.
+	if qrH <= h && textW >= 32 {
+		text := s.waitText() + "\n\n" + ui.Label.Render("URL") + "\n" + ui.Link.Render(hardWrap(s.checkout, textW))
+		return lipgloss.JoinHorizontal(lipgloss.Top, qr, "   ", text)
 	}
-	return block + "\n\n" + ui.Label.Render("URL ") + ui.Link.Render(s.checkout)
+	return s.waitText() + "\n\n" + ui.Warning.Render("! ") + ui.Label.Render(wrap(t("wait.small"), min(w-2, 76))) +
+		"\n\n" + ui.Label.Render("URL") + "\n" + ui.Link.Render(hardWrap(s.checkout, w))
+}
+
+// FullScreen shows the QR code alone on the whole terminal (key z).
+func (s *newPaymentScreen) FullScreen(ctx *Context, w, h int) (string, bool) {
+	if !s.zoom || s.stage != stageWaiting {
+		return "", false
+	}
+	qr := ui.QR(s.checkout)
+	qrH := lipgloss.Height(qr)
+	keys := ui.Muted.Render("esc " + t("key.back") + "  ·  o " + t("key.openbrowser") + "  ·  c " + t("key.copyurl"))
+	var block string
+	switch {
+	case h >= qrH+4:
+		el := time.Since(s.waitStart).Round(time.Second)
+		info := ui.Label.Render(money.Format(s.req.Amount.Value, s.req.Amount.Currency)+" · "+s.req.TransID) + "  " +
+			s.spin.View() + " " + ui.Muted.Render(fmt.Sprintf("%d:%02d", int(el.Minutes()), int(el.Seconds())%60))
+		block = qr + "\n\n" + info + "\n" + keys
+	case h >= qrH:
+		block = qr
+	default:
+		block = ui.Warning.Render(fmt.Sprintf(t("wait.zoom.small"), qrH)) + "\n\n" + keys
+	}
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, lipgloss.NewStyle().Align(lipgloss.Center).Render(block)), true
+}
+
+// hardWrap breaks a long token-like string (URL) into lines of width w.
+func hardWrap(s string, w int) string {
+	if w < 10 {
+		w = 10
+	}
+	r := []rune(s)
+	var parts []string
+	for len(r) > w {
+		parts = append(parts, string(r[:w]))
+		r = r[w:]
+	}
+	return strings.Join(append(parts, string(r)), "\n")
 }
 
 func (s *newPaymentScreen) resultView(ctx *Context, w int) string {

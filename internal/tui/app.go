@@ -316,5 +316,10 @@ func (m *model) View() string {
 	if m.splash {
 		return m.renderSplash()
 	}
+	if fs, ok := m.current().(FullScreener); ok && !m.help && !m.pal.open {
+		if view, on := fs.FullScreen(m.ctx, m.width, m.height); on {
+			return view
+		}
+	}
 	return m.render()
 }

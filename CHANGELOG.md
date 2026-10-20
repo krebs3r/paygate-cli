@@ -20,6 +20,9 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   stays red.
 - QR codes are drawn with fixed black and white colours and a quiet zone, so
   they scan in every colour scheme and with extra line spacing.
+- The QR code fits smaller windows: the URL moved next to it and the quiet
+  zone is one module (a real Paygate link fits 120 × 30). If it still does
+  not fit, `z` shows the code full screen while the app keeps waiting.
 
 ## [0.2.0] - 2026-10-20
 

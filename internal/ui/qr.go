@@ -8,8 +8,9 @@ import (
 	"rsc.io/qr"
 )
 
-// qrQuiet is the light border around the code (modules).
-const qrQuiet = 2
+// qrQuiet is the light border around the code in modules. One module on the
+// dark terminal background scans reliably and keeps the code small.
+const qrQuiet = 1
 
 // QR renders text as a QR code that scanners read reliably in any terminal:
 // dark modules on a light background, two modules per character cell. Each

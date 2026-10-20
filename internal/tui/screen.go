@@ -36,6 +36,12 @@ type Screen interface {
 	Back(ctx *Context) bool
 }
 
+// FullScreener screens can temporarily take over the whole terminal, e.g. to
+// show a large QR code in a small window.
+type FullScreener interface {
+	FullScreen(ctx *Context, w, h int) (string, bool)
+}
+
 // Receiver screens accept data when another screen switches to them.
 type Receiver interface {
 	Receive(ctx *Context, data any) tea.Cmd
