@@ -451,3 +451,61 @@ func TestPaymentsLookupAndFilter(t *testing.T) {
 		t.Errorf("unknown ID message = %q", s.message)
 	}
 }
+
+func TestFuzzyRanking(t *testing.T) {
+	if _, ok := fuzzy("refu", "Sprache auf English umstellen"); ok {
+		t.Error("scattered letters must not match")
+	}
+	a, _ := fuzzy("refu", "refund")
+	b, ok := fuzzy("zahl", "Neue Zahlung")
+	if a <= b || !ok {
+		t.Errorf("word-prefix match should beat a later word match: %d vs %d", a, b)
+	}
+}
+
+func TestCommandPalette(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	send(m, tea.KeyMsg{Type: tea.KeyCtrlK})
+	if !m.pal.open || !strings.Contains(m.View(), "New payment") {
+		t.Fatalf("palette not shown:\n%s", m.View())
+	}
+	send(m, keys("shop-prod"))
+	if len(m.pal.matches) == 0 || !strings.Contains(m.pal.matches[0].label, "shop-prod") {
+		t.Fatalf("matches = %+v", m.pal.matches)
+	}
+	send(m, enter)
+	if m.pal.open || m.ctx.Session == nil || m.ctx.Session.Name != "shop-prod" {
+		t.Fatalf("switch via palette failed: %+v", m.ctx.Session)
+	}
+	send(m, tea.KeyMsg{Type: tea.KeyCtrlP}, keys("look"), enter)
+	if m.current().ID() != "payments" || m.current().(*paymentsScreen).form == nil {
+		t.Error("look up should open the lookup form")
+	}
+}
+
+func TestInspectorShowsRequests(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	createPayment(t, m, core.PaymentInput{Flow: core.FlowDirect, Card: "visa-ok"})
+	send(m, keys("i"))
+	view := m.View()
+	if !strings.Contains(view, "POST") || !strings.Contains(view, "/payments") || !strings.Contains(view, "201") {
+		t.Fatalf("inspector view:\n%s", view)
+	}
+	send(m, keys("v")) // request view
+	s := m.current().(*inspectorScreen)
+	for i := 0; i < 5; i++ {
+		send(m, tea.KeyMsg{Type: tea.KeyPgDown})
+	}
+	if strings.Contains(m.View(), "4111111111111111") {
+		t.Error("the inspector must not show full card numbers")
+	}
+	if s.response {
+		t.Error("v should switch to the request")
+	}
+	send(m, keys("x"), tea.KeyMsg{Type: tea.KeyLeft}, enter) // confirm "Yes"
+	if len(s.entries) != 0 {
+		t.Errorf("clear left %d entries", len(s.entries))
+	}
+}

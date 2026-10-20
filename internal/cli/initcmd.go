@@ -15,6 +15,7 @@ import (
 	"github.com/krebs3r/paygate-cli/internal/config"
 	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
+	"github.com/krebs3r/paygate-cli/internal/reqlog"
 	"github.com/krebs3r/paygate-cli/internal/ui"
 )
 
@@ -122,7 +123,7 @@ func runInit(app *App, o *initOptions) error {
 	}
 
 	if !o.noVerify {
-		if err := verifyCredentials(app, prof, o.apiKey); err != nil {
+		if err := verifyCredentials(app, o.name, prof, o.apiKey); err != nil {
 			if !ui.Interactive() {
 				return errSilentFail
 			}
@@ -178,16 +179,16 @@ func runInit(app *App, o *initOptions) error {
 // family and auth mode, because Nexi and Computop merchant IDs only work on
 // their own hosts and some merchants are set up for OAuth2 only. If nothing
 // works it prints what was sent (without the secret) and the usual causes.
-func verifyCredentials(app *App, prof *config.Profile, apiKey string) error {
+func verifyCredentials(app *App, name string, prof *config.Profile, apiKey string) error {
 	origin, err := app.Origin(prof)
 	if err != nil {
 		return err
 	}
-	client, err := app.newClient(prof, apiKey)
+	client, err := app.newClient(name, prof, apiKey)
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
+	ctx := reqlog.WithoutLog(context.Background())
 	err = ui.Spin("Verifying credentials with "+hostOf(origin)+" …", func() error {
 		vctx, cancel := context.WithTimeout(ctx, core.ProbeTimeout)
 		defer cancel()
@@ -206,7 +207,7 @@ func verifyCredentials(app *App, prof *config.Profile, apiKey string) error {
 		var match *config.Profile
 		_ = ui.Spin("Checking test/production, Nexi/Computop and Basic/OAuth2 …", func() error {
 			match, _ = core.FindWorkingSettings(ctx, prof, func(p *config.Profile) (*paygate.Client, error) {
-				return app.newClient(p, apiKey)
+				return app.newClient(name, p, apiKey)
 			})
 			return nil
 		})

@@ -14,6 +14,7 @@ import (
 	"github.com/krebs3r/paygate-cli/internal/config"
 	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
+	"github.com/krebs3r/paygate-cli/internal/reqlog"
 	"github.com/krebs3r/paygate-cli/internal/ui"
 )
 
@@ -268,13 +269,13 @@ func (s *profilesScreen) verify(ctx *Context, name string, p *config.Profile, ke
 	version := ctx.Version
 	check := func() tea.Msg {
 		factory := func(p *config.Profile) (*paygate.Client, error) {
-			return core.NewClient(p, key, core.ClientOptions{Version: version})
+			return core.NewClient(p, key, core.ClientOptions{Version: version, Profile: name})
 		}
 		c, err := factory(p)
 		if err != nil {
 			return verifyResultMsg{adding: adding, name: name, err: err}
 		}
-		vctx, cancel := context.WithTimeout(context.Background(), core.ProbeTimeout)
+		vctx, cancel := context.WithTimeout(reqlog.WithoutLog(context.Background()), core.ProbeTimeout)
 		defer cancel()
 		err = c.Verify(vctx)
 		if err == nil || !errors.Is(err, paygate.ErrUnauthorized) {

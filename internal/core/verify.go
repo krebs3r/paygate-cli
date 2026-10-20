@@ -8,6 +8,7 @@ import (
 
 	"github.com/krebs3r/paygate-cli/internal/config"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
+	"github.com/krebs3r/paygate-cli/internal/reqlog"
 )
 
 // ClientFactory builds an API client for a profile.
@@ -45,7 +46,7 @@ func FindWorkingSettings(ctx context.Context, selected *config.Profile, newClien
 			if err != nil {
 				return
 			}
-			pctx, cancel := context.WithTimeout(ctx, ProbeTimeout)
+			pctx, cancel := context.WithTimeout(reqlog.WithoutLog(ctx), ProbeTimeout)
 			defer cancel()
 			ok[i] = c.Verify(pctx) == nil
 		}(i)

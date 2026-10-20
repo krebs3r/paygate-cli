@@ -7,6 +7,7 @@ import (
 
 	"github.com/krebs3r/paygate-cli/internal/config"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
+	"github.com/krebs3r/paygate-cli/internal/reqlog"
 )
 
 // Origin returns the API origin of a profile. PAYGATE_BASE_URL overrides it
@@ -21,7 +22,8 @@ func Origin(p *config.Profile) (string, error) {
 // ClientOptions tune how clients are built.
 type ClientOptions struct {
 	Version   string
-	Transport http.RoundTripper // optional, e.g. request logging
+	Profile   string            // recorded with each request in the Inspector log
+	Transport http.RoundTripper // optional, e.g. verbose logging to stderr
 }
 
 // NewClient builds an API client for a profile and key.
@@ -34,9 +36,7 @@ func NewClient(p *config.Profile, apiKey string, opts ClientOptions) (*paygate.C
 	if opts.Version != "" {
 		c.UserAgent = "paygate-cli/" + opts.Version
 	}
-	if opts.Transport != nil {
-		c.HTTP.Transport = opts.Transport
-	}
+	c.HTTP.Transport = &reqlog.Transport{Base: opts.Transport, Profile: opts.Profile}
 	return c, nil
 }
 
@@ -63,6 +63,7 @@ func OpenSession(cfg *config.Config, name string, opts ClientOptions) (*Session,
 	if err != nil {
 		return nil, err
 	}
+	opts.Profile = n
 	c, err := NewClient(p, key, opts)
 	if err != nil {
 		return nil, err

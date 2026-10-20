@@ -108,29 +108,3 @@ func (s *aboutScreen) View(ctx *Context, w, h int) string {
 		ui.Muted.Render(wrap(t("about.license"), w)) + "\n" +
 		ui.Muted.Render(wrap(t("about.official"), w))
 }
-
-// ---- Placeholders for upcoming steps ----------------------------------------
-
-type soonScreen struct {
-	id, titleKey, shortcut, textKey, command string
-	step                                     int
-}
-
-func newSoonScreen(id, titleKey, shortcut string, step int, textKey, command string) *soonScreen {
-	return &soonScreen{id: id, titleKey: titleKey, shortcut: shortcut, step: step, textKey: textKey, command: command}
-}
-
-func (s *soonScreen) ID() string                       { return s.id }
-func (s *soonScreen) Title() string                    { return t(s.titleKey) }
-func (s *soonScreen) Shortcut() string                 { return s.shortcut }
-func (s *soonScreen) Activate(*Context) tea.Cmd        { return nil }
-func (s *soonScreen) Capturing() bool                  { return false }
-func (s *soonScreen) Back(*Context) bool               { return false }
-func (s *soonScreen) Hints(*Context) []Hint            { return nil }
-func (s *soonScreen) Update(*Context, tea.Msg) tea.Cmd { return nil }
-func (s *soonScreen) View(ctx *Context, w, h int) string {
-	return title(t(s.titleKey)) + "  " + ui.Badge(fmt.Sprintf(t("soon.title"), s.step), ui.ToneAccent) + "\n\n" +
-		ui.Label.Render(wrap(t(s.textKey), min(w, 72))) + "\n\n" +
-		ui.Muted.Render(t("soon.until")) + "\n" +
-		ui.Link.Render("  "+s.command)
-}

@@ -25,6 +25,13 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   refund (full or partial), release and refresh. Home shows today's numbers
   and the latest payments. `paygate history` lists the same on the command
   line (`--all`, `--limit`, `-o json`).
+- Inspector in the app: the last 200 requests to Paygate from the app and the
+  command line (`requests.jsonl`) with request/response headers and JSON,
+  status, timing and correlation ID; copy body or curl, clear the log.
+  Credentials are never logged, card numbers and CVC are masked.
+- Command palette (`ctrl+k` or `ctrl+p`): fuzzy search over every action in
+  English and German: go to screens, look up or open the last payment, copy
+  the last pay ID, switch profile, switch language, clear the request log.
 - ASCII art: start screen with the large PAYGATE logo (credentials are checked
   meanwhile; can be switched off in Settings or with PAYGATE_NO_SPLASH), small
   logo in the sidebar and results printed as a receipt (d shows the details).

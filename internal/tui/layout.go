@@ -141,9 +141,12 @@ func (m *model) renderTabs(w int) string {
 func (m *model) renderContent(w, h int) string {
 	cw, ch := w-4, h-2
 	var content string
-	if m.help {
+	switch {
+	case m.pal.open:
+		content = m.paletteView(cw)
+	case m.help:
 		content = m.helpView(cw)
-	} else {
+	default:
 		content = m.current().View(m.ctx, cw, ch)
 	}
 	return lipgloss.NewStyle().Padding(1, 2).Render(fit(content, cw, ch))
@@ -152,6 +155,8 @@ func (m *model) renderContent(w, h int) string {
 func (m *model) renderFooter(w int) string {
 	var hints []Hint
 	switch {
+	case m.pal.open:
+		hints = []Hint{{"↑↓", t("key.select")}, {"enter", t("key.open")}, {"esc", t("key.close")}}
 	case m.help:
 		hints = []Hint{{"esc", t("key.close")}}
 	case m.focus == focusMenu:
@@ -166,8 +171,8 @@ func (m *model) renderFooter(w int) string {
 			hints = append(hints, Hint{"esc", t("key.menu")})
 		}
 	}
-	if !m.current().Capturing() || m.focus == focusMenu {
-		hints = append(hints, Hint{"?", t("key.help")}, Hint{"q", t("key.quit")})
+	if !m.pal.open && (!m.current().Capturing() || m.focus == focusMenu) {
+		hints = append(hints, Hint{"ctrl+k", t("key.commands")}, Hint{"?", t("key.help")}, Hint{"q", t("key.quit")})
 	}
 	var parts []string
 	for _, h := range hints {
@@ -200,6 +205,7 @@ func (m *model) helpView(w int) string {
 		{"enter", t("help.open")},
 		{"esc", t("help.back")},
 		{"tab", t("help.tab")},
+		{"ctrl+k ctrl+p", t("help.palette")},
 	}
 	var keys []string
 	for _, s := range m.screens {

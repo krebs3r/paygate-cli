@@ -164,8 +164,10 @@ Your profiles and API keys are kept. Remove them first with
 
 Type `paygate` and press <kbd>Enter</kbd>. The full-screen app opens: pick an
 area in the menu on the left with the arrow keys or the mouse, the bottom line
-always shows the keys you can use, and <kbd>?</kbd> lists all shortcuts. On first
-start it walks you through adding your merchant.
+always shows the keys you can use, <kbd>?</kbd> lists all shortcuts and
+<kbd>ctrl</kbd>+<kbd>k</kbd> opens a command palette that finds every action
+by typing a few letters (English or German). On first start it walks you
+through adding your merchant.
 
 | Area | What you do there |
 | --- | --- |
@@ -173,6 +175,7 @@ start it walks you through adding your merchant.
 | New payment | Form, review (request JSON, copy as curl), send, receipt; QR code and live status for hosted pages |
 | Payments | Local history with filter (`/`), lookup by ID (`g`), details with capture, refund, release and refresh |
 | Test cards | Test cards with aliases; `y` copies a number |
+| Inspector | The last 200 requests to Paygate from the app and the command line: request and response with headers and JSON, timing, correlation ID; copy body or curl |
 | Profiles | Add (with credential check), switch, verify, delete |
 | Settings | Language, start screen, currency, payment page language, callback URLs, customer IP |
 
@@ -248,7 +251,8 @@ Global flags work with every command:
 | `PAYGATE_API_KEY` | API key override (CI) |
 | `PAYGATE_BASE_URL` | Send requests to another host (mock server, proxy) |
 | `PAYGATE_NO_KEYCHAIN` | Store keys in the config file instead of the keychain |
-| `PAYGATE_NO_HISTORY` | Do not keep the local payment history |
+| `PAYGATE_NO_HISTORY` | Do not keep the local payment history and request log |
+| `PAYGATE_NO_SPLASH` | Skip the start screen of the app |
 
 ## Test transactions on production
 

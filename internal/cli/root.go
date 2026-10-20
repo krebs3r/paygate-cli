@@ -80,7 +80,7 @@ func (a *App) Client() (string, *config.Profile, *paygate.Client, error) {
 	if err != nil {
 		return "", nil, nil, err
 	}
-	c, err := a.newClient(p, key)
+	c, err := a.newClient(name, p, key)
 	return name, p, c, err
 }
 
@@ -90,8 +90,8 @@ func (a *App) Origin(p *config.Profile) (string, error) {
 	return core.Origin(p)
 }
 
-func (a *App) newClient(p *config.Profile, apiKey string) (*paygate.Client, error) {
-	opts := core.ClientOptions{Version: a.Build.Version}
+func (a *App) newClient(name string, p *config.Profile, apiKey string) (*paygate.Client, error) {
+	opts := core.ClientOptions{Version: a.Build.Version, Profile: name}
 	if a.Verbose > 0 {
 		opts.Transport = &paygate.LoggingTransport{
 			Level: a.Verbose,

@@ -11,6 +11,7 @@ import (
 	"github.com/krebs3r/paygate-cli/internal/config"
 	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/i18n"
+	"github.com/krebs3r/paygate-cli/internal/reqlog"
 	"github.com/krebs3r/paygate-cli/internal/ui"
 )
 
@@ -74,7 +75,7 @@ func verifySession(ctx *Context) tea.Cmd {
 	}
 	client, name := ctx.Session.Client, ctx.Session.Name
 	return func() tea.Msg {
-		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		c, cancel := context.WithTimeout(reqlog.WithoutLog(context.Background()), 10*time.Second)
 		defer cancel()
 		return sessionVerifiedMsg{name: name, err: client.Verify(c)}
 	}

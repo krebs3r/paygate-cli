@@ -45,6 +45,8 @@ type model struct {
 	toastSeq int
 	tabStart int
 
+	pal palette
+
 	splash      bool
 	splashStart time.Time
 	splashFrame int
@@ -65,7 +67,7 @@ func newModel(ctx *Context) *model {
 			newPaymentsScreen(),
 			newCardsScreen(),
 			newProfilesScreen(),
-			newSoonScreen("inspect", "menu.inspect", "i", 4, "soon.inspect", "paygate pay --card visa-ok -v"),
+			newInspectorScreen(),
 			newSettingsScreen(),
 			newAboutScreen(),
 		},
@@ -181,6 +183,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Everything else (spinner ticks, API results) goes to all screens.
 	var cmds []tea.Cmd
+	if m.pal.open {
+		var cmd tea.Cmd
+		m.pal.input, cmd = m.pal.input.Update(msg)
+		cmds = append(cmds, cmd)
+	}
 	for _, s := range m.screens {
 		cmds = append(cmds, s.Update(m.ctx, msg))
 	}
@@ -199,6 +206,9 @@ func (m *model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		}
 		return nil
 	}
+	if m.pal.open {
+		return m.updatePalette(msg)
+	}
 	if m.help {
 		switch k {
 		case "esc", "?", "q", "enter":
@@ -208,6 +218,10 @@ func (m *model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	}
 
 	capturing := m.focus == focusContent && m.current().Capturing()
+	if k == "ctrl+p" || (k == "ctrl+k" && !capturing) {
+		m.help = false
+		return m.openPalette()
+	}
 	if !capturing {
 		switch k {
 		case "q":

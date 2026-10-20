@@ -299,17 +299,44 @@ var messages = map[string]msg{
 	"home.today.line":  {"%d payments · %d OK · %d failed · %d open", "%d Zahlungen · %d OK · %d fehlgeschlagen · %d offen"},
 	"home.recent":      {"RECENT PAYMENTS", "LETZTE ZAHLUNGEN"},
 
+	// Inspector
+	"insp.title":    {"Inspector", "Inspector"},
+	"insp.count":    {"last %d requests", "letzte %d Anfragen"},
+	"insp.empty":    {"No requests yet. Everything paygate sends to Paygate appears here, from the app and from the command line.", "Noch keine Anfragen. Alles, was paygate an Paygate sendet, erscheint hier, aus der App und von der Kommandozeile."},
+	"insp.request":  {"REQUEST", "REQUEST"},
+	"insp.response": {"RESPONSE", "RESPONSE"},
+	"insp.nobody":   {"(no body)", "(kein Inhalt)"},
+	"insp.error":    {"Network error", "Netzwerkfehler"},
+	"insp.redacted": {"Credentials are never logged, card numbers are masked.", "Zugangsdaten werden nie protokolliert, Kartennummern sind maskiert."},
+	"insp.clear.q":  {"Delete all %d logged requests?", "Alle %d protokollierten Anfragen löschen?"},
+	"insp.cleared":  {"Request log cleared", "Request-Log geleert"},
+	"insp.masked":   {"curl copied; masked card data must be filled in", "curl kopiert; maskierte Kartendaten musst du ergänzen"},
+	"key.view":      {"request/response", "Request/Response"},
+	"key.copybody":  {"copy body", "Inhalt kopieren"},
+	"key.clear":     {"clear", "leeren"},
+	"key.scroll":    {"scroll", "scrollen"},
+	"copied.body":   {"Copied", "Kopiert"},
+
+	// Command palette
+	"pal.placeholder": {"Type a command …", "Befehl eingeben …"},
+	"pal.none":        {"No matching command", "Kein passender Befehl"},
+	"pal.go":          {"Go to %s", "Gehe zu %s"},
+	"pal.lookup":      {"Look up a payment by ID", "Zahlung per ID suchen"},
+	"pal.addprofile":  {"Add a profile", "Profil hinzufügen"},
+	"pal.switch":      {"Switch to profile %s", "Zu Profil %s wechseln"},
+	"pal.last":        {"Open the last payment", "Letzte Zahlung öffnen"},
+	"pal.copylast":    {"Copy the last pay ID", "Letzte Pay ID kopieren"},
+	"pal.lang":        {"Switch the language to %s", "Sprache auf %s umstellen"},
+	"pal.clearlog":    {"Clear the request log", "Request-Log leeren"},
+	"pal.quit":        {"Quit paygate", "paygate beenden"},
+	"pal.nolast":      {"No payment yet", "Noch keine Zahlung"},
+	"key.commands":    {"commands", "Befehle"},
+	"help.palette":    {"command palette: search every action", "Befehlssuche: alle Aktionen durchsuchen"},
+
 	// About
 	"about.made":     {"Made by Martin Krebs", "Entwickelt von Martin Krebs"},
 	"about.inspired": {"Inspired by mollie-cli by Florian Bender and Hannes Reinberger", "Inspiriert von mollie-cli von Florian Bender und Hannes Reinberger"},
 	"about.license":  {"All rights reserved. A public license will be announced.", "Alle Rechte vorbehalten. Eine öffentliche Lizenz folgt."},
 	"about.official": {"Independent developer tool. Not an official product of Nexi or Computop.", "Unabhängiges Entwicklerwerkzeug. Kein offizielles Produkt von Nexi oder Computop."},
 	"about.sister":   {"Sister project: Paygate Payment Tester", "Schwesterprojekt: Paygate Payment Tester"},
-
-	// Upcoming screens
-	"soon.title":    {"Coming in step %d", "Kommt in Schritt %d"},
-	"soon.until":    {"Until then, use the command line:", "Bis dahin nutzt du die Kommandozeile:"},
-	"soon.new":      {"Create payments in four steps: flow, details, review, result. Hosted checkouts show a QR code and live status right here. Production profiles get simulation mode (Test:0000) and manual capture.", "Zahlungen in vier Schritten: Ablauf, Details, Prüfen, Ergebnis. Bei Bezahlseiten erscheinen QR-Code und Live-Status direkt hier. Produktivprofile bekommen den Simulationsmodus (Test:0000) und manuellen Capture."},
-	"soon.payments": {"Your local payment history with filter and details. Capture, refund, cancel and refresh with a single key.", "Dein lokaler Zahlungsverlauf mit Filter und Details. Capture, Refund, Cancel und Aktualisieren mit einer Taste."},
-	"soon.inspect":  {"Every HTTP request with request and response JSON, timing and correlation ID; copy as curl.", "Jede HTTP-Anfrage mit Request- und Response-JSON, Dauer und Correlation-ID; als curl kopieren."},
 }
