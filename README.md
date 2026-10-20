@@ -6,6 +6,12 @@ Send real Nexi / Computop Paygate payments from your terminal.
 ![Go](https://img.shields.io/badge/go-1.27-00add8)
 ![Status](https://img.shields.io/badge/status-MVP-f59e0b)
 
+> [!WARNING]
+> **Unofficial tool.** paygate is a private side project and is not made,
+> endorsed or supported by Nexi or Computop. It sends real requests to the
+> Paygate API; with a production profile, real money moves. You use it on your
+> own responsibility and without any warranty.
+
 ![The paygate app: start screen, new payment, receipt](docs/demo-app.gif)
 
 `paygate` talks to the Paygate REST API v2. Type `paygate` for a full-screen

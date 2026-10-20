@@ -106,5 +106,5 @@ func (s *aboutScreen) View(ctx *Context, w, h int) string {
 		ui.Label.Render(t("about.sister")) + "\n" +
 		ui.Link.Render("https://paygate.paytest.dev") + "\n\n" +
 		ui.Muted.Render(wrap(t("about.license"), w)) + "\n" +
-		ui.Muted.Render(wrap(t("about.official"), w))
+		ui.Warning.Render("! ") + ui.Label.Render(wrap(t("about.official"), min(w-2, 76)))
 }

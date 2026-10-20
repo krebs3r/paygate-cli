@@ -350,6 +350,6 @@ var messages = map[string]msg{
 	"about.made":     {"Made by Martin Krebs", "Entwickelt von Martin Krebs"},
 	"about.inspired": {"Inspired by mollie-cli by Florian Bender and Hannes Reinberger", "Inspiriert von mollie-cli von Florian Bender und Hannes Reinberger"},
 	"about.license":  {"All rights reserved. A public license will be announced.", "Alle Rechte vorbehalten. Eine öffentliche Lizenz folgt."},
-	"about.official": {"Independent developer tool. Not an official product of Nexi or Computop.", "Unabhängiges Entwicklerwerkzeug. Kein offizielles Produkt von Nexi oder Computop."},
+	"about.official": {"Unofficial tool, not made or supported by Nexi or Computop. It sends real requests; with a production profile real money moves. You use it on your own responsibility and without any warranty.", "Inoffizielles Werkzeug, nicht von Nexi oder Computop entwickelt oder unterstützt. Es sendet echte Anfragen; mit einem Produktivprofil wird echtes Geld bewegt. Die Nutzung erfolgt auf eigene Verantwortung und ohne Gewähr."},
 	"about.sister":   {"Sister project: Paygate Payment Tester", "Schwesterprojekt: Paygate Payment Tester"},
 }

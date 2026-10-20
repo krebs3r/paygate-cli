@@ -33,7 +33,8 @@ func newAboutCmd(app *App) *cobra.Command {
 				Badge: ui.Accent.Render("◆"),
 				Title: "paygate · Paygate CLI",
 				Rows:  rows,
-				Footer: ui.Muted.Render("Independent developer tool. Not an official product of Nexi or Computop.") + "\n" +
+				Footer: ui.Warning.Render("! ") + ui.Muted.Render("Unofficial tool, not made or supported by Nexi or Computop.") + "\n" +
+					ui.Warning.Render("! ") + ui.Muted.Render("Sends real requests; on production real money moves. No warranty.") + "\n" +
 					ui.Muted.Render("Sister project: ") + ui.Link.Render("https://paygate.paytest.dev"),
 			}.String())
 			ui.Println()
