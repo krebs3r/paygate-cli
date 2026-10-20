@@ -22,6 +22,7 @@ type setting struct {
 func settingsList() []setting {
 	return []setting{
 		{"ui_language", "set.language", false},
+		{"splash", "set.splash", false},
 		{"currency", "set.currency", true},
 		{"language", "set.pagelang", true},
 		{"return_url", "set.return", true},
@@ -74,6 +75,11 @@ func (s *settingsScreen) visible(ctx *Context) []setting {
 func (s *settingsScreen) current(ctx *Context, id string) (value string, isDefault bool) {
 	cfg := ctx.Cfg
 	switch id {
+	case "splash":
+		if cfg.NoSplash {
+			return t("set.off"), false
+		}
+		return t("set.on"), true
 	case "ui_language":
 		switch cfg.UILanguage {
 		case "en":
@@ -133,6 +139,15 @@ func (s *settingsScreen) edit(ctx *Context, st setting) tea.Cmd {
 	s.editing = st.id
 	var field huh.Field
 	switch st.id {
+	case "splash":
+		s.value = "on"
+		if ctx.Cfg.NoSplash {
+			s.value = "off"
+		}
+		field = huh.NewSelect[string]().Title(t(st.label)).Options(
+			huh.NewOption(t("set.on"), "on"),
+			huh.NewOption(t("set.off"), "off"),
+		).Value(&s.value)
 	case "ui_language":
 		s.value = ctx.Cfg.UILanguage
 		if s.value == "" {
@@ -167,7 +182,9 @@ func (s *settingsScreen) edit(ctx *Context, st setting) tea.Cmd {
 
 func (s *settingsScreen) apply(ctx *Context) tea.Cmd {
 	v := strings.TrimSpace(s.value)
-	if s.editing == "ui_language" {
+	if s.editing == "splash" {
+		ctx.Cfg.NoSplash = v == "off"
+	} else if s.editing == "ui_language" {
 		if v == "auto" {
 			v = ""
 		}
@@ -212,7 +229,7 @@ func (s *settingsScreen) View(ctx *Context, w, h int) string {
 		}
 		lastProfile = st.profile
 		val, def := s.current(ctx, st.id)
-		if def && st.id != "ui_language" {
+		if def && st.id != "ui_language" && st.id != "splash" {
 			val += ui.Muted.Render("  " + t("set.default"))
 		}
 		row := fmt.Sprintf("%-26s ", truncate(t(st.label), 26)) + val

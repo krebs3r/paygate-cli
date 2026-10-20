@@ -100,6 +100,8 @@ type newPaymentScreen struct {
 	opKind    string // operation already done on this result
 	pendingOp string
 	confirmOp bool
+	details   bool // show the detail card instead of the receipt
+	paidAt    time.Time
 }
 
 func newNewPaymentScreen() *newPaymentScreen {
@@ -149,6 +151,13 @@ func (s *newPaymentScreen) Hints(ctx *Context) []Hint {
 		return []Hint{{"o", t("key.openbrowser")}, {"c", t("key.copyurl")}, {"esc", t("key.stop")}}
 	case stageResult:
 		hints := []Hint{{"r", t("key.again")}, {"n", t("key.new")}}
+		if s.result != nil {
+			if s.details {
+				hints = append(hints, Hint{"d", t("key.receipt")})
+			} else {
+				hints = append(hints, Hint{"d", t("key.details")})
+			}
+		}
 		if s.canRelease() {
 			hints = append(hints, Hint{"x", t("key.cancelauth")})
 		}
@@ -401,6 +410,8 @@ func (s *newPaymentScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 			}
 		case "n", "e":
 			return s.startForm(ctx)
+		case "d":
+			s.details = !s.details
 		case "x":
 			if s.canRelease() {
 				return s.confirmOperation("cancel", t("res.cancel.q"))
@@ -423,7 +434,7 @@ func (s *newPaymentScreen) send(ctx *Context) tea.Cmd {
 	s.seq++
 	seq, client, prepared := s.seq, ctx.Session.Client, s.prepared
 	s.stage, s.result, s.response, s.errText, s.errLines, s.note = stageSending, nil, nil, "", nil, ""
-	s.opKind, s.waitStart = "", time.Time{}
+	s.opKind, s.waitStart, s.details = "", time.Time{}, false
 	return tea.Batch(s.spin.Tick, func() tea.Msg {
 		c, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
@@ -433,6 +444,7 @@ func (s *newPaymentScreen) send(ctx *Context) tea.Cmd {
 }
 
 func (s *newPaymentScreen) onPaid(ctx *Context, msg payResultMsg) tea.Cmd {
+	s.paidAt = time.Now()
 	core.RecordPayment(ctx.Session.Name, ctx.Session.Profile, core.Flow(s.flow), s.req, s.label, msg.res, msg.err)
 	if msg.err != nil {
 		s.showError(msg.err)
@@ -738,8 +750,19 @@ func (s *newPaymentScreen) resultView(ctx *Context, w int) string {
 	if !s.waitStart.IsZero() && s.response == nil {
 		opts.Extra = append(opts.Extra, ui.Row{Label: t("res.waited"), Value: ui.Muted.Render(time.Since(s.waitStart).Round(time.Second).String())})
 	}
-	out := ui.PaymentCard(p, s.response, opts)
-	if s.simulate != "off" && s.req.Order != nil {
+	var out string
+	if s.details {
+		out = ui.PaymentCard(p, s.response, opts)
+	} else {
+		sim := ""
+		if s.simulate != "off" && s.req.Order != nil {
+			sim = s.req.Order.Description
+		}
+		out = indentLines(ui.Receipt(p, ui.ReceiptOpts{
+			Amount: opts.Amount, Method: s.label, Simulation: sim, Prod: ctx.IsProd(), Time: s.paidAt,
+		}), " ")
+	}
+	if s.details && s.simulate != "off" && s.req.Order != nil {
 		out += "\n" + ui.Warning.Render(" ◆ ") + ui.Label.Render(fmt.Sprintf(t("res.sim"), s.req.Order.Description))
 	}
 	if s.note != "" {
@@ -762,6 +785,14 @@ var (
 func maskCard(body []byte) []byte {
 	b := cardNumberRe.ReplaceAll(body, []byte(`${1}•••• ${2}"`))
 	return cvcRe.ReplaceAll(b, []byte(`${1}•••"`))
+}
+
+func indentLines(s, prefix string) string {
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		lines[i] = prefix + l
+	}
+	return strings.Join(lines, "\n")
 }
 
 func flowLabel(f string) string {

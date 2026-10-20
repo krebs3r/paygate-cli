@@ -27,6 +27,11 @@ func setup(t *testing.T, profiles map[string]*config.Profile, active string) *mo
 	t.Setenv("PAYGATE_PROFILE", "")
 	t.Setenv("PAYGATE_API_KEY", "")
 	t.Setenv("LANG", "en_US.UTF-8")
+	if !t.Failed() && !strings.HasPrefix(t.Name(), "TestSplash") {
+		t.Setenv("PAYGATE_NO_SPLASH", "1")
+	} else {
+		t.Setenv("PAYGATE_NO_SPLASH", "")
+	}
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -233,7 +238,7 @@ func TestNewPaymentDirectCard(t *testing.T) {
 	if s.stage != stageResult || s.result == nil || s.result.Status != "OK" {
 		t.Fatalf("expected a successful result, got stage %d result %+v", s.stage, s.result)
 	}
-	if !strings.Contains(m.View(), "Payment successful") {
+	if !strings.Contains(m.View(), "PAYMENT APPROVED") || !strings.Contains(m.View(), "VISA •••• 1111") {
 		t.Errorf("result view:\n%s", m.View())
 	}
 	recs, _ := history.Load()
@@ -306,7 +311,48 @@ func TestNewPaymentHostedWaitsForCustomer(t *testing.T) {
 	if s.stage != stageResult || s.result == nil || s.result.Status != "OK" {
 		t.Fatalf("hosted payment did not complete: stage %d %+v", s.stage, s.result)
 	}
-	if !strings.Contains(m.View(), "Paid with PayPal") {
+	if !strings.Contains(m.View(), "PAYMENT APPROVED") || !strings.Contains(m.View(), "PAYPAL") {
 		t.Errorf("result view:\n%s", m.View())
+	}
+	send(m, keys("d"))
+	if !strings.Contains(m.View(), "Paid with PayPal") {
+		t.Errorf("detail card:\n%s", m.View())
+	}
+}
+
+func TestSplashScreen(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	if !m.splash || !strings.Contains(m.View(), "██████╗") || !strings.Contains(m.View(), "verifying credentials") {
+		t.Fatalf("expected the splash screen:\n%s", m.View())
+	}
+	send(m, run(verifySession(m.ctx)))
+	if !m.ctx.Verified || !strings.Contains(m.View(), "credentials verified") {
+		t.Errorf("verification not shown:\n%s", m.View())
+	}
+	send(m, keys("x"))
+	if m.splash || m.current().ID() != "home" {
+		t.Fatal("any key should close the splash without acting")
+	}
+	if !strings.Contains(m.View(), "█▀█ ▄▀█") || !strings.Contains(m.View(), "Credentials verified") {
+		t.Errorf("home should show the small logo and the verification:\n%s", m.View())
+	}
+}
+
+func TestResultReceipt(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-prod")
+	i18n.Set(i18n.EN)
+	send(m, keys("n"))
+	s := m.current().(*newPaymentScreen)
+	send(m, enter, enter, enter, enter, enter, enter, enter, enter)
+	view := m.View()
+	for _, want := range []string{"P A Y G A T E", "PAYMENT APPROVED", "0.01 EUR", "SIMULATED · Test:0000", "╲╱╲╱"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("receipt misses %q:\n%s", want, view)
+		}
+	}
+	send(m, keys("d"))
+	if !s.details || !strings.Contains(m.View(), "Correlation") {
+		t.Errorf("d should show the detail card:\n%s", m.View())
 	}
 }

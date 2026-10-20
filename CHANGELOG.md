@@ -20,6 +20,9 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   0.01 and manual capture.
 - Local payment history (`history.jsonl`, IDs, amounts and states only) for
   payments, lookups and follow-up operations.
+- ASCII art: start screen with the large PAYGATE logo (credentials are checked
+  meanwhile; can be switched off in Settings or with PAYGATE_NO_SPLASH), small
+  logo in the sidebar and results printed as a receipt (d shows the details).
 - English and German interface, chosen automatically or in Settings.
 - `init` checks test and production, Nexi and Computop, Basic and OAuth2 in
   parallel when the credentials are rejected.

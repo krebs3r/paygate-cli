@@ -12,9 +12,11 @@ import (
 func t(key string) string { return i18n.T(key) }
 
 const (
-	sidebarW  = 22
-	wideMinW  = 96
+	sidebarW  = 31
+	wideMinW  = 100
 	frameRows = 4 // header, separator, separator, footer
+	// sidebarItemsTop is the first menu row below the logo.
+	sidebarItemsTop = 4
 )
 
 type layoutInfo struct {
@@ -87,7 +89,8 @@ func shortVersion(v string) string {
 }
 
 func (m *model) renderSidebar(h int) string {
-	lines := []string{""}
+	logo := strings.Split(ui.SmallLogo(), "\n")
+	lines := []string{"  " + logo[0], "  " + logo[1], ui.Muted.Render(" " + strings.Repeat("─", sidebarW-2)), ""}
 	for i, s := range m.screens {
 		title := truncate(s.Title(), sidebarW-6)
 		key := ui.Muted.Render(s.Shortcut())
@@ -229,6 +232,46 @@ func (m *model) helpView(w int) string {
 		b.WriteString(strings.Join(parts, ui.Muted.Render(" · ")))
 	}
 	return box(b.String(), min(w, 78), ui.ColAccent)
+}
+
+func (m *model) renderSplash() string {
+	frame := m.splashFrame
+	logo := ui.BigLogo(frame / 2)
+	if m.width < ui.BigLogoWidth+6 || m.height < 16 {
+		logo = ui.SmallLogo()
+	}
+	status := ""
+	bar := 14
+	filled := min(bar, frame)
+	switch {
+	case m.ctx.Session == nil:
+		filled, status = bar, ui.Label.Render(t("splash.noprofile"))
+	case !m.ctx.VerifyDone:
+		status = ui.Muted.Render(t("splash.verifying"))
+		filled = min(bar-2, frame%(bar+1))
+	case m.ctx.Verified:
+		filled, status = bar, ui.Success.Render("✓ "+t("splash.ok"))
+	default:
+		filled, status = bar, ui.Danger.Render("✗ "+t("splash.fail"))
+	}
+	progress := ui.Link.Render(strings.Repeat("▰", filled)) + ui.Muted.Render(strings.Repeat("▱", bar-filled)) + "  " + status
+
+	profile := ""
+	if s := m.ctx.Session; s != nil {
+		profile = ui.EnvBadge(s.Profile.IsProd()) + "  " + ui.Label.Render(s.Profile.Brand+" · "+s.Name+" · "+s.Profile.MerchantID)
+	}
+	lines := []string{
+		logo,
+		"",
+		ui.Label.Render(t("splash.tagline")),
+		"",
+		ui.Accent.Render("◆") + " " + ui.Bold.Render(shortVersion(m.ctx.Version)) + "  " + profile,
+		progress,
+		"",
+		ui.Muted.Render(t("splash.skip")),
+	}
+	block := lipgloss.NewStyle().Align(lipgloss.Left).Render(strings.Join(lines, "\n"))
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, block)
 }
 
 // spread puts left and right on one line of width w.

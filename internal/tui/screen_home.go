@@ -87,6 +87,12 @@ func (s *homeScreen) View(ctx *Context, w, h int) string {
 	}
 
 	out := title(t("home.welcome")) + "\n\n" + box(card, min(w, 64), border) + "\n"
+	switch {
+	case ctx.Verified:
+		out += ui.Success.Render("✓ ") + ui.Label.Render(t("home.verified")) + "\n"
+	case ctx.VerifyDone && ctx.VerifyErr != nil:
+		out += ui.Danger.Render("! ") + ui.Label.Render(t("home.unverified")+" ") + ui.Muted.Render(wrap(ctx.VerifyErr.Error(), min(w, 64))) + "\n"
+	}
 	if p.IsProd() {
 		out += ui.Danger.Render("! ") + ui.Label.Render(t("home.prod")) + "\n"
 	}

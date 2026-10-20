@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+
 	"github.com/spf13/cobra"
 
 	"github.com/krebs3r/paygate-cli/internal/ui"
@@ -23,6 +25,10 @@ func newAboutCmd(app *App) *cobra.Command {
 				{Label: "", Value: ui.Link.Render("https://github.com/fjbender/mollie-cli")},
 			}
 			ui.Println()
+			if ui.IsTTY(os.Stdout) && ui.Width() >= ui.BigLogoWidth+4 {
+				ui.Println(ui.IndentLines(ui.BigLogo(0), "  "))
+				ui.Println()
+			}
 			ui.Println(ui.Card{
 				Badge: ui.Accent.Render("◆"),
 				Title: "paygate · Paygate CLI",

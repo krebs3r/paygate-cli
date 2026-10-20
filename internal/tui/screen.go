@@ -3,6 +3,7 @@
 package tui
 
 import (
+	"context"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -46,6 +47,11 @@ type Context struct {
 	SessionErr  error
 	Version     string
 	ProfileFlag string
+
+	// Background credential check of the active profile.
+	Verified   bool
+	VerifyDone bool
+	VerifyErr  error
 }
 
 // Reload reads the configuration again and reopens the active profile.
@@ -57,7 +63,21 @@ func (c *Context) Reload() {
 	}
 	c.Cfg = cfg
 	c.Session, c.SessionErr = core.OpenSession(cfg, c.ProfileFlag, core.ClientOptions{Version: c.Version})
+	c.Verified, c.VerifyDone, c.VerifyErr = false, false, nil
 	i18n.Set(i18n.Detect(cfg.UILanguage))
+}
+
+// verifySession checks the active profile's credentials in the background.
+func verifySession(ctx *Context) tea.Cmd {
+	if ctx.Session == nil {
+		return nil
+	}
+	client, name := ctx.Session.Client, ctx.Session.Name
+	return func() tea.Msg {
+		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return sessionVerifiedMsg{name: name, err: client.Verify(c)}
+	}
 }
 
 // IsProd reports whether the active profile targets production.
@@ -71,9 +91,14 @@ type (
 		id   string
 		data any
 	}
-	sessionChangedMsg struct{}
-	focusMenuMsg      struct{}
-	toastMsg          struct {
+	sessionChangedMsg  struct{}
+	focusMenuMsg       struct{}
+	sessionVerifiedMsg struct {
+		name string
+		err  error
+	}
+	splashTickMsg struct{}
+	toastMsg      struct {
 		text string
 		tone ui.Tone
 	}

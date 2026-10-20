@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"os"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -42,7 +44,17 @@ type model struct {
 	toneT    ui.Tone
 	toastSeq int
 	tabStart int
+
+	splash      bool
+	splashStart time.Time
+	splashFrame int
 }
+
+// Splash timing: shown at least splashMin, at most splashMax.
+var (
+	splashMin = 1100 * time.Millisecond
+	splashMax = 2500 * time.Millisecond
+)
 
 func newModel(ctx *Context) *model {
 	m := &model{
@@ -61,11 +73,21 @@ func newModel(ctx *Context) *model {
 	if ctx.Session == nil {
 		m.focus = focusContent
 	}
+	m.splash = !(ctx.Cfg != nil && ctx.Cfg.NoSplash) && os.Getenv("PAYGATE_NO_SPLASH") == ""
+	m.splashStart = time.Now()
 	return m
 }
 
 func (m *model) Init() tea.Cmd {
-	return m.screens[m.active].Activate(m.ctx)
+	cmds := []tea.Cmd{m.screens[m.active].Activate(m.ctx), verifySession(m.ctx)}
+	if m.splash {
+		cmds = append(cmds, splashTick())
+	}
+	return tea.Batch(cmds...)
+}
+
+func splashTick() tea.Cmd {
+	return tea.Tick(90*time.Millisecond, func(time.Time) tea.Msg { return splashTickMsg{} })
 }
 
 func (m *model) current() Screen { return m.screens[m.active] }
@@ -94,6 +116,28 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
 
+	case splashTickMsg:
+		if !m.splash {
+			return m, nil
+		}
+		m.splashFrame++
+		el := time.Since(m.splashStart)
+		if el > splashMax || (el > splashMin && (m.ctx.VerifyDone || m.ctx.Session == nil)) {
+			m.splash = false
+			return m, nil
+		}
+		return m, splashTick()
+
+	case sessionVerifiedMsg:
+		if m.ctx.Session == nil || msg.name != m.ctx.Session.Name {
+			return m, nil
+		}
+		m.ctx.VerifyDone, m.ctx.Verified, m.ctx.VerifyErr = true, msg.err == nil, msg.err
+		if msg.err != nil && !m.splash {
+			return m, toast(t("splash.fail"), ui.ToneDanger)
+		}
+		return m, nil
+
 	case switchMsg:
 		i := m.indexOf(msg.id)
 		if i < 0 {
@@ -107,7 +151,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sessionChangedMsg:
 		m.ctx.Reload()
-		var cmds []tea.Cmd
+		cmds := []tea.Cmd{verifySession(m.ctx)}
 		for _, s := range m.screens {
 			cmds = append(cmds, s.Update(m.ctx, msg))
 		}
@@ -147,6 +191,13 @@ func (m *model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	k := msg.String()
 	if k == "ctrl+c" {
 		return tea.Quit
+	}
+	if m.splash {
+		m.splash = false
+		if m.ctx.VerifyErr != nil {
+			return toast(t("splash.fail"), ui.ToneDanger)
+		}
+		return nil
 	}
 	if m.help {
 		switch k {
@@ -215,8 +266,8 @@ func (m *model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 		return nil
 	}
 	l := m.layout()
-	if l.wide && msg.X >= 1 && msg.X <= l.sidebarW && msg.Y >= l.bodyTop+1 {
-		i := msg.Y - l.bodyTop - 1
+	if l.wide && msg.X >= 1 && msg.X <= l.sidebarW && msg.Y >= l.bodyTop+sidebarItemsTop {
+		i := msg.Y - l.bodyTop - sidebarItemsTop
 		if i >= 0 && i < len(m.screens) {
 			return m.activate(i, focusContent)
 		}
@@ -247,6 +298,9 @@ func (m *model) View() string {
 	}
 	if m.width < 70 || m.height < 20 {
 		return strings.Repeat("\n", m.height/2) + ui.Warning.Render("  "+t("too.small"))
+	}
+	if m.splash {
+		return m.renderSplash()
 	}
 	return m.render()
 }
