@@ -189,6 +189,10 @@ func (s *profilesScreen) startForm(ctx *Context, errText string) tea.Cmd {
 			s.fName = "default"
 		}
 	}
+	// From the welcome screen the form comes before the first View.
+	if ctx.Width > 0 {
+		s.width = ctx.Width
+	}
 	s.message, s.msgTone = errText, ui.ToneDanger
 	s.mode = modeForm
 	s.form = newForm(s.width,
@@ -210,7 +214,7 @@ func (s *profilesScreen) startForm(ctx *Context, errText string) tea.Cmd {
 			huh.NewSelect[string]().Title(t("f.environment")).Options(
 				huh.NewOption(t("env.test"), "test"),
 				huh.NewOption(t("env.prod"), "prod"),
-			).Value(&s.fEnv),
+			).Value(&s.fEnv).Description(s.apiTarget()).DescriptionFunc(s.apiTarget, []*string{&s.fBrand, &s.fEnv}),
 		),
 		huh.NewGroup(
 			huh.NewInput().Title(t("f.merchant")).Value(&s.fMID).Validate(required),
@@ -218,10 +222,31 @@ func (s *profilesScreen) startForm(ctx *Context, errText string) tea.Cmd {
 			huh.NewSelect[string]().Title(t("f.auth")).Options(
 				huh.NewOption(t("auth.basic"), "basic"),
 				huh.NewOption(t("auth.oauth2"), "oauth2"),
-			).Value(&s.fAuth),
+			).Value(&s.fAuth).Description(s.authTarget()).DescriptionFunc(s.authTarget, []*string{&s.fBrand, &s.fEnv, &s.fAuth}),
 		),
 	)
 	return s.form.Init()
+}
+
+// apiTarget and authTarget say where the calls go with the choice in the
+// form, while it is made.
+func (s *profilesScreen) apiTarget() string {
+	api, _, err := core.Endpoints(&config.Profile{Brand: s.fBrand, Env: s.fEnv})
+	if err != nil {
+		return ""
+	}
+	return "API " + api
+}
+
+func (s *profilesScreen) authTarget() string {
+	if s.fAuth != string(paygate.AuthOAuth2) {
+		return t("auth.basic.to")
+	}
+	_, token, err := core.Endpoints(&config.Profile{Brand: s.fBrand, Env: s.fEnv})
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf(t("auth.token.to"), token)
 }
 
 func required(v string) error {

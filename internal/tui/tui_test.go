@@ -217,6 +217,42 @@ func TestAddProfileThroughForm(t *testing.T) {
 	}
 }
 
+func TestProfileFormShowsWhereCallsGo(t *testing.T) {
+	m := setup(t, nil, "")
+	i18n.Set(i18n.EN)
+	t.Setenv("PAYGATE_BASE_URL", "") // the real hosts; the form sends nothing before it is done
+	expect := func(want string) {
+		t.Helper()
+		if v := ansi.Strip(m.View()); !strings.Contains(v, want) {
+			t.Fatalf("expected %q:\n%s", want, v)
+		}
+	}
+	send(m, enter, keys("x"), enter) // open the form, name; on to the platform
+	expect("API https://test.paygate.nexigroup.com/api/v2")
+	send(m, down) // Computop
+	expect("API https://test.computop-paygate.com/api/v2")
+	send(m, enter, down) // production
+	expect("API https://www.computop-paygate.com/api/v2")
+	send(m, enter, keys("demo-shop"), enter, keys("demo-key"), enter)
+	expect("Merchant ID and API key with every request")
+	send(m, down) // OAuth2
+	expect("Token from https://www.computop-paygate.com/authorization/oauth/token")
+}
+
+func TestPaymentFormShowsEndpoint(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	send(m, keys("n"))
+	payments := "POST " + m.ctx.Session.Client.APIURL("/payments")
+	if v := ansi.Strip(m.View()); !strings.Contains(v, payments+"\n") && !strings.Contains(v, payments+" ") {
+		t.Fatalf("a direct card payment goes to %q:\n%s", payments, v)
+	}
+	send(m, down) // hosted payment page
+	if v := ansi.Strip(m.View()); !strings.Contains(v, payments+"/sessions") {
+		t.Fatalf("a hosted payment goes to %q:\n%s", payments+"/sessions", v)
+	}
+}
+
 func TestLanguageSwitch(t *testing.T) {
 	m := setup(t, twoProfiles(), "shop-test")
 	i18n.Set(i18n.EN)

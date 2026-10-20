@@ -234,7 +234,7 @@ func (s *newPaymentScreen) startForm(ctx *Context) tea.Cmd {
 			huh.NewOption(t("flow.direct"), string(core.FlowDirect)),
 			huh.NewOption(t("flow.hosted"), string(core.FlowHosted)),
 			huh.NewOption(t("flow.method"), string(core.FlowMethod)),
-		).Value(&s.flow)),
+		).Value(&s.flow).Description(s.endpoint(ctx)).DescriptionFunc(func() string { return s.endpoint(ctx) }, &s.flow)),
 		huh.NewGroup(huh.NewMultiSelect[string]().Title(t("new.methods")).Description(t("new.methods.desc")).
 			Options(multi...).Value(&s.methods)).
 			WithHideFunc(func() bool { return s.flow != string(core.FlowHosted) }),
@@ -541,6 +541,18 @@ func (s *newPaymentScreen) stopWaiting() {
 var openURL = func(url string) error {
 	browser.Stdout, browser.Stderr = io.Discard, io.Discard
 	return browser.OpenURL(url)
+}
+
+// endpoint is the method and URL the payment goes to in the chosen flow.
+func (s *newPaymentScreen) endpoint(ctx *Context) string {
+	if ctx.Session == nil {
+		return ""
+	}
+	p, err := core.Prepare(ctx.Session.Client, core.Flow(s.flow), &paygate.PaymentRequest{})
+	if err != nil {
+		return ""
+	}
+	return p.Method + " " + p.URL
 }
 
 func (s *newPaymentScreen) openBrowser() tea.Cmd { return openLink(s.checkout) }

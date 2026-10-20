@@ -290,7 +290,7 @@ func initWizard(o *initOptions, cfg *config.Config) error {
 			huh.NewSelect[string]().Title("Environment").Options(
 				huh.NewOption("Test system", "test"),
 				huh.NewOption("Production system", "prod"),
-			).Value(&o.env),
+			).Value(&o.env).Description(o.apiTarget()).DescriptionFunc(o.apiTarget, []*string{&o.brand, &o.env}),
 		),
 		huh.NewGroup(
 			huh.NewInput().Title("Merchant ID").Value(&o.merchantID).Validate(nonEmpty("merchant ID")),
@@ -298,9 +298,30 @@ func initWizard(o *initOptions, cfg *config.Config) error {
 			huh.NewSelect[string]().Title("Authentication").Options(
 				huh.NewOption("Basic Auth (merchant ID + API key)", "basic"),
 				huh.NewOption("OAuth2 client credentials", "oauth2"),
-			).Value(&o.auth),
+			).Value(&o.auth).Description(o.authTarget()).DescriptionFunc(o.authTarget, []*string{&o.brand, &o.env, &o.auth}),
 		),
 	)
+}
+
+// apiTarget and authTarget say where the calls go with the choice in the
+// wizard, while it is made.
+func (o *initOptions) apiTarget() string {
+	api, _, err := core.Endpoints(&config.Profile{Brand: o.brand, Env: o.env})
+	if err != nil {
+		return ""
+	}
+	return "API " + api
+}
+
+func (o *initOptions) authTarget() string {
+	if o.auth != string(paygate.AuthOAuth2) {
+		return "Merchant ID and API key with every request"
+	}
+	_, token, err := core.Endpoints(&config.Profile{Brand: o.brand, Env: o.env})
+	if err != nil {
+		return ""
+	}
+	return "Token from " + token
 }
 
 func nonEmpty(what string) func(string) error {

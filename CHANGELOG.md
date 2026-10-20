@@ -11,6 +11,10 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   About), and so does `paygate --version`, so you can tell a fresh build
   apart. Builds with uncommitted changes add `-dirty`, and the install
   script names the commit too.
+- The forms show where the API calls go while you choose: the API URL for
+  platform and environment, the token URL for OAuth2 (when you add a profile
+  and in `paygate init`), and the endpoint of the payment flow under New
+  payment.
 
 ### Fixed
 

@@ -19,6 +19,17 @@ func Origin(p *config.Profile) (string, error) {
 	return paygate.Origin(paygate.Brand(p.Brand), paygate.Env(p.Env))
 }
 
+// Endpoints returns where the calls of a profile go: the base URL of the API
+// and the OAuth2 token endpoint.
+func Endpoints(p *config.Profile) (api, token string, err error) {
+	origin, err := Origin(p)
+	if err != nil {
+		return "", "", err
+	}
+	c := paygate.New(origin, "", "", paygate.AuthMode(p.Auth))
+	return c.APIURL(""), c.TokenURL(), nil
+}
+
 // ClientOptions tune how clients are built.
 type ClientOptions struct {
 	Version   string

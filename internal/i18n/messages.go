@@ -45,6 +45,8 @@ var messages = map[string]msg{
 	"f.key":         {"API key", "API-Key"},
 	"auth.basic":    {"Basic Auth", "Basic Auth"},
 	"auth.oauth2":   {"OAuth2 client credentials", "OAuth2 Client Credentials"},
+	"auth.basic.to": {"Merchant ID and API key with every request", "Merchant ID und API-Key bei jeder Anfrage"},
+	"auth.token.to": {"Token from %s", "Token von %s"},
 	"env.test":      {"Test system", "Testsystem"},
 	"env.prod":      {"Production system", "Produktivsystem"},
 
