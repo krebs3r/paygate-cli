@@ -2,7 +2,7 @@
 
 Send real Nexi / Computop Paygate payments from your terminal.
 
-![Version](https://img.shields.io/badge/version-0.2.0-3d7eff)
+![Version](https://img.shields.io/badge/version-0.3.0-3d7eff)
 ![Go](https://img.shields.io/badge/go-1.27-00add8)
 ![Status](https://img.shields.io/badge/status-MVP-f59e0b)
 ![License](https://img.shields.io/badge/license-Apache--2.0-22c55e)
@@ -114,7 +114,7 @@ updated `PATH`.
 paygate --version
 ```
 
-You should see `paygate 0.2.0`. Continue with the [Quickstart](#quickstart).
+You should see `paygate 0.3.0`. Continue with the [Quickstart](#quickstart).
 
 </details>
 
@@ -159,7 +159,7 @@ that folder to your `PATH`. It ends with `Done. Next steps`.
 paygate --version
 ```
 
-You should see `paygate 0.2.0`. Continue with the [Quickstart](#quickstart).
+You should see `paygate 0.3.0`. Continue with the [Quickstart](#quickstart).
 
 </details>
 
@@ -314,10 +314,9 @@ authorization can be released with one key right after.
 CVC work; the 3-D Secure challenge OTP is `1234`. Details are in the
 [Nexi test card guide](https://docs.paygate.nexigroup.com/nexi-developer/test-credit-card).
 
-Direct card payments cannot run 3-D Secure: its steps need a browser. Paygate
-starts 3-D Secure for every card on production, so the test cards without 3DS
-(`visa-ok`, `mc-decline` …) always ask Paygate to skip it. Try the 3DS cards on
-the payment page (`--hosted` or `--method card`).
+Direct card payments use the test cards without 3-D Secure (`visa-ok`,
+`mc-decline` …). Try the 3DS cards on the payment page (`--hosted` or
+`--method card`).
 
 **No credentials yet?** Start the built-in mock server and try every flow
 locally:
@@ -336,7 +335,7 @@ paygate pay
 | `401 Unauthorized` | Check merchant ID, API key and auth mode with `paygate profile show`, then run `paygate init` again. |
 | Every lookup returns `404` | The payment was created on another system. Check test vs. production and Nexi vs. Computop in the profile. |
 | Test payments are rejected | Paygate Support has to enable the test system (and 3-D Secure) for your merchant ID. |
-| "3-D Secure is required" (`70000000`) | Direct payments cannot run 3-D Secure. Use a test card without 3DS such as `visa-ok`, add `--skip-3ds` or pay with `--hosted`. |
+| A card payment stops at 3-D Secure | Direct payments cannot show the 3-D Secure page in the terminal. Use a test card without 3DS such as `visa-ok` or pay with `--hosted`. |
 | Waiting timed out | The customer did not finish the checkout. Check later with `paygate get --trans-id <id>`. |
 
 ## License
