@@ -732,10 +732,16 @@ func (s *newPaymentScreen) waitView(w, h int) string {
 	qrW, qrH := lipgloss.Width(qr), lipgloss.Height(qr)
 	textW := w - qrW - 3
 	// The URL sits in the column next to the code, so the code only needs
-	// its own height.
-	if qrH <= h && textW >= 32 {
-		text := s.waitText() + "\n\n" + ui.Label.Render("URL") + "\n" + ui.Link.Render(hardWrap(s.checkout, textW))
-		return lipgloss.JoinHorizontal(lipgloss.Top, qr, "   ", text)
+	// its own height. The column is wrapped to its own width: a line wider
+	// than the content area would be wrapped by the frame and push text
+	// between the rows of the code, which breaks it.
+	if qrH <= h && textW >= 24 {
+		text := lipgloss.NewStyle().Width(textW).Render(
+			s.waitText() + "\n\n" + ui.Label.Render("URL") + "\n" + ui.Link.Render(hardWrap(s.checkout, textW)))
+		block := lipgloss.JoinHorizontal(lipgloss.Top, qr, "   ", text)
+		if lipgloss.Width(block) <= w && lipgloss.Height(block) <= h {
+			return block
+		}
 	}
 	return s.waitText() + "\n\n" + ui.Warning.Render("! ") + ui.Label.Render(wrap(t("wait.small"), min(w-2, 76))) +
 		"\n\n" + ui.Label.Render("URL") + "\n" + ui.Link.Render(hardWrap(s.checkout, w))

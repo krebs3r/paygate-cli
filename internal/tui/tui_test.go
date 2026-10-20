@@ -15,6 +15,7 @@ import (
 	"github.com/krebs3r/paygate-cli/internal/i18n"
 	"github.com/krebs3r/paygate-cli/internal/mockpaygate"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
+	"github.com/krebs3r/paygate-cli/internal/ui"
 )
 
 // setup isolates config and keychain and points the client to a mock.
@@ -507,5 +508,34 @@ func TestInspectorShowsRequests(t *testing.T) {
 	send(m, keys("x"), tea.KeyMsg{Type: tea.KeyLeft}, enter) // confirm "Yes"
 	if len(s.entries) != 0 {
 		t.Errorf("clear left %d entries", len(s.entries))
+	}
+}
+
+// The QR code must survive every window width: no line may be wider than the
+// content area, otherwise the frame wraps it and splits the code.
+func TestWaitViewKeepsQRIntact(t *testing.T) {
+	i18n.Set(i18n.DE) // German has the longest hint line
+	defer i18n.Set(i18n.EN)
+	url := "https://paygate.nexigroup.com/paymentpage.aspx?token=b4ac9e31bb06466d828b4b7a657f1d9b"
+	s := newNewPaymentScreen()
+	s.flow, s.checkout, s.waitStart = string(core.FlowHosted), url, time.Now()
+	s.req = &paygate.PaymentRequest{TransID: "TIDMVGQ1UW516PPDI", Amount: paygate.Amount{Value: 1, Currency: "EUR"}}
+	qrLines := strings.Split(ui.QR(url), "\n")
+	for w := 60; w <= 140; w++ {
+		for _, h := range []int{18, 22, 26, 30} {
+			view := fit(s.waitView(w, h), w, h)
+			lines := strings.Split(view, "\n")
+			if !strings.Contains(view, qrLines[0]) {
+				continue // too small: the z hint is shown instead
+			}
+			for i, ql := range qrLines {
+				if i >= len(lines) || !strings.Contains(lines[i], ql) {
+					t.Fatalf("w=%d h=%d: QR row %d broken:\n%s", w, h, i, view)
+				}
+			}
+		}
+	}
+	if view := s.waitView(120, 26); !strings.Contains(view, qrLines[0]) {
+		t.Error("a 120 x 30 window must show the QR code next to the text")
 	}
 }
