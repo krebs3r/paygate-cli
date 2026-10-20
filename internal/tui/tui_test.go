@@ -510,6 +510,40 @@ func TestClickOpensCheckoutURL(t *testing.T) {
 	}
 }
 
+func TestClickOpensAboutLinks(t *testing.T) {
+	defer func() { openURL = func(string) error { return nil } }()
+	for _, size := range []tea.WindowSizeMsg{{Width: 120, Height: 34}, {Width: 90, Height: 44}} {
+		t.Run(fmt.Sprintf("%dx%d", size.Width, size.Height), func(t *testing.T) {
+			m := setup(t, twoProfiles(), "shop-test")
+			i18n.Set(i18n.EN)
+			send(m, size)
+			var opened []string
+			openURL = func(url string) error { opened = append(opened, url); return nil }
+			send(m, tea.KeyMsg{Type: tea.KeyUp}) // from Start around to Info; the menu keeps the keyboard
+			if m.current().ID() != "about" || m.focus != focusMenu {
+				t.Fatalf("expected Info with the menu focused, got %s", m.current().ID())
+			}
+			click := func(x, y int) {
+				send(m, tea.MouseMsg{X: x, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+			}
+			lines := strings.Split(ansi.Strip(m.View()), "\n")
+			for _, url := range []string{mollieCLIURL, paytestURL} {
+				for y, l := range lines {
+					if i := strings.Index(l, url); i >= 0 {
+						x := len([]rune(l[:i]))
+						click(x+len(url)+2, y) // beside the link
+						click(x+len(url)-1, y)
+						break
+					}
+				}
+			}
+			if len(opened) != 2 || opened[0] != mollieCLIURL || opened[1] != paytestURL {
+				t.Fatalf("clicks on the links opened %v\n%s", opened, m.View())
+			}
+		})
+	}
+}
+
 func TestSplashScreen(t *testing.T) {
 	m := setup(t, twoProfiles(), "shop-test")
 	i18n.Set(i18n.EN)

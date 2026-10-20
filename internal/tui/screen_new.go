@@ -543,8 +543,11 @@ var openURL = func(url string) error {
 	return browser.OpenURL(url)
 }
 
-func (s *newPaymentScreen) openBrowser() tea.Cmd {
-	if err := openURL(s.checkout); err != nil {
+func (s *newPaymentScreen) openBrowser() tea.Cmd { return openLink(s.checkout) }
+
+// openLink opens a URL in the browser and says so.
+func openLink(url string) tea.Cmd {
+	if err := openURL(url); err != nil {
 		return toast(err.Error(), ui.ToneDanger)
 	}
 	return toast(t("opened"), ui.ToneSuccess)

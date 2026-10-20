@@ -298,6 +298,11 @@ func (m *model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 			x += w
 		}
 	}
+	// A click into the content takes the keyboard there too, so a link on
+	// the screen opens even while the menu has the focus.
+	if l.inContent(msg.X, msg.Y) {
+		m.focus = focusContent
+	}
 	if m.focus == focusContent {
 		return m.current().Update(m.ctx, msg)
 	}

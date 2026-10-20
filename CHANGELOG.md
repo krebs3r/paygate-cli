@@ -12,6 +12,12 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   apart. Builds with uncommitted changes add `-dirty`, and the install
   script names the commit too.
 
+### Fixed
+
+- The links on the About screen open in the browser when you click them,
+  like the checkout URL. A click into the content also moves the keyboard
+  there from the menu.
+
 ### Changed
 
 - When you add a profile, the environment choice now reads "Test system" or

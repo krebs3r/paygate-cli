@@ -58,6 +58,13 @@ func (l layoutInfo) contentOrigin() (x, y int) {
 	return 1 + 2, l.bodyTop + 2 + 1 // below the tabs and their separator
 }
 
+// inContent reports whether a screen cell lies in the content area,
+// padding included.
+func (l layoutInfo) inContent(x, y int) bool {
+	cx, cy := l.contentOrigin()
+	return x >= cx-2 && x < cx-2+l.contentW && y >= cy-1 && y < cy-1+l.bodyH
+}
+
 func frame(s string) string { return lipgloss.NewStyle().Foreground(ui.ColFrame).Render(s) }
 
 func (m *model) render() string {
