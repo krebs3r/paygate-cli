@@ -10,7 +10,7 @@ import (
 	"rsc.io/qr"
 )
 
-var sgrCell = regexp.MustCompile(`\x1b\[([0-9;]+)m(?:\x1b\[([0-9;]+)m)?▀`)
+var sgrCell = regexp.MustCompile(`\x1b\[([0-9;]+)m(?:\x1b\[([0-9;]+)m)?([▀ ])`)
 
 // decode turns the coloured terminal QR back into a module matrix.
 func decode(t *testing.T, s string) [][]bool {
@@ -29,6 +29,9 @@ func decode(t *testing.T, s string) [][]bool {
 					bgDark = true
 				}
 			}
+			if m[3] == " " { // uniform cell: only the background counts
+				fgDark = bgDark
+			}
 			top, bottom = append(top, fgDark), append(bottom, bgDark)
 		}
 		rows = append(rows, top, bottom)
@@ -46,14 +49,20 @@ func TestQRMatchesEncoder(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows := decode(t, QR(text))
-	size := code.Size + 2*qrQuiet
-	if len(rows[0]) != size {
-		t.Fatalf("width = %d cells, want %d", len(rows[0]), size)
+	width := code.Size + 2*qrQuietSide
+	height := code.Size + qrQuietTop + qrQuietBottom
+	if len(rows[0]) != width || len(rows) != height {
+		t.Fatalf("size = %d x %d modules, want %d x %d", len(rows[0]), len(rows), width, height)
 	}
-	for y := 0; y < size; y++ {
-		for x := 0; x < size; x++ {
+	for _, x := range rows[0] {
+		if x || rows[1][len(rows[1])-1] {
+			t.Fatal("the first character row must be completely light")
+		}
+	}
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
 			want := false
-			if mx, my := x-qrQuiet, y-qrQuiet; mx >= 0 && my >= 0 && mx < code.Size && my < code.Size {
+			if mx, my := x-qrQuietSide, y-qrQuietTop; mx >= 0 && my >= 0 && mx < code.Size && my < code.Size {
 				want = code.Black(mx, my)
 			}
 			if rows[y][x] != want {
