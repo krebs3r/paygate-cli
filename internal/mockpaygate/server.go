@@ -25,9 +25,8 @@ type Server struct {
 	PendingPolls  int
 	// HostedMethod is the method a hosted payment is "paid" with.
 	HostedMethod string
-	// Require3DS starts 3-D Secure for every direct card payment that does
-	// not skip it, like production Paygate. Otherwise only the 3DS test
-	// cards do, like the test system.
+	// Require3DS asks for 3-D Secure on every direct card payment that does
+	// not skip it. Otherwise only the 3DS test cards ask for it.
 	Require3DS bool
 
 	mu       sync.Mutex

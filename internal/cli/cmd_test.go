@@ -281,8 +281,8 @@ func TestPaySimulation(t *testing.T) {
 	}
 }
 
-// Production Paygate starts 3-D Secure for every direct card payment, which
-// the terminal cannot complete.
+// When Paygate asks for 3-D Secure, a direct payment cannot complete it in the
+// terminal.
 func TestPayDirect3DS(t *testing.T) {
 	m := setup(t)
 	m.Require3DS = true

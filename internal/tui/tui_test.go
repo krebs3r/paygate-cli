@@ -342,9 +342,9 @@ func TestNewPaymentCardListFitsOneLinePerCard(t *testing.T) {
 	}
 }
 
-// Production Paygate starts 3-D Secure for every direct card payment. The
-// test cards without 3DS skip it, so they go through.
-func TestNewPaymentOnProductionSkips3DS(t *testing.T) {
+// Even when Paygate asks for 3-D Secure on every card, the test cards
+// without 3DS go through.
+func TestNewPaymentTestCardWithout3DS(t *testing.T) {
 	m, mock := setupMock(t, twoProfiles(), "shop-prod")
 	mock.Require3DS = true
 	i18n.Set(i18n.EN)
