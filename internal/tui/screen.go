@@ -31,9 +31,10 @@ type Screen interface {
 	// Capturing is true while a form or text input owns the keyboard, so
 	// single-letter shortcuts must not fire.
 	Capturing() bool
-	// Back handles esc inside the screen (closing a sub-view). Returning false
+	// Back handles esc inside the screen (closing a sub-view, going back a
+	// step) and may return a command, e.g. to start a form. Returning false
 	// moves the focus back to the menu.
-	Back(ctx *Context) bool
+	Back(ctx *Context) (bool, tea.Cmd)
 }
 
 // FullScreener screens can temporarily take over the whole terminal, e.g. to
@@ -54,6 +55,14 @@ type Context struct {
 	SessionErr  error
 	Version     string
 	ProfileFlag string
+	// Width and Height are the size of the content area, so screens can
+	// build forms before their first View.
+	Width, Height int
+	// MenuFocused is true while the keyboard is in the menu.
+	MenuFocused bool
+	// ContentX and ContentY are the screen position of the content area,
+	// so screens can tell what a mouse click hit.
+	ContentX, ContentY int
 
 	// Background credential check of the active profile.
 	Verified   bool
@@ -72,6 +81,7 @@ func (c *Context) Reload() {
 	c.Session, c.SessionErr = core.OpenSession(cfg, c.ProfileFlag, core.ClientOptions{Version: c.Version})
 	c.Verified, c.VerifyDone, c.VerifyErr = false, false, nil
 	i18n.Set(i18n.Detect(cfg.UILanguage))
+	ui.SetTheme(cfg.Theme)
 }
 
 // verifySession checks the active profile's credentials in the background.

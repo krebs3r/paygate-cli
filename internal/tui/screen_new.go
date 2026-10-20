@@ -75,10 +75,10 @@ type newPaymentScreen struct {
 	seq   int
 
 	// form values
-	flow, cardChoice, single, cardNumber, expiry, cvc string
-	methods                                           []string
-	amount, currency, description, simulate, capture  string
-	initialized                                       bool
+	flow, cardChoice, single, cardNumber, expiry, cvc, threeDS string
+	methods                                                    []string
+	amount, currency, description, simulate, capture           string
+	initialized                                                bool
 
 	// prepared request
 	req      *paygate.PaymentRequest
@@ -88,7 +88,9 @@ type newPaymentScreen struct {
 
 	// waiting
 	checkout   string
+	urlArea    area // where the checkout URL is drawn, relative to the view
 	waitStart  time.Time
+	waited     time.Duration // until the final status or until waiting stopped
 	lastStatus string
 
 	// result
@@ -126,21 +128,23 @@ func (s *newPaymentScreen) Activate(ctx *Context) tea.Cmd {
 	return nil
 }
 
-func (s *newPaymentScreen) Back(ctx *Context) bool {
+func (s *newPaymentScreen) Back(ctx *Context) (bool, tea.Cmd) {
 	switch s.stage {
 	case stageReview:
-		s.stage = stageForm
-		s.form = nil
-		return true
+		return true, s.startForm(ctx)
 	case stageWaiting:
 		if s.zoom {
 			s.zoom = false
-			return true
+			return true, nil
 		}
 		s.stopWaiting()
-		return true
+		return true, nil
+	case stageResult:
+		// Back to the review with a fresh transaction ID, ready to send again
+		// or to edit.
+		return true, s.review(ctx)
 	}
-	return false
+	return false, nil
 }
 
 func (s *newPaymentScreen) Hints(ctx *Context) []Hint {
@@ -151,7 +155,7 @@ func (s *newPaymentScreen) Hints(ctx *Context) []Hint {
 	case stageForm:
 		return []Hint{{"enter", t("key.next")}, {"shift+tab", t("key.back")}, {"esc", t("key.cancel")}}
 	case stageReview:
-		return []Hint{{"enter", t("key.send")}, {"e", t("key.edit")}, {"j", t("key.json")}, {"c", t("key.curl")}, {"esc", t("key.edit")}}
+		return []Hint{{"enter", t("key.send")}, {"j", t("key.json")}, {"c", t("key.curl")}, {"esc", t("key.edit")}}
 	case stageWaiting:
 		return []Hint{{"z", t("key.qrzoom")}, {"o", t("key.openbrowser")}, {"c", t("key.copyurl")}, {"esc", t("key.stop")}}
 	case stageResult:
@@ -169,7 +173,7 @@ func (s *newPaymentScreen) Hints(ctx *Context) []Hint {
 		if s.canRefund() {
 			hints = append(hints, Hint{"f", t("key.refund")})
 		}
-		return hints
+		return append(hints, Hint{"esc", t("key.back")})
 	case stageConfirmOp:
 		return []Hint{{"← →", t("key.select")}, {"enter", t("key.open")}, {"esc", t("key.cancel")}}
 	}
@@ -183,7 +187,7 @@ func (s *newPaymentScreen) defaults(ctx *Context) {
 		return
 	}
 	p := ctx.Session.Profile
-	s.flow, s.cardChoice, s.single = string(core.FlowDirect), "visa-ok", "paypal"
+	s.flow, s.cardChoice, s.single, s.threeDS = string(core.FlowDirect), "visa-ok", "paypal", "skip"
 	s.currency, s.description = p.DefaultCurrency(), core.DefaultDescription
 	s.amount, s.simulate, s.capture = core.DefaultAmount, "off", "auto"
 	if p.IsProd() {
@@ -194,16 +198,19 @@ func (s *newPaymentScreen) defaults(ctx *Context) {
 
 func (s *newPaymentScreen) startForm(ctx *Context) tea.Cmd {
 	s.defaults(ctx)
+	if ctx.Width > 0 {
+		s.width = ctx.Width
+	}
 	s.stage, s.errText, s.errLines, s.note = stageForm, "", nil, ""
 
+	// Only cards without 3-D Secure: a direct payment cannot run the 3DS
+	// browser steps in a terminal. 3DS cards work on the payment page.
 	var cardOpts []huh.Option[string]
-	scenarioW := 0
 	for _, c := range cards.Cards {
-		scenarioW = max(scenarioW, lipgloss.Width(t(c.Scenario)+" · "+t(c.Expect)))
-	}
-	for _, c := range cards.Cards {
-		desc := t(c.Scenario) + " · " + t(c.Expect)
-		label := fmt.Sprintf("%-11s %s%s  %s", brandName(c.Brand), desc, strings.Repeat(" ", scenarioW-lipgloss.Width(desc)), formatPAN(c.Number))
+		if c.ThreeDS {
+			continue
+		}
+		label := fmt.Sprintf("%-10s  %-19s  %s", brandName(c.Brand), formatPAN(c.Number), t(c.Expect))
 		cardOpts = append(cardOpts, huh.NewOption(label, c.Alias))
 	}
 	cardOpts = append(cardOpts, huh.NewOption(t("new.card.manual"), manualCardChoice))
@@ -234,7 +241,7 @@ func (s *newPaymentScreen) startForm(ctx *Context) tea.Cmd {
 		huh.NewGroup(huh.NewSelect[string]().Title(t("new.method")).Options(single...).Value(&s.single)).
 			WithHideFunc(func() bool { return s.flow != string(core.FlowMethod) }),
 		huh.NewGroup(huh.NewSelect[string]().Title(t("new.card")).Description(t("new.card.desc")).
-			Options(cardOpts...).Height(10).Value(&s.cardChoice)).
+			Options(cardOpts...).Value(&s.cardChoice)).
 			WithHideFunc(func() bool { return s.flow != string(core.FlowDirect) }),
 		huh.NewGroup(
 			huh.NewInput().Title(t("new.card.number")).Value(&s.cardNumber).Validate(func(v string) error {
@@ -245,6 +252,10 @@ func (s *newPaymentScreen) startForm(ctx *Context) tea.Cmd {
 			}),
 			huh.NewInput().Title(t("new.card.expiry")).Placeholder(cards.DefaultExpiry()).Value(&s.expiry),
 			huh.NewInput().Title("CVC").Placeholder("123").Value(&s.cvc),
+			huh.NewSelect[string]().Title("3-D Secure").Options(
+				huh.NewOption(t("3ds.skip"), "skip"),
+				huh.NewOption(t("3ds.request"), "request"),
+			).Inline(true).Value(&s.threeDS),
 		).WithHideFunc(func() bool { return s.flow != string(core.FlowDirect) || s.cardChoice != manualCardChoice }),
 		huh.NewGroup(
 			huh.NewInput().Title(t("new.amount")).Value(&s.amount).Validate(func(v string) error {
@@ -283,6 +294,7 @@ func (s *newPaymentScreen) input() core.PaymentInput {
 	case core.FlowDirect:
 		if s.cardChoice == manualCardChoice {
 			in.CardNumber, in.Expiry, in.CVC = s.cardNumber, s.expiry, s.cvc
+			in.Skip3DS = s.threeDS == "skip"
 		} else {
 			in.Card = s.cardChoice
 		}
@@ -296,17 +308,22 @@ func (s *newPaymentScreen) review(ctx *Context) tea.Cmd {
 	in.TransID = ids.NewTransID()
 	req, label, err := core.BuildPaymentRequest(in, ctx.Session.Profile)
 	if err != nil {
-		s.errText = err.Error()
-		return s.startForm(ctx)
+		return s.formWithError(ctx, err)
 	}
 	prepared, err := core.Prepare(ctx.Session.Client, in.Flow, req)
 	if err != nil {
-		s.errText = err.Error()
-		return s.startForm(ctx)
+		return s.formWithError(ctx, err)
 	}
 	s.req, s.label, s.prepared = req, label, prepared
 	s.stage, s.form, s.showJSON = stageReview, nil, false
 	return nil
+}
+
+// formWithError reopens the form with the error above it.
+func (s *newPaymentScreen) formWithError(ctx *Context, err error) tea.Cmd {
+	cmd := s.startForm(ctx)
+	s.errText = err.Error()
+	return cmd
 }
 
 // ---- update -----------------------------------------------------------------
@@ -374,6 +391,14 @@ func (s *newPaymentScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 		return cmd
 	}
 
+	// A click on the checkout URL opens it, like a link.
+	if mm, ok := msg.(tea.MouseMsg); ok {
+		if s.stage == stageWaiting && !s.zoom && mm.Action == tea.MouseActionPress && mm.Button == tea.MouseButtonLeft &&
+			s.urlArea.contains(mm.X-ctx.ContentX, mm.Y-ctx.ContentY) {
+			return s.openBrowser()
+		}
+		return nil
+	}
 	km, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return nil
@@ -383,8 +408,7 @@ func (s *newPaymentScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 		switch km.String() {
 		case "enter":
 			return s.send(ctx)
-		case "e":
-			s.stage, s.form = stageForm, nil
+		case "e", "shift+tab":
 			return s.startForm(ctx)
 		case "j":
 			s.showJSON = !s.showJSON
@@ -417,6 +441,9 @@ func (s *newPaymentScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 			}
 		case "n", "e":
 			return s.startForm(ctx)
+		case "shift+tab":
+			_, cmd := s.Back(ctx)
+			return cmd
 		case "d":
 			s.details = !s.details
 		case "x":
@@ -441,7 +468,7 @@ func (s *newPaymentScreen) send(ctx *Context) tea.Cmd {
 	s.seq++
 	seq, client, prepared := s.seq, ctx.Session.Client, s.prepared
 	s.stage, s.result, s.response, s.errText, s.errLines, s.note = stageSending, nil, nil, "", nil, ""
-	s.opKind, s.waitStart, s.details, s.zoom = "", time.Time{}, false, false
+	s.opKind, s.waitStart, s.waited, s.details, s.zoom = "", time.Time{}, 0, false, false
 	return tea.Batch(s.spin.Tick, func() tea.Msg {
 		c, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
@@ -489,9 +516,11 @@ func (s *newPaymentScreen) onPoll(ctx *Context, msg pollResultMsg) tea.Cmd {
 		if paygate.OutcomeOf(msg.res.Payment) != paygate.OutcomePending {
 			core.RecordStatus(ctx.Session.Name, msg.res.Payment)
 			s.result, s.response, s.stage = msg.res.Payment, nil, stageResult
+			s.waited = time.Since(s.waitStart)
 			return nil
 		}
 	} else if errors.Is(msg.err, paygate.ErrUnauthorized) {
+		s.waited = time.Since(s.waitStart)
 		s.showError(msg.err)
 		return nil
 	}
@@ -505,11 +534,17 @@ func (s *newPaymentScreen) onPoll(ctx *Context, msg pollResultMsg) tea.Cmd {
 func (s *newPaymentScreen) stopWaiting() {
 	s.seq++ // ignore polls still in flight
 	s.stage, s.note = stageResult, t("res.stopped")
+	s.waited = time.Since(s.waitStart)
+}
+
+// openURL opens a link in the default browser; a variable for the tests.
+var openURL = func(url string) error {
+	browser.Stdout, browser.Stderr = io.Discard, io.Discard
+	return browser.OpenURL(url)
 }
 
 func (s *newPaymentScreen) openBrowser() tea.Cmd {
-	browser.Stdout, browser.Stderr = io.Discard, io.Discard
-	if err := browser.OpenURL(s.checkout); err != nil {
+	if err := openURL(s.checkout); err != nil {
 		return toast(err.Error(), ui.ToneDanger)
 	}
 	return toast(t("opened"), ui.ToneSuccess)
@@ -603,11 +638,11 @@ func (s *newPaymentScreen) View(ctx *Context, w, h int) string {
 	if ctx.Session == nil {
 		return title(t("new.title")) + "\n\n" + ui.Label.Render(t("new.noprofile"))
 	}
-	out := s.header(ctx) + "\n\n"
+	out := s.header(ctx) + strings.Repeat("\n", viewTop)
 	switch s.stage {
 	case stageForm:
 		if s.errText != "" {
-			out += ui.Danger.Render("! ") + ui.Label.Render(wrap(s.errText, min(w-2, 74))) + "\n\n"
+			out += hang(ui.Danger.Render("! "), ui.Label.Render(wrap(s.errText, min(w-2, 74)))) + "\n\n"
 		}
 		if s.form == nil {
 			return out
@@ -616,11 +651,11 @@ func (s *newPaymentScreen) View(ctx *Context, w, h int) string {
 	case stageReview:
 		return out + s.reviewView(ctx, w, h-2)
 	case stageSending:
-		return out + s.spin.View() + " " + ui.Label.Render(fmt.Sprintf(t("new.sending"), ctx.Session.Host()))
+		return out + spinView(s.spin) + " " + ui.Label.Render(fmt.Sprintf(t("new.sending"), ctx.Session.Host()))
 	case stageWaiting:
-		return out + s.waitView(w, h-2)
+		return out + s.waitView(ctx, w, h-2)
 	case stageOperating:
-		return out + s.spin.View() + " " + ui.Label.Render("…")
+		return out + spinView(s.spin) + " " + ui.Label.Render("…")
 	case stageConfirmOp:
 		return out + s.resultView(ctx, w) + "\n\n" + s.form.View()
 	}
@@ -668,6 +703,13 @@ func (s *newPaymentScreen) reviewView(ctx *Context, w, h int) string {
 	default:
 		rows = append(rows, [2]string{t("rev.method"), s.label})
 	}
+	if pm := req.PaymentMethods; pm != nil && pm.Card != nil {
+		threeDS := ui.Warning.Render(t("rev.3ds.on"))
+		if pm.Card.ThreeDsPolicy != nil {
+			threeDS = t("rev.3ds.skip")
+		}
+		rows = append(rows, [2]string{"3-D Secure", threeDS})
+	}
 	sim := ui.Muted.Render(t("rev.sim.off"))
 	if s.simulate != "off" {
 		sim = ui.Warning.Render(req.Order.Description)
@@ -711,7 +753,22 @@ func (s *newPaymentScreen) reviewView(ctx *Context, w, h int) string {
 }
 
 // waitText is the status column shown next to (or instead of) the QR code.
-func (s *newPaymentScreen) waitText() string {
+// cardHint lists test cards for the payment page. Only on the test system:
+// production declines test cards.
+func (s *newPaymentScreen) cardHint(ctx *Context) string {
+	offersCard := core.Flow(s.flow) == core.FlowHosted && (len(s.methods) == 0 || containsFold(s.methods, "card")) ||
+		core.Flow(s.flow) == core.FlowMethod && s.single == "card"
+	if !offersCard || ctx.IsProd() {
+		return ""
+	}
+	visa, _ := cards.FindCard("visa-ok")
+	challenge, _ := cards.FindCard("visa-3ds-challenge")
+	return ui.Label.Render(t("wait.cards")) + "\n" +
+		ui.Text.Render(formatPAN(visa.Number)) + "\n" +
+		ui.Text.Render(formatPAN(challenge.Number)) + ui.Muted.Render("  3DS · OTP 1234")
+}
+
+func (s *newPaymentScreen) waitText(ctx *Context) string {
 	heading, hint := t("wait.title"), t("wait.scan")
 	if core.Flow(s.flow) == core.FlowDirect {
 		heading, hint = t("wait.3ds.title"), t("wait.3ds")
@@ -721,13 +778,17 @@ func (s *newPaymentScreen) waitText() string {
 		status = t("wait.none")
 	}
 	el := time.Since(s.waitStart).Round(time.Second)
-	return ui.Bold.Render(heading) + "\n" +
+	out := ui.Bold.Render(heading) + "\n" +
 		ui.Label.Render(money.Format(s.req.Amount.Value, s.req.Amount.Currency)+" · "+s.req.TransID) + "\n\n" +
 		ui.Muted.Render(hint) + "\n\n" +
-		s.spin.View() + " " + ui.Label.Render(fmt.Sprintf(t("wait.status"), status, fmt.Sprintf("%d:%02d", int(el.Minutes()), int(el.Seconds())%60)))
+		spinView(s.spin) + " " + ui.Label.Render(fmt.Sprintf(t("wait.status"), status, fmt.Sprintf("%d:%02d", int(el.Minutes()), int(el.Seconds())%60)))
+	if c := s.cardHint(ctx); c != "" {
+		out += "\n\n" + c
+	}
+	return out
 }
 
-func (s *newPaymentScreen) waitView(w, h int) string {
+func (s *newPaymentScreen) waitView(ctx *Context, w, h int) string {
 	qr := ui.QR(s.checkout)
 	qrW, qrH := lipgloss.Width(qr), lipgloss.Height(qr)
 	textW := w - qrW - 3
@@ -736,15 +797,36 @@ func (s *newPaymentScreen) waitView(w, h int) string {
 	// than the content area would be wrapped by the frame and push text
 	// between the rows of the code, which breaks it.
 	if qrH <= h && textW >= 24 {
-		text := lipgloss.NewStyle().Width(textW).Render(
-			s.waitText() + "\n\n" + ui.Label.Render("URL") + "\n" + ui.Link.Render(hardWrap(s.checkout, textW)))
+		url := ui.Link.Render(hardWrap(s.checkout, textW))
+		text := lipgloss.NewStyle().Width(textW).Render(s.waitText(ctx) + "\n\n" + s.urlLabel() + "\n" + url)
 		block := lipgloss.JoinHorizontal(lipgloss.Top, qr, "   ", text)
 		if lipgloss.Width(block) <= w && lipgloss.Height(block) <= h {
+			s.urlArea = area{x: qrW + 3, y: viewTop + lipgloss.Height(text) - lipgloss.Height(url), w: textW, h: lipgloss.Height(url)}
 			return block
 		}
 	}
-	return s.waitText() + "\n\n" + ui.Warning.Render("! ") + ui.Label.Render(wrap(t("wait.small"), min(w-2, 76))) +
-		"\n\n" + ui.Label.Render("URL") + "\n" + ui.Link.Render(hardWrap(s.checkout, w))
+	url := ui.Link.Render(hardWrap(s.checkout, w))
+	out := s.waitText(ctx) + "\n\n" + hang(ui.Warning.Render("! "), ui.Label.Render(wrap(t("wait.small"), min(w-2, 76)))) +
+		"\n\n" + s.urlLabel() + "\n" + url
+	s.urlArea = area{x: 0, y: viewTop + lipgloss.Height(out) - lipgloss.Height(url), w: w, h: lipgloss.Height(url)}
+	return out
+}
+
+// urlLabel heads the checkout URL and says how to use it: the terminal
+// cannot select or open it while the app owns the mouse.
+func (s *newPaymentScreen) urlLabel() string {
+	return ui.Label.Render("URL") + "  " + ui.Muted.Render(t("wait.urlkeys"))
+}
+
+// viewTop is the number of lines above the stage content: the header with
+// the steps and a blank line.
+const viewTop = 2
+
+// area is a rectangle of cells.
+type area struct{ x, y, w, h int }
+
+func (a area) contains(x, y int) bool {
+	return x >= a.x && x < a.x+a.w && y >= a.y && y < a.y+a.h
 }
 
 // FullScreen shows the QR code alone on the whole terminal (key z).
@@ -760,7 +842,7 @@ func (s *newPaymentScreen) FullScreen(ctx *Context, w, h int) (string, bool) {
 	case h >= qrH+4:
 		el := time.Since(s.waitStart).Round(time.Second)
 		info := ui.Label.Render(money.Format(s.req.Amount.Value, s.req.Amount.Currency)+" · "+s.req.TransID) + "  " +
-			s.spin.View() + " " + ui.Muted.Render(fmt.Sprintf("%d:%02d", int(el.Minutes()), int(el.Seconds())%60))
+			spinView(s.spin) + " " + ui.Muted.Render(fmt.Sprintf("%d:%02d", int(el.Minutes()), int(el.Seconds())%60))
 		block = qr + "\n\n" + info + "\n" + keys
 	case h >= qrH:
 		block = qr
@@ -788,7 +870,7 @@ func (s *newPaymentScreen) resultView(ctx *Context, w int) string {
 	if s.result == nil {
 		out := ui.ErrorBox(s.errText, s.errLines, "")
 		if s.note != "" {
-			out += "\n\n" + ui.Warning.Render("! ") + ui.Label.Render(wrap(s.note, min(w-2, 74)))
+			out += "\n\n" + hang(ui.Warning.Render("! "), ui.Label.Render(wrap(s.note, min(w-2, 74))))
 		}
 		return out
 	}
@@ -800,8 +882,12 @@ func (s *newPaymentScreen) resultView(ctx *Context, w int) string {
 	if s.label != "" {
 		opts.Extra = append(opts.Extra, ui.Row{Label: t("card.method"), Value: s.label})
 	}
-	if !s.waitStart.IsZero() && s.response == nil {
-		opts.Extra = append(opts.Extra, ui.Row{Label: t("res.waited"), Value: ui.Muted.Render(time.Since(s.waitStart).Round(time.Second).String())})
+	if s.waited > 0 && s.response == nil {
+		where := t("res.waited.page")
+		if core.Flow(s.flow) == core.FlowDirect {
+			where = t("res.waited.3ds")
+		}
+		opts.Extra = append(opts.Extra, ui.Row{Label: t("res.waited"), Value: ui.Muted.Render(fmt.Sprintf(where, s.waited.Round(time.Second)))})
 	}
 	var out string
 	if s.details {
@@ -819,10 +905,10 @@ func (s *newPaymentScreen) resultView(ctx *Context, w int) string {
 		out += "\n" + ui.Warning.Render(" ◆ ") + ui.Label.Render(fmt.Sprintf(t("res.sim"), s.req.Order.Description))
 	}
 	if s.note != "" {
-		out += "\n" + ui.Accent.Render(" › ") + ui.Label.Render(wrap(s.note, min(w-4, 74)))
+		out += "\n" + hang(ui.Accent.Render(" › "), ui.Label.Render(wrap(s.note, min(w-4, 74))))
 	}
 	if ctx.IsProd() && s.simulate == "off" && s.canRelease() {
-		out += "\n" + ui.Danger.Render(" ! ") + ui.Label.Render(wrap(t("res.prod.hint"), min(w-4, 74)))
+		out += "\n" + hang(ui.Danger.Render(" ! "), ui.Label.Render(wrap(t("res.prod.hint"), min(w-4, 74))))
 	}
 	return out
 }
@@ -838,6 +924,12 @@ var (
 func maskCard(body []byte) []byte {
 	b := cardNumberRe.ReplaceAll(body, []byte(`${1}•••• ${2}"`))
 	return cvcRe.ReplaceAll(b, []byte(`${1}•••"`))
+}
+
+// hang puts a marker before a wrapped text, so the following lines stay
+// indented below the text.
+func hang(marker, text string) string {
+	return lipgloss.JoinHorizontal(lipgloss.Top, marker, text)
 }
 
 func indentLines(s, prefix string) string {

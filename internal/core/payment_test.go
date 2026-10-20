@@ -50,6 +50,22 @@ func TestBuildPaymentRequest(t *testing.T) {
 	if req.URLs != nil {
 		t.Error("direct non-3DS payments need no callback URLs")
 	}
+	skips := func(in PaymentInput) bool {
+		r, _, err := BuildPaymentRequest(in, prof)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.PaymentMethods.Card.ThreeDsPolicy != nil && r.PaymentMethods.Card.ThreeDsPolicy.Skip == "THIS_TRANSACTION"
+	}
+	if !skips(PaymentInput{Flow: FlowDirect, Card: "mc-decline"}) {
+		t.Error("test cards without 3DS must skip 3-D Secure")
+	}
+	if skips(PaymentInput{Flow: FlowDirect, Card: "visa-3ds-challenge"}) || skips(PaymentInput{Flow: FlowDirect, CardNumber: "4111111111111111"}) {
+		t.Error("3DS cards and own cards request 3-D Secure unless asked to skip")
+	}
+	if !skips(PaymentInput{Flow: FlowDirect, CardNumber: "4111111111111111", Skip3DS: true}) {
+		t.Error("Skip3DS must skip 3-D Secure")
+	}
 
 	req, _, err = BuildPaymentRequest(PaymentInput{Flow: FlowHosted, Methods: []string{"card,paypal", "sepa"}}, prof)
 	if err != nil {

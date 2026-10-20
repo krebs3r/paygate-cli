@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/krebs3r/paygate-cli/internal/cards"
 	"github.com/krebs3r/paygate-cli/internal/history"
 	"github.com/krebs3r/paygate-cli/internal/i18n"
 	"github.com/krebs3r/paygate-cli/internal/reqlog"
@@ -54,7 +55,7 @@ func (m *model) paletteCommands() []paletteCmd {
 	}
 	add(t("act.new"), "new payment pay card neue zahlung bezahlen karte", func(*model) tea.Cmd { return switchTo("new", nil) })
 	add(t("pal.lookup"), "look up find search payid transid zahlung suchen finden", func(*model) tea.Cmd { return switchTo("payments", "lookup") })
-	add(t("pal.last"), "last payment refund capture cancel release letzte zahlung erstatten einziehen freigeben", func(*model) tea.Cmd {
+	add(t("pal.last"), "last payment refund capture reversal reverse cancel release letzte zahlung erstatten einziehen freigeben stornieren", func(*model) tea.Cmd {
 		r, ok := m.lastPayment()
 		if !ok {
 			return toast(t("pal.nolast"), ui.ToneWarning)
@@ -76,6 +77,7 @@ func (m *model) paletteCommands() []paletteCmd {
 		add(fmt.Sprintf(t("pal.go"), s.Title()), "go open screen gehe öffnen "+id, func(*model) tea.Cmd { return switchTo(id, nil) })
 	}
 	add(t("pal.addprofile"), "add profile merchant credentials profil hinzufügen händler zugangsdaten", func(*model) tea.Cmd { return switchTo("profiles", "add") })
+	add(t("pal.reset"), "factory reset delete all data wipe werksreset zurücksetzen alle daten löschen", func(*model) tea.Cmd { return switchTo("settings", "reset") })
 	if m.ctx.Cfg != nil {
 		for _, name := range m.ctx.Cfg.Names() {
 			n := name
@@ -107,14 +109,52 @@ func (m *model) paletteCommands() []paletteCmd {
 		}
 		return toast(t("set.saved"), ui.ToneSuccess)
 	})
+	for _, th := range ui.Themes {
+		id := th.ID
+		if id == ui.ThemeID() {
+			continue
+		}
+		add(fmt.Sprintf(t("pal.theme"), themeLabel(id)), "theme colour color scheme farbschema farben design "+id, func(m *model) tea.Cmd {
+			setTheme(m.ctx.Cfg, id)
+			if err := m.ctx.Cfg.Save(); err != nil {
+				return toast(err.Error(), ui.ToneDanger)
+			}
+			return toast(t("set.saved"), ui.ToneSuccess)
+		})
+	}
 	add(t("pal.clearlog"), "clear request log inspector leeren protokoll", func(m *model) tea.Cmd {
 		if err := reqlog.Clear(); err != nil {
 			return toast(err.Error(), ui.ToneDanger)
 		}
 		return toast(t("insp.cleared"), ui.ToneSuccess)
 	})
+	for _, c := range cards.Cards {
+		c := c
+		label := fmt.Sprintf(t("pal.card"), brandName(c.Brand), formatPAN(c.Number), cardOutcome(c))
+		keywords := "test card testkarte copy kopieren number nummer " + c.Alias + " " + c.Scenario + " " + c.Expect + " " + c.Number
+		add(label, keywords, func(*model) tea.Cmd {
+			if err := clipboard.WriteAll(c.Number); err != nil {
+				return toast(err.Error(), ui.ToneDanger)
+			}
+			return toast(t("cards.copied"), ui.ToneSuccess)
+		})
+	}
 	add(t("pal.quit"), "quit exit beenden", func(*model) tea.Cmd { return tea.Quit })
 	return cmds
+}
+
+// cardOutcome describes a test card in a few words: the outcome, and for
+// 3-D Secure cards the kind of authentication.
+func cardOutcome(c cards.Card) string {
+	switch {
+	case !c.ThreeDS:
+		return t(c.Expect)
+	case c.Scenario == "3DS challenge":
+		return t(c.Scenario) + ", OTP 1234"
+	case c.Expect == "authenticated":
+		return t(c.Scenario)
+	}
+	return "3DS, " + t(c.Expect)
 }
 
 func (m *model) lastPayment() (history.Record, bool) {
@@ -157,7 +197,9 @@ func (p *palette) filter() {
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].score > out[j].score })
-	p.matches = p.matches[:0]
+	// A new slice: with an empty query matches shares the array of items,
+	// and appending in place would overwrite the commands.
+	p.matches = make([]paletteCmd, 0, len(out))
 	for _, s := range out {
 		p.matches = append(p.matches, s.cmd)
 	}
@@ -222,7 +264,7 @@ func (m *model) updatePalette(msg tea.KeyMsg) tea.Cmd {
 }
 
 func (m *model) paletteView(w int) string {
-	boxW := min(w, 72)
+	boxW := min(w, 84)
 	inner := boxW - 4 // border and padding
 	var b strings.Builder
 	b.WriteString(m.pal.input.View() + "\n")
@@ -235,7 +277,7 @@ func (m *model) paletteView(w int) string {
 		start = m.pal.sel - paletteRows + 1
 	}
 	for i := start; i < len(m.pal.matches) && i < start+paletteRows; i++ {
-		b.WriteString(selectable(truncate(m.pal.matches[i].label, inner-3), i == m.pal.sel, inner) + "\n")
+		b.WriteString(selectable(nil, truncate(m.pal.matches[i].label, inner-3), i == m.pal.sel, inner) + "\n")
 	}
 	if extra := len(m.pal.matches) - start - paletteRows; extra > 0 {
 		b.WriteString(ui.Muted.Render(fmt.Sprintf("  … +%d", extra)))

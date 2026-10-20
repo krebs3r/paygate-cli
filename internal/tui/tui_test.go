@@ -2,12 +2,16 @@ package tui
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/krebs3r/paygate-cli/internal/config"
 	"github.com/krebs3r/paygate-cli/internal/core"
@@ -20,6 +24,13 @@ import (
 
 // setup isolates config and keychain and points the client to a mock.
 func setup(t *testing.T, profiles map[string]*config.Profile, active string) *model {
+	t.Helper()
+	mdl, _ := setupMock(t, profiles, active)
+	return mdl
+}
+
+// setupMock is setup that also returns the mock Paygate.
+func setupMock(t *testing.T, profiles map[string]*config.Profile, active string) (*model, *mockpaygate.Server) {
 	t.Helper()
 	m := mockpaygate.New("demo-shop", "demo-key")
 	srv := httptest.NewServer(m.Handler())
@@ -54,7 +65,7 @@ func setup(t *testing.T, profiles map[string]*config.Profile, active string) *mo
 	ctx.Reload()
 	mdl := newModel(ctx)
 	send(mdl, tea.WindowSizeMsg{Width: 120, Height: 34})
-	return mdl
+	return mdl, m
 }
 
 // send feeds messages one by one to the model. Each message is processed
@@ -105,9 +116,10 @@ func run(cmd tea.Cmd) tea.Msg {
 func keys(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
 
 var (
-	enter = tea.KeyMsg{Type: tea.KeyEnter}
-	esc   = tea.KeyMsg{Type: tea.KeyEsc}
-	down  = tea.KeyMsg{Type: tea.KeyDown}
+	enter    = tea.KeyMsg{Type: tea.KeyEnter}
+	esc      = tea.KeyMsg{Type: tea.KeyEsc}
+	down     = tea.KeyMsg{Type: tea.KeyDown}
+	shiftTab = tea.KeyMsg{Type: tea.KeyShiftTab}
 )
 
 func twoProfiles() map[string]*config.Profile {
@@ -138,9 +150,9 @@ func TestNavigationAndShortcuts(t *testing.T) {
 	if !strings.Contains(m.View(), "TEST") || !strings.Contains(m.View(), "ACTIVE PROFILE") {
 		t.Fatalf("home view:\n%s", m.View())
 	}
-	send(m, keys("t"))
-	if m.current().ID() != "cards" || !strings.Contains(m.View(), "visa-ok") {
-		t.Fatalf("t should open the test cards:\n%s", m.View())
+	send(m, keys("l"))
+	if m.current().ID() != "payments" || !strings.Contains(m.View(), "Payments") {
+		t.Fatalf("l should open the payments:\n%s", m.View())
 	}
 	send(m, esc, down)
 	if m.focus != focusMenu || m.current().ID() != "profiles" {
@@ -206,6 +218,32 @@ func TestLanguageSwitch(t *testing.T) {
 		t.Errorf("ui_language = %q", cfg.UILanguage)
 	}
 	i18n.Set(i18n.EN)
+}
+
+func TestThemeSetting(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	defer ui.SetTheme("")
+	send(m, keys("s"), down) // second entry: colour theme
+	if !strings.Contains(m.View(), "Colour theme") || !strings.Contains(m.View(), "Blue") {
+		t.Fatalf("settings must offer the colour theme:\n%s", m.View())
+	}
+	send(m, enter, down, enter) // Blue → Blurple
+	if ui.ThemeID() != "blurple" || m.ctx.Cfg.Theme != "blurple" {
+		t.Fatalf("theme = %s, config %q", ui.ThemeID(), m.ctx.Cfg.Theme)
+	}
+	if cfg, _ := config.Load(); cfg.Theme != "blurple" {
+		t.Errorf("theme not saved: %q", cfg.Theme)
+	}
+	m.ctx.Reload()
+	if ui.ThemeID() != "blurple" {
+		t.Error("the saved theme must apply when the app starts")
+	}
+	// Back to blue from the command palette; the default is stored empty.
+	send(m, tea.KeyMsg{Type: tea.KeyCtrlK}, keys("blue"), enter)
+	if ui.ThemeID() != "blue" || m.ctx.Cfg.Theme != "" {
+		t.Errorf("palette switch: theme %s, config %q", ui.ThemeID(), m.ctx.Cfg.Theme)
+	}
 }
 
 func TestTooSmall(t *testing.T) {
@@ -280,6 +318,89 @@ func TestNewPaymentSimulatedOnProduction(t *testing.T) {
 	}
 }
 
+func TestNewPaymentCardListFitsOneLinePerCard(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	// German in the narrowest wide window: the description wraps, which
+	// must neither wrap the rows nor push the last option out of view.
+	i18n.Set(i18n.DE)
+	defer i18n.Set(i18n.EN)
+	send(m, tea.WindowSizeMsg{Width: wideMinW, Height: 30})
+	send(m, keys("n"), enter) // flow: direct card
+	view := m.View()
+	for _, want := range []string{
+		"Visa        4111 1111 1111 1111  erfolgreich",
+		"Mastercard  5105 1051 0510 5100  abgelehnt",
+		"Amex        3714 496353 98431    abgelehnt",
+		"Kartendaten eingeben",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("card list misses the line %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "4000 0128 9268 8323") {
+		t.Errorf("3DS cards cannot complete a direct payment and must not be offered:\n%s", view)
+	}
+}
+
+// Production Paygate starts 3-D Secure for every direct card payment. The
+// test cards without 3DS skip it, so they go through.
+func TestNewPaymentOnProductionSkips3DS(t *testing.T) {
+	m, mock := setupMock(t, twoProfiles(), "shop-prod")
+	mock.Require3DS = true
+	i18n.Set(i18n.EN)
+	send(m, keys("n"))
+	s := m.current().(*newPaymentScreen)
+	send(m, enter, enter, enter, enter, enter, enter, enter)
+	if s.stage != stageReview || s.req.PaymentMethods.Card.ThreeDsPolicy == nil {
+		t.Fatalf("visa-ok must skip 3-D Secure, stage %d:\n%s", s.stage, m.View())
+	}
+	if !strings.Contains(m.View(), "skipped") {
+		t.Errorf("review must show that 3-D Secure is skipped:\n%s", m.View())
+	}
+	send(m, enter)
+	if s.result == nil || s.result.Status != "AUTHORIZED" {
+		t.Fatalf("expected an authorization, got %+v\n%s", s.result, m.View())
+	}
+}
+
+// When Paygate asks for 3-D Secure the result explains it, and esc or
+// shift+tab lead back to the review and the form, which shows at once.
+func TestNewPayment3DSRequiredGoesBack(t *testing.T) {
+	m, mock := setupMock(t, twoProfiles(), "shop-prod")
+	mock.Require3DS = true
+	i18n.Set(i18n.EN)
+	send(m, keys("n"))
+	s := m.current().(*newPaymentScreen)
+	s.cardChoice, s.cardNumber, s.threeDS = manualCardChoice, "4111111111111111", "request"
+	s.form = nil
+	send(m, enter) // rebuilds the form with the manual card preset
+	// flow, card, number, expiry, CVC, 3-D Secure, amount, currency, description, simulation, capture
+	send(m, enter, enter, enter, enter, enter, enter, enter, enter, enter, enter, enter)
+	if s.stage != stageReview || !strings.Contains(m.View(), "not possible in the terminal") {
+		t.Fatalf("review must warn about 3-D Secure, stage %d:\n%s", s.stage, m.View())
+	}
+	send(m, enter)
+	if s.stage != stageResult || s.result == nil || s.result.ResponseCode != "70000000" {
+		t.Fatalf("expected 3-D Secure to be required, got stage %d %+v", s.stage, s.result)
+	}
+	if !strings.Contains(m.View(), "skip 3-D Secure") || !strings.Contains(m.View(), "esc back") {
+		t.Errorf("result must explain the way out:\n%s", m.View())
+	}
+	transID := s.req.TransID
+	send(m, esc)
+	if s.stage != stageReview || s.req.TransID == transID || m.focus != focusContent {
+		t.Fatalf("esc on the result should return to the review with a new trans ID, stage %d", s.stage)
+	}
+	send(m, shiftTab)
+	if s.stage != stageForm || s.form == nil || !strings.Contains(m.View(), "Payment flow") {
+		t.Fatalf("shift+tab on the review should show the form right away, stage %d:\n%s", s.stage, m.View())
+	}
+	send(m, enter, enter, enter, enter, enter, enter, enter, enter, enter, enter, enter, esc)
+	if s.stage != stageForm || s.form == nil || !strings.Contains(m.View(), "Payment flow") {
+		t.Fatalf("esc on the review should show the form right away, stage %d:\n%s", s.stage, m.View())
+	}
+}
+
 func TestNewPaymentSimulatedDecline(t *testing.T) {
 	m := setup(t, twoProfiles(), "shop-test")
 	i18n.Set(i18n.EN)
@@ -307,7 +428,11 @@ func TestNewPaymentHostedWaitsForCustomer(t *testing.T) {
 	if s.stage != stageReview {
 		t.Fatalf("expected review, got %d:\n%s", s.stage, m.View())
 	}
+	firstPoll = time.Hour // keep waiting until the loop below polls
 	send(m, enter)
+	if s.stage != stageWaiting || !strings.Contains(m.View(), "4111 1111 1111 1111") || !strings.Contains(m.View(), "OTP 1234") {
+		t.Errorf("the wait screen should list test cards for the payment page, stage %d:\n%s", s.stage, m.View())
+	}
 	for i := 0; i < 20 && s.stage == stageWaiting; i++ {
 		send(m, run(s.poll(m.ctx, time.Millisecond)))
 	}
@@ -318,8 +443,58 @@ func TestNewPaymentHostedWaitsForCustomer(t *testing.T) {
 		t.Errorf("result view:\n%s", m.View())
 	}
 	send(m, keys("d"))
-	if !strings.Contains(m.View(), "Paid with PayPal") {
+	if !strings.Contains(m.View(), "Paid with PayPal") || !strings.Contains(m.View(), "on the payment page") {
 		t.Errorf("detail card:\n%s", m.View())
+	}
+	// The duration stops with the final status and does not keep counting.
+	s.waitStart = s.waitStart.Add(-time.Hour)
+	if strings.Contains(m.View(), "1h") {
+		t.Errorf("the duration must not grow after the payment completed:\n%s", m.View())
+	}
+}
+
+// A click on the checkout URL opens it in the browser, in the wide and the
+// narrow layout; a click elsewhere does not.
+func TestClickOpensCheckoutURL(t *testing.T) {
+	defer func() { firstPoll, openURL = 500*time.Millisecond, func(string) error { return nil } }()
+	for _, size := range []tea.WindowSizeMsg{{Width: 120, Height: 34}, {Width: 90, Height: 44}} {
+		t.Run(fmt.Sprintf("%dx%d", size.Width, size.Height), func(t *testing.T) {
+			firstPoll = time.Hour
+			m := setup(t, twoProfiles(), "shop-test")
+			i18n.Set(i18n.EN)
+			send(m, size)
+			var opened []string
+			openURL = func(url string) error { opened = append(opened, url); return nil }
+			send(m, keys("n"))
+			s := m.current().(*newPaymentScreen)
+			send(m, down, enter, enter, enter, enter, enter, enter, enter, enter)
+			if s.stage != stageWaiting {
+				t.Fatalf("expected the wait screen, got stage %d", s.stage)
+			}
+			click := func(x, y int) {
+				send(m, tea.MouseMsg{X: x, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+			}
+			// Click the first and the last line of the wrapped URL.
+			lines := strings.Split(ansi.Strip(m.View()), "\n") // rendering places the URL
+			chunks := strings.Split(hardWrap(s.checkout, s.urlArea.w), "\n")
+			hits := 0
+			for _, chunk := range []string{chunks[0], chunks[len(chunks)-1]} {
+				for y, l := range lines {
+					if i := strings.Index(l, chunk); i >= 0 {
+						click(len([]rune(l[:i])), y)
+						hits++
+						break
+					}
+				}
+			}
+			if hits != 2 || len(opened) != 2 || opened[0] != s.checkout {
+				t.Fatalf("clicks on the URL (%d) opened %v\n%s", hits, opened, m.View())
+			}
+			click(size.Width-3, 2) // the step header, not the URL
+			if len(opened) != 2 {
+				t.Error("a click beside the URL must not open it")
+			}
+		})
 	}
 }
 
@@ -479,9 +654,68 @@ func TestCommandPalette(t *testing.T) {
 	if m.pal.open || m.ctx.Session == nil || m.ctx.Session.Name != "shop-prod" {
 		t.Fatalf("switch via palette failed: %+v", m.ctx.Session)
 	}
+	// Typing must not change the commands themselves.
+	send(m, tea.KeyMsg{Type: tea.KeyCtrlK})
+	before := len(m.pal.items)
+	labels := map[string]int{}
+	send(m, keys("z"), keys("a"), keys("h"), keys("l"))
+	for _, c := range m.pal.items {
+		if labels[c.label]++; labels[c.label] > 1 {
+			t.Errorf("filtering changed the commands: %q twice", c.label)
+		}
+	}
+	if len(m.pal.items) != before {
+		t.Errorf("filtering changed the number of commands: %d → %d", before, len(m.pal.items))
+	}
+	send(m, esc)
+	send(m, tea.KeyMsg{Type: tea.KeyCtrlK}, keys("3ds challenge"))
+	if len(m.pal.matches) == 0 || !strings.Contains(m.pal.matches[0].label, "4000 0128 9268 8323") {
+		t.Errorf("the palette should offer to copy the 3DS challenge card, got %+v", m.pal.matches)
+	}
+	send(m, esc)
 	send(m, tea.KeyMsg{Type: tea.KeyCtrlP}, keys("look"), enter)
 	if m.current().ID() != "payments" || m.current().(*paymentsScreen).form == nil {
 		t.Error("look up should open the lookup form")
+	}
+}
+
+func TestFactoryReset(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	createPayment(t, m, core.PaymentInput{Flow: core.FlowDirect, Card: "visa-ok"})
+	dir, _ := config.Dir()
+
+	send(m, keys("s"), keys("k")) // settings, up wraps to the last entry
+	s := m.current().(*settingsScreen)
+	if !strings.Contains(m.View(), "Delete all data") {
+		t.Fatalf("settings must offer the factory reset:\n%s", m.View())
+	}
+	send(m, enter)
+	if s.form == nil || !strings.Contains(m.View(), "Delete all paygate data?") {
+		t.Fatalf("expected the confirmation:\n%s", m.View())
+	}
+	send(m, enter) // "No" is preselected
+	if _, err := os.Stat(dir); err != nil || m.ctx.Session == nil {
+		t.Fatalf("declining must not delete anything: %v", err)
+	}
+
+	// From the command palette, then confirm.
+	send(m, tea.KeyMsg{Type: tea.KeyCtrlK}, keys("factory reset"), enter)
+	if m.current().ID() != "settings" || s.form == nil || s.editing != "reset" {
+		t.Fatalf("the palette should open the reset confirmation, got %s", m.current().ID())
+	}
+	send(m, tea.KeyMsg{Type: tea.KeyLeft}, enter)
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("config directory still exists: %v", err)
+	}
+	if m.ctx.Session != nil || len(m.ctx.Cfg.Profiles) != 0 || m.current().ID() != "home" {
+		t.Fatalf("expected a fresh start on the home screen, got %s session %+v", m.current().ID(), m.ctx.Session)
+	}
+	if !strings.Contains(m.View(), "Welcome to paygate") {
+		t.Errorf("home should welcome a new user:\n%s", m.View())
+	}
+	if recs, _ := history.Load(); len(recs) != 0 {
+		t.Errorf("history must be empty, got %d records", len(recs))
 	}
 }
 
@@ -521,9 +755,10 @@ func TestWaitViewKeepsQRIntact(t *testing.T) {
 	s.flow, s.checkout, s.waitStart = string(core.FlowHosted), url, time.Now()
 	s.req = &paygate.PaymentRequest{TransID: "TIDMVGQ1UW516PPDI", Amount: paygate.Amount{Value: 1, Currency: "EUR"}}
 	qrLines := strings.Split(ui.QR(url), "\n")
+	ctx := &Context{} // test system: the test card hint takes room as well
 	for w := 60; w <= 140; w++ {
 		for _, h := range []int{18, 22, 26, 30} {
-			view := fit(s.waitView(w, h), w, h)
+			view := fit(s.waitView(ctx, w, h), w, h)
 			lines := strings.Split(view, "\n")
 			if !strings.Contains(view, qrLines[0]) {
 				continue // too small: the z hint is shown instead
@@ -535,7 +770,7 @@ func TestWaitViewKeepsQRIntact(t *testing.T) {
 			}
 		}
 	}
-	if view := s.waitView(120, 26); !strings.Contains(view, qrLines[0]) {
+	if view := s.waitView(ctx, 120, 26); !strings.Contains(view, qrLines[0]) {
 		t.Error("a 120 x 30 window must show the QR code next to the text")
 	}
 }

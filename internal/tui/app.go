@@ -65,7 +65,6 @@ func newModel(ctx *Context) *model {
 			newHomeScreen(),
 			newNewPaymentScreen(),
 			newPaymentsScreen(),
-			newCardsScreen(),
 			newProfilesScreen(),
 			newInspectorScreen(),
 			newSettingsScreen(),
@@ -116,6 +115,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		l := m.layout()
+		m.ctx.Width, m.ctx.Height = l.contentW-4, l.bodyH-2
+		m.ctx.ContentX, m.ctx.ContentY = l.contentOrigin()
 		return m, nil
 
 	case splashTickMsg:
@@ -257,17 +259,12 @@ func (m *model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
-	if k == "esc" && !capturing {
-		if !m.current().Back(m.ctx) {
+	if (k == "esc" || k == "left") && !capturing {
+		handled, cmd := m.current().Back(m.ctx)
+		if !handled {
 			m.focus = focusMenu
 		}
-		return nil
-	}
-	if (k == "left") && !capturing {
-		if !m.current().Back(m.ctx) {
-			m.focus = focusMenu
-		}
-		return nil
+		return cmd
 	}
 	return m.current().Update(m.ctx, msg)
 }

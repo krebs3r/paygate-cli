@@ -180,8 +180,8 @@ git -C ~/paygate-cli pull
 | macOS | `~/paygate-cli/scripts/install.sh --uninstall` |
 | Windows | `powershell -ExecutionPolicy Bypass -File $HOME\paygate-cli\scripts\install.ps1 -Uninstall` |
 
-Your profiles and API keys are kept. Remove them first with
-`paygate profile delete <name>` if you want a clean slate.
+Your profiles and API keys are kept. Remove them first with `paygate reset`
+if you want a clean slate.
 
 ### Still `command not found`?
 
@@ -198,18 +198,17 @@ Type `paygate` and press <kbd>Enter</kbd>. The full-screen app opens: pick an
 area in the menu on the left with the arrow keys or the mouse, the bottom line
 always shows the keys you can use, <kbd>?</kbd> lists all shortcuts and
 <kbd>ctrl</kbd>+<kbd>k</kbd> opens a command palette that finds every action
-by typing a few letters (English or German). On first start it walks you
-through adding your merchant.
+by typing a few letters (English or German), for example "3ds" to copy a
+test card number. On first start it walks you through adding your merchant.
 
 | Area | What you do there |
 | --- | --- |
 | Home | Active profile, credential check, today's numbers, latest payments |
-| New payment | Form, review (request JSON, copy as curl), send, receipt; QR code and live status for hosted pages |
-| Payments | Local history with filter (`/`), lookup by ID (`g`), details with capture, refund, release and refresh |
-| Test cards | Test cards with aliases; `y` copies a number |
+| New payment | Form, review (request JSON, copy as curl), send, receipt; QR code, live status and test cards for hosted pages |
+| Payments | Local history with filter (`/`), lookup by ID (`g`), details with capture, refund, reversal and refresh |
 | Inspector | The last 200 requests to Paygate from the app and the command line: request and response with headers and JSON, timing, correlation ID; copy body or curl |
 | Profiles | Add (with credential check), switch, verify, delete |
-| Settings | Language, start screen, currency, payment page language, callback URLs, customer IP |
+| Settings | Language, colour theme (Blue or Blurple), start screen, currency, payment page language, callback URLs, customer IP, delete all data |
 
 Everything in the app also works as a single command, for scripts and CI.
 
@@ -246,9 +245,10 @@ Single commands work without the app, for example in scripts:
 | `paygate history` | List payments created or looked up with paygate | `paygate history --limit 50` |
 | `paygate capture` | Capture an authorized payment | `paygate capture <payId>` |
 | `paygate refund` | Refund fully or partially | `paygate refund <payId> --amount 5` |
-| `paygate cancel` | Cancel (reverse) before capture | `paygate cancel <payId>` |
+| `paygate reverse` | Reversal: cancel an authorization before capture (alias `cancel`) | `paygate reverse <payId>` |
 | `paygate testcards` | List test cards and aliases | `paygate testcards` |
 | `paygate profile` | List, switch, show, edit, delete profiles | `paygate profile use shop-prod` |
+| `paygate reset` | Delete all profiles, API keys, history and settings (also in the app under Settings) | `paygate reset` |
 | `paygate about` | Version, license and credits | `paygate about` |
 
 Global flags work with every command:
@@ -314,6 +314,11 @@ authorization can be released with one key right after.
 CVC work; the 3-D Secure challenge OTP is `1234`. Details are in the
 [Nexi test card guide](https://docs.paygate.nexigroup.com/nexi-developer/test-credit-card).
 
+Direct card payments cannot run 3-D Secure: its steps need a browser. Paygate
+starts 3-D Secure for every card on production, so the test cards without 3DS
+(`visa-ok`, `mc-decline` …) always ask Paygate to skip it. Try the 3DS cards on
+the payment page (`--hosted` or `--method card`).
+
 **No credentials yet?** Start the built-in mock server and try every flow
 locally:
 
@@ -331,7 +336,7 @@ paygate pay
 | `401 Unauthorized` | Check merchant ID, API key and auth mode with `paygate profile show`, then run `paygate init` again. |
 | Every lookup returns `404` | The payment was created on another system. Check test vs. production and Nexi vs. Computop in the profile. |
 | Test payments are rejected | Paygate Support has to enable the test system (and 3-D Secure) for your merchant ID. |
-| "3-D Secure authentication is required" | Use a non-3DS card such as `visa-ok`, add `--skip-3ds` if your MID allows it, or pay with `--hosted`. |
+| "3-D Secure is required" (`70000000`) | Direct payments cannot run 3-D Secure. Use a test card without 3DS such as `visa-ok`, add `--skip-3ds` or pay with `--hosted`. |
 | Waiting timed out | The customer did not finish the checkout. Check later with `paygate get --trans-id <id>`. |
 
 ## License

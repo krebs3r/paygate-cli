@@ -69,6 +69,7 @@ func orDefault(v, d string) string {
 type Config struct {
 	ActiveProfile string              `toml:"active_profile"`
 	UILanguage    string              `toml:"ui_language,omitempty"` // auto | en | de
+	Theme         string              `toml:"theme,omitempty"`       // blue (default) | blurple
 	NoSplash      bool                `toml:"no_splash,omitempty"`
 	Profiles      map[string]*Profile `toml:"profiles"`
 

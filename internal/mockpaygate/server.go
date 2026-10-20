@@ -25,6 +25,10 @@ type Server struct {
 	PendingPolls  int
 	// HostedMethod is the method a hosted payment is "paid" with.
 	HostedMethod string
+	// Require3DS starts 3-D Secure for every direct card payment that does
+	// not skip it, like production Paygate. Otherwise only the 3DS test
+	// cards do, like the test system.
+	Require3DS bool
 
 	mu       sync.Mutex
 	byTrans  map[string]*record
@@ -68,8 +72,9 @@ var declineCards = map[string]bool{
 	"4200000000000000": true, "5200000000000007": true, "378282246310005": true,
 }
 
-var challengeCards = map[string]bool{
-	"4000012892688323": true, "5232125125401459": true,
+var threeDSCards = map[string]bool{
+	"4000019966199434": true, "5232122422543299": true, "4000012892688323": true,
+	"5232125125401459": true, "4000011744135012": true, "5232122741507017": true,
 }
 
 // Handler returns the HTTP handler.
@@ -148,8 +153,11 @@ type paymentBody struct {
 		Type            string `json:"type"`
 		IntegrationType string `json:"integrationType"`
 		Card            *struct {
-			Number string `json:"number"`
-			Brand  string `json:"brand"`
+			Number        string `json:"number"`
+			Brand         string `json:"brand"`
+			ThreeDsPolicy *struct {
+				Skip string `json:"skip"`
+			} `json:"threeDsPolicy"`
 		} `json:"card"`
 	} `json:"paymentMethods"`
 }
@@ -242,11 +250,17 @@ func (s *Server) createPayment(w http.ResponseWriter, r *http.Request) {
 			}},
 		})
 		return
-	case challengeCards[card.Number] && !simOK:
-		rec.Status, rec.Code, rec.Desc, rec.Hosted = "AUTHORIZE_REQUEST", "70000001", "3-D Secure challenge required", true
+	case (threeDSCards[card.Number] || s.Require3DS) && card.ThreeDsPolicy == nil:
+		// Like Paygate: 3-D Secure versioning is done and the browser steps
+		// (3DS method, challenge) are up to the merchant. No redirect link.
+		rec.Status, rec.Code, rec.Desc = "REQUEST", "70000000", "AUTHENTICATION_REQUIRED"
 		s.store(rec)
 		out := s.paymentJSON(rec)
-		out["_links"] = map[string]any{"redirect": map[string]any{"href": s.BaseURL + "/checkout?challenge=1&transId=" + rec.TransID, "type": "text/html"}}
+		pm := out["paymentMethods"].(map[string]any)
+		pm["card"].(map[string]any)["versioningData"] = map[string]any{
+			"threeDSServerTransId": rec.PayID,
+			"threeDSMethodUrl":     s.BaseURL + "/cbThreeDS.aspx?action=mthdNtfn",
+		}
 		writeJSON(w, http.StatusCreated, out)
 		return
 	}

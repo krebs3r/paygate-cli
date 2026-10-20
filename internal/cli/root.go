@@ -168,6 +168,10 @@ func NewRootCmd(build BuildInfo) *cobra.Command {
 			default:
 				return fmt.Errorf("unknown output format %q (use table or json)", app.Output)
 			}
+			// The colour theme chosen in the app; errors surface in the command.
+			if cfg, err := app.Config(); err == nil {
+				ui.SetTheme(cfg.Theme)
+			}
 			return nil
 		},
 		// Without a command, paygate opens the full-screen app in a terminal
@@ -209,6 +213,7 @@ func NewRootCmd(build BuildInfo) *cobra.Command {
 	for _, c := range []*cobra.Command{
 		newInitCmd(app),
 		newProfileCmd(app),
+		newResetCmd(app),
 		newAboutCmd(app),
 	} {
 		c.GroupID = "setup"

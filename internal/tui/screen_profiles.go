@@ -84,12 +84,12 @@ func (s *profilesScreen) Receive(ctx *Context, data any) tea.Cmd {
 	return nil
 }
 
-func (s *profilesScreen) Back(*Context) bool {
+func (s *profilesScreen) Back(*Context) (bool, tea.Cmd) {
 	if s.mode != modeList && s.mode != modeBusy {
 		s.mode, s.form = modeList, nil
-		return true
+		return true, nil
 	}
-	return false
+	return false, nil
 }
 
 func (s *profilesScreen) Hints(ctx *Context) []Hint {
@@ -372,7 +372,7 @@ func (s *profilesScreen) View(ctx *Context, w, h int) string {
 		}
 		return out + s.form.View()
 	case modeBusy:
-		return out + s.spin.View() + " " + ui.Label.Render(s.busy)
+		return out + spinView(s.spin) + " " + ui.Label.Render(s.busy)
 	}
 
 	names := ctx.Cfg.Names()
@@ -387,7 +387,7 @@ func (s *profilesScreen) View(ctx *Context, w, h int) string {
 		}
 		row := mark + fmt.Sprintf("%-16s ", truncate(n, 16)) + ui.EnvBadge(p.IsProd()) + "  " +
 			ui.Label.Render(fmt.Sprintf("%-9s", p.Brand)) + " " + p.MerchantID + ui.Muted.Render("  · "+authName(p.Auth))
-		out += selectable(row, i == s.sel, w) + "\n"
+		out += selectable(ctx, row, i == s.sel, w) + "\n"
 	}
 	if s.message != "" {
 		style := ui.Success

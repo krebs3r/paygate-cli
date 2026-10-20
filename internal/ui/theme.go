@@ -7,45 +7,44 @@ import (
 	"os"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-isatty"
 	"github.com/muesli/termenv"
 	"golang.org/x/term"
 )
 
-// Palette of the Paygate Payment Tester (css/style.css), dark and light.
+// Colours of the active theme (see SetTheme), dark and light.
 var (
-	ColAccent  = lipgloss.AdaptiveColor{Light: "#2563eb", Dark: "#3d7eff"}
-	ColAccent2 = lipgloss.AdaptiveColor{Light: "#1d4ed8", Dark: "#6fb3ff"}
-	ColSuccess = lipgloss.AdaptiveColor{Light: "#16a34a", Dark: "#22c55e"}
-	ColWarning = lipgloss.AdaptiveColor{Light: "#d97706", Dark: "#f59e0b"}
-	ColDanger  = lipgloss.AdaptiveColor{Light: "#dc2626", Dark: "#ef4444"}
-	ColText    = lipgloss.AdaptiveColor{Light: "#0f172a", Dark: "#dce8f5"}
-	ColMuted   = lipgloss.AdaptiveColor{Light: "#94a3b8", Dark: "#5c6e88"}
-	ColMuted2  = lipgloss.AdaptiveColor{Light: "#475569", Dark: "#8fa3bf"}
-	ColBorder  = lipgloss.AdaptiveColor{Light: "#b0bdd0", Dark: "#2a3448"}
+	ColAccent, ColAccent2             lipgloss.AdaptiveColor
+	ColSuccess, ColWarning, ColDanger lipgloss.AdaptiveColor
+	ColText, ColMuted, ColMuted2      lipgloss.AdaptiveColor
+	ColBorder                         lipgloss.AdaptiveColor
 	// ColFrame draws the app frame.
-	ColFrame = lipgloss.AdaptiveColor{Light: "#94a3b8", Dark: "#3a4a66"}
-	// ColSelection is the background of the selected list row.
-	ColSelection = lipgloss.AdaptiveColor{Light: "#dbeafe", Dark: "#162036"}
+	ColFrame lipgloss.AdaptiveColor
+	// Selected rows: a band with bright text and an accent bar.
+	ColSelection, ColSelectionFg, ColSelectionBar lipgloss.AdaptiveColor
 
-	colSuccessBg = lipgloss.AdaptiveColor{Light: "#dcfce7", Dark: "#0c2a17"}
-	colDangerBg  = lipgloss.AdaptiveColor{Light: "#fee2e2", Dark: "#2a0f10"}
-	colWarningBg = lipgloss.AdaptiveColor{Light: "#fef3c7", Dark: "#2a1d05"}
-	colNeutralBg = lipgloss.AdaptiveColor{Light: "#e2e8f0", Dark: "#1e2737"}
+	colSuccessBg, colDangerBg, colWarningBg, colNeutralBg lipgloss.AdaptiveColor
 )
 
-// Text styles.
-var (
-	Bold    = lipgloss.NewStyle().Bold(true).Foreground(ColText)
-	Text    = lipgloss.NewStyle().Foreground(ColText)
-	Muted   = lipgloss.NewStyle().Foreground(ColMuted)
-	Label   = lipgloss.NewStyle().Foreground(ColMuted2)
-	Accent  = lipgloss.NewStyle().Foreground(ColAccent)
-	Link    = lipgloss.NewStyle().Foreground(ColAccent2)
-	Success = lipgloss.NewStyle().Foreground(ColSuccess)
-	Warning = lipgloss.NewStyle().Foreground(ColWarning)
-	Danger  = lipgloss.NewStyle().Foreground(ColDanger)
-)
+// Text styles of the active theme.
+var Bold, Text, Muted, Label, Accent, Link, Success, Warning, Danger lipgloss.Style
+
+// Selected renders the selected row of a list as a band of width w with an
+// accent bar. The row's own colours are dropped: they would interrupt the
+// band and some are hard to read on it.
+func Selected(row string, w int) string {
+	band := lipgloss.NewStyle().Background(ColSelection)
+	text := ansi.Truncate(ansi.Strip(row), max(w-2, 0), "…")
+	return band.Foreground(ColSelectionBar).Render("▌") +
+		band.Foreground(ColSelectionFg).Bold(true).Width(max(w-1, 0)).Render(" "+text)
+}
+
+// SelectedIdle marks the selected row of a list without the keyboard focus:
+// only the accent bar, the row keeps its colours.
+func SelectedIdle(row string) string {
+	return lipgloss.NewStyle().Foreground(ColAccent).Render("▌") + " " + row
+}
 
 // Stdout and Stderr are the writers all commands print to.
 var (

@@ -99,20 +99,20 @@ func (s *paymentsScreen) Receive(ctx *Context, data any) tea.Cmd {
 	return nil
 }
 
-func (s *paymentsScreen) Back(*Context) bool {
+func (s *paymentsScreen) Back(*Context) (bool, tea.Cmd) {
 	switch {
 	case s.form != nil:
 		s.form = nil
-		return true
+		return true, nil
 	case s.mode == paysDetail:
 		s.mode, s.showJSON = paysList, false
 		s.seq++
-		return true
+		return true, nil
 	case s.filter != "":
 		s.filter, s.sel, s.offset = "", 0, 0
-		return true
+		return true, nil
 	}
-	return false
+	return false, nil
 }
 
 func (s *paymentsScreen) reload(ctx *Context) {
@@ -512,7 +512,7 @@ func (s *paymentsScreen) View(ctx *Context, w, h int) string {
 		return out + s.form.View()
 	}
 	if s.busy != "" {
-		out += s.spin.View() + " " + ui.Label.Render(s.busy) + "\n\n"
+		out += spinView(s.spin) + " " + ui.Label.Render(s.busy) + "\n\n"
 	}
 	if s.message != "" {
 		out += s.messageLine(w) + "\n\n"
@@ -525,7 +525,7 @@ func (s *paymentsScreen) View(ctx *Context, w, h int) string {
 		}
 		return out + ui.Label.Render(wrap(text, min(w, 72)))
 	}
-	out += ui.Muted.Render(fmt.Sprintf("  %-12s %-14s %-14s %s", t("pays.col.time"), t("pays.col.status"), t("pays.col.amount"), t("pays.col.method"))) + "\n"
+	out += ui.Muted.Render(fmt.Sprintf("  %-12s %-14s %-14s   %s", t("pays.col.time"), t("pays.col.status"), t("pays.col.amount"), t("pays.col.method"))) + "\n"
 
 	room := h - lipgloss.Height(out) - 1
 	if room < 3 {
@@ -539,7 +539,7 @@ func (s *paymentsScreen) View(ctx *Context, w, h int) string {
 		s.offset = s.sel - room + 1
 	}
 	for i := s.offset; i < len(rows) && i < s.offset+room; i++ {
-		out += selectable(listRow(rows[i], w-4), i == s.sel, w) + "\n"
+		out += selectable(ctx, listRow(rows[i], w-4), i == s.sel, w) + "\n"
 	}
 	return out
 }
@@ -619,7 +619,7 @@ func (s *paymentsScreen) detailView(ctx *Context, w, h int) string {
 	}
 	out += ui.PaymentCard(p, nil, opts) + "\n"
 	if s.busy != "" {
-		out += " " + s.spin.View() + " " + ui.Label.Render(s.busy) + "\n"
+		out += " " + spinView(s.spin) + " " + ui.Label.Render(s.busy) + "\n"
 	}
 	if s.loadErr != nil {
 		out += ui.Warning.Render(" ! ") + ui.Label.Render(t("pays.offline")+" ") + ui.Muted.Render(wrap(s.loadErr.Error(), min(w-4, 70))) + "\n"

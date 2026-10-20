@@ -190,7 +190,10 @@ func BuildPaymentRequest(in PaymentInput, prof *config.Profile) (*paygate.Paymen
 			holder = "Paygate Tester"
 		}
 		card := &paygate.Card{Number: number, CardHolderName: holder, ExpiryDate: expiry, SecurityCode: cvc, Brand: brand}
-		if in.Skip3DS {
+		// Production Paygate starts 3-D Secure for every card, including the
+		// test cards without 3DS, and its browser steps cannot run here. So
+		// those test cards always skip it.
+		if in.Skip3DS || (in.Card != "" && !threeDS) {
 			card.ThreeDsPolicy = &paygate.ThreeDsPolicy{Skip: "THIS_TRANSACTION"}
 		}
 		channel := strings.ToUpper(in.Channel)

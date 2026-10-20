@@ -45,12 +45,17 @@ func kv(rows [][2]string) string {
 	return strings.Join(out, "\n")
 }
 
-// selectable renders one list row, highlighted when selected.
-func selectable(row string, selected bool, w int) string {
-	if !selected {
+// selectable renders one list row; the selected one as a band. While the
+// keyboard is in the menu, only a bar marks it, so it is clear where keys
+// go. A nil ctx always shows the band (overlays such as the palette).
+func selectable(ctx *Context, row string, selected bool, w int) string {
+	switch {
+	case !selected:
 		return "  " + row
+	case ctx != nil && ctx.MenuFocused:
+		return ui.SelectedIdle(row)
 	}
-	return lipgloss.NewStyle().Background(ui.ColSelection).Width(w).Render(ui.Accent.Render("› ") + row)
+	return ui.Selected(row, w)
 }
 
 // wrap word-wraps text to width w.
@@ -61,8 +66,13 @@ func wrap(s string, w int) string {
 func newSpinner() spinner.Model {
 	s := spinner.New()
 	s.Spinner = spinner.Spinner{Frames: []string{"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"}, FPS: spinner.Dot.FPS}
-	s.Style = ui.Accent
 	return s
+}
+
+// spinView draws a spinner in the accent colour of the active theme.
+func spinView(s spinner.Model) string {
+	s.Style = ui.Accent
+	return s.View()
 }
 
 // formKeyMap lets esc cancel an embedded form instead of quitting the app
@@ -114,11 +124,24 @@ func newForm(w int, groups ...*huh.Group) *huh.Form {
 	if w > 76 {
 		w = 76
 	}
-	return huh.NewForm(groups...).
+	f := huh.NewForm(groups...).
 		WithTheme(ui.FormTheme()).
 		WithKeyMap(formKeyMap()).
 		WithShowHelp(true).
 		WithWidth(w)
+	// huh measures a group when it is created, before it knows the width,
+	// so a description that wraps later would push the last options out of
+	// view. Measure again at the real width.
+	for _, g := range groups {
+		h := lipgloss.Height(g.Content())
+		for _, s := range []string{g.Header(), g.Footer()} {
+			if s != "" {
+				h += lipgloss.Height(s)
+			}
+		}
+		g.WithHeight(h)
+	}
+	return f
 }
 
 func clamp(i, n int) int {

@@ -168,7 +168,7 @@ func runInit(app *App, o *initOptions) error {
 			{Label: "API key", Value: maskKey(o.apiKey) + ui.Muted.Render("  in "+storeLabel)},
 		},
 	}.String())
-	ui.Println(ui.Muted.Render("   Saved to " + tildePath(cfg.FilePath())))
+	ui.Println(ui.Muted.Render("   Saved to " + config.Tilde(cfg.FilePath())))
 	ui.Println()
 	ui.Println(ui.Next("paygate pay", "paygate testcards", "paygate profile list"))
 	ui.Println()
@@ -301,13 +301,6 @@ func initWizard(o *initOptions, cfg *config.Config) error {
 			).Value(&o.auth),
 		),
 	)
-}
-
-func tildePath(p string) string {
-	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(p, home) {
-		return "~" + strings.TrimPrefix(p, home)
-	}
-	return p
 }
 
 func nonEmpty(what string) func(string) error {

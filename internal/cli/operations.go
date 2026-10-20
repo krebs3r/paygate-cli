@@ -27,7 +27,7 @@ type opKind struct {
 var (
 	opCapture = opKind{"capture", paygate.OpCapture, "Capture an authorized payment", "capture", "Capture", nil}
 	opRefund  = opKind{"refund", paygate.OpRefund, "Refund a captured payment (fully or partially)", "refund", "Refund", nil}
-	opCancel  = opKind{"cancel", paygate.OpReversal, "Cancel (reverse) a payment before it is captured", "cancel", "Cancellation", []string{"reverse", "void"}}
+	opCancel  = opKind{"reverse", paygate.OpReversal, "Reverse an authorization before it is captured (reversal)", "reverse", "Reversal", []string{"reversal", "cancel", "void"}}
 )
 
 type opOptions struct {

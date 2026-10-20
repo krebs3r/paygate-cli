@@ -99,7 +99,7 @@ with flags for scripts:
 	f.StringVar(&o.capture, "capture", "auto", "capture method: auto or manual")
 	f.StringVar(&o.language, "language", "", "language of the hosted page, e.g. de, en")
 	f.StringVar(&o.channel, "channel", "ECOM", "channel for direct payments: ECOM or MOTO")
-	f.BoolVar(&o.skip3DS, "skip-3ds", false, "direct card payments: ask Paygate to skip 3-D Secure (MID permitting)")
+	f.BoolVar(&o.skip3DS, "skip-3ds", false, "direct card payments: ask Paygate to skip 3-D Secure (test cards without 3DS always do)")
 	f.StringVar(&o.ip, "ip", "", "customer IP for direct card payments (default: profile setting or this computer)")
 	f.StringVar(&o.simulate, "simulate", "", "test transaction, also on production: ok (Test:0000), decline (Test:0305) or a 4-digit code")
 	f.BoolVar(&o.open, "open", false, "open the checkout URL in the browser")
@@ -231,8 +231,8 @@ func runPay(app *App, o *payOptions, cmd *cobra.Command) error {
 		return errSilentFail
 	default:
 		if !app.JSON() && paygate.ClassifyCode(res.Payment.ResponseCode) == paygate.Code3DS {
-			ui.Println(ui.Warn("3-D Secure authentication is required for this card."))
-			ui.Println(ui.Info("Use a non-3DS test card, " + ui.Link.Render("--skip-3ds") + " (if your MID allows it) or the hosted flow " + ui.Link.Render("--hosted") + "."))
+			ui.Println(ui.Warn("Paygate requires 3-D Secure, which a direct payment cannot run in the terminal."))
+			ui.Println(ui.Info("Add " + ui.Link.Render("--skip-3ds") + ", use a test card without 3DS such as " + ui.Link.Render("visa-ok") + " or pay with " + ui.Link.Render("--hosted") + "."))
 			ui.Println()
 		}
 		return nil
@@ -386,17 +386,16 @@ func payWizard(o *payOptions, prod bool) error {
 	if o.card != "" {
 		cardChoice = o.card
 	}
-	single := "paypal"
+	single, threeDS := "paypal", "skip"
 
+	// Only cards without 3-D Secure: a direct payment cannot run the 3DS
+	// browser steps in a terminal. 3DS cards work on the payment page.
 	var cardChoices []huh.Option[string]
-	scenarioW := 0
 	for _, c := range cards.Cards {
-		if w := len([]rune(c.Scenario + " · " + c.Expect)); w > scenarioW {
-			scenarioW = w
+		if c.ThreeDS {
+			continue
 		}
-	}
-	for _, c := range cards.Cards {
-		label := fmt.Sprintf("%-11s %-*s  %s", brandName(c.Brand), scenarioW, c.Scenario+" · "+c.Expect, formatPAN(c.Number))
+		label := fmt.Sprintf("%-10s  %-19s  %s", brandName(c.Brand), formatPAN(c.Number), c.Expect)
 		cardChoices = append(cardChoices, huh.NewOption(label, c.Alias))
 	}
 	cardChoices = append(cardChoices, huh.NewOption("Enter card details …", manualCard))
@@ -443,9 +442,8 @@ func payWizard(o *payOptions, prod bool) error {
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Test card").
-				Description("Any future expiry date and any CVC work on the test system.").
+				Description("Sent without 3-D Secure. Test 3DS cards with --hosted.").
 				Options(cardChoices...).
-				Height(10).
 				Value(&cardChoice),
 		).WithHideFunc(func() bool { return o.flow != flowDirect }),
 		huh.NewGroup(
@@ -457,6 +455,10 @@ func payWizard(o *payOptions, prod bool) error {
 			}),
 			huh.NewInput().Title("Expiry (YYYYMM)").Placeholder(cards.DefaultExpiry()).Value(&o.expiry),
 			huh.NewInput().Title("CVC").Value(&o.cvc),
+			huh.NewSelect[string]().Title("3-D Secure").Options(
+				huh.NewOption("Skip", "skip"),
+				huh.NewOption("Request (needs a browser)", "request"),
+			).Inline(true).Value(&threeDS),
 		).WithHideFunc(func() bool { return o.flow != flowDirect || cardChoice != manualCard }),
 		huh.NewGroup(
 			huh.NewInput().Title("Amount").Value(&o.amount).Validate(func(s string) error {
@@ -488,6 +490,7 @@ func payWizard(o *payOptions, prod bool) error {
 	case flowDirect:
 		if cardChoice == manualCard {
 			o.card = ""
+			o.skip3DS = o.skip3DS || threeDS == "skip"
 		} else {
 			o.card, o.cardNumber = cardChoice, ""
 		}

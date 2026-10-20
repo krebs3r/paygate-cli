@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 
+	"github.com/krebs3r/paygate-cli/internal/config"
 	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/i18n"
 	"github.com/krebs3r/paygate-cli/internal/money"
@@ -24,6 +25,7 @@ type setting struct {
 func settingsList() []setting {
 	return []setting{
 		{"ui_language", "set.language", false},
+		{"theme", "set.theme", false},
 		{"splash", "set.splash", false},
 		{"currency", "set.currency", true},
 		{"language", "set.pagelang", true},
@@ -31,6 +33,7 @@ func settingsList() []setting {
 		{"cancel_url", "set.cancel", true},
 		{"webhook_url", "set.webhook", true},
 		{"customer_ip", "set.ip", true},
+		{"reset", "set.reset", false},
 	}
 }
 
@@ -39,6 +42,7 @@ type settingsScreen struct {
 	form    *huh.Form
 	editing string
 	value   string
+	confirm bool
 	width   int
 }
 
@@ -49,19 +53,37 @@ func (s *settingsScreen) Title() string             { return t("menu.settings") 
 func (s *settingsScreen) Shortcut() string          { return "s" }
 func (s *settingsScreen) Activate(*Context) tea.Cmd { return nil }
 func (s *settingsScreen) Capturing() bool           { return s.form != nil }
-func (s *settingsScreen) Back(*Context) bool {
+func (s *settingsScreen) Back(*Context) (bool, tea.Cmd) {
 	if s.form != nil {
 		s.form = nil
-		return true
+		return true, nil
 	}
-	return false
+	return false, nil
 }
 
 func (s *settingsScreen) Hints(*Context) []Hint {
+	if s.form != nil && s.editing == "reset" {
+		return []Hint{{"← →", t("key.select")}, {"enter", t("key.open")}, {"esc", t("key.cancel")}}
+	}
 	if s.form != nil {
 		return []Hint{{"enter", t("key.open")}, {"esc", t("key.cancel")}}
 	}
 	return []Hint{{"↑↓", t("key.select")}, {"enter", t("set.change")}}
+}
+
+// Receive opens the factory reset from the command palette.
+func (s *settingsScreen) Receive(ctx *Context, data any) tea.Cmd {
+	if data != "reset" {
+		return nil
+	}
+	items := s.visible(ctx)
+	for i, st := range items {
+		if st.id == "reset" {
+			s.sel = i
+			return s.edit(ctx, st)
+		}
+	}
+	return nil
 }
 
 func (s *settingsScreen) visible(ctx *Context) []setting {
@@ -78,6 +100,10 @@ func (s *settingsScreen) visible(ctx *Context) []setting {
 func (s *settingsScreen) current(ctx *Context, id string) (value string, isDefault bool) {
 	cfg := ctx.Cfg
 	switch id {
+	case "reset":
+		return ui.Muted.Render(t("set.reset.what")), false
+	case "theme":
+		return themeLabel(ui.ThemeID()), ui.ThemeID() == ui.Themes[0].ID
 	case "splash":
 		if cfg.NoSplash {
 			return t("set.off"), false
@@ -147,6 +173,20 @@ func (s *settingsScreen) edit(ctx *Context, st setting) tea.Cmd {
 	s.editing = st.id
 	var field huh.Field
 	switch st.id {
+	case "reset":
+		s.confirm = false
+		dir, _ := config.Dir()
+		field = huh.NewConfirm().Title(t("set.reset.q")).
+			Description(fmt.Sprintf(t("set.reset.d"), config.Tilde(dir))).
+			Affirmative(t("set.reset.yes")).Negative(t("no")).
+			Value(&s.confirm)
+	case "theme":
+		s.value = ui.ThemeID()
+		var opts []huh.Option[string]
+		for _, th := range ui.Themes {
+			opts = append(opts, huh.NewOption(fmt.Sprintf("%-10s", themeLabel(th.ID))+ui.Swatch(th.ID), th.ID))
+		}
+		field = huh.NewSelect[string]().Title(t(st.label)).Options(opts...).Value(&s.value)
 	case "splash":
 		s.value = "on"
 		if ctx.Cfg.NoSplash {
@@ -197,8 +237,16 @@ func (s *settingsScreen) edit(ctx *Context, st setting) tea.Cmd {
 }
 
 func (s *settingsScreen) apply(ctx *Context) tea.Cmd {
+	if s.editing == "reset" {
+		if !s.confirm {
+			return nil
+		}
+		return s.reset()
+	}
 	v := strings.TrimSpace(s.value)
-	if s.editing == "splash" {
+	if s.editing == "theme" {
+		setTheme(ctx.Cfg, v)
+	} else if s.editing == "splash" {
 		ctx.Cfg.NoSplash = v == "off"
 	} else if s.editing == "ui_language" {
 		if v == "auto" {
@@ -229,6 +277,30 @@ func (s *settingsScreen) apply(ctx *Context) tea.Cmd {
 	return toast(t("set.saved"), ui.ToneSuccess)
 }
 
+// themeLabel names a colour theme.
+func themeLabel(id string) string {
+	return t("theme." + id)
+}
+
+// setTheme switches the colours at once and remembers the theme; the
+// default is stored as empty.
+func setTheme(cfg *config.Config, id string) {
+	ui.SetTheme(id)
+	cfg.Theme = ui.ThemeID()
+	if cfg.Theme == ui.Themes[0].ID {
+		cfg.Theme = ""
+	}
+}
+
+// reset deletes all data and starts over on the welcome screen.
+func (s *settingsScreen) reset() tea.Cmd {
+	if _, err := config.Reset(); err != nil {
+		return toast(err.Error(), ui.ToneDanger)
+	}
+	s.sel = 0
+	return tea.Batch(sessionChanged(), switchTo("home", nil), toast(t("set.reset.done"), ui.ToneSuccess))
+}
+
 func (s *settingsScreen) View(ctx *Context, w, h int) string {
 	s.width = w
 	out := title(t("set.title")) + "\n\n"
@@ -244,14 +316,20 @@ func (s *settingsScreen) View(ctx *Context, w, h int) string {
 			out += section(t("set.app")) + "\n"
 		case st.profile && !lastProfile:
 			out += "\n" + section(fmt.Sprintf(t("set.profile"), strings.ToUpper(ctx.Session.Name))) + "\n"
+		case st.id == "reset":
+			out += "\n" + section(t("set.data")) + "\n"
 		}
 		lastProfile = st.profile
 		val, def := s.current(ctx, st.id)
 		if def && st.id != "ui_language" && st.id != "splash" && st.id != "customer_ip" {
 			val += ui.Muted.Render("  " + t("set.default"))
 		}
-		row := fmt.Sprintf("%-26s ", truncate(t(st.label), 26)) + val
-		out += selectable(row, i == s.sel, w) + "\n"
+		label := fmt.Sprintf("%-26s ", truncate(t(st.label), 26))
+		if st.id == "reset" {
+			label = ui.Danger.Render(label)
+		}
+		row := label + val
+		out += selectable(ctx, row, i == s.sel, w) + "\n"
 	}
 	if ctx.Session == nil {
 		out += "\n" + ui.Muted.Render(t("set.noprofile"))

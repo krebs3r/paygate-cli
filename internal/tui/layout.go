@@ -49,6 +49,15 @@ func (m *model) layout() layoutInfo {
 	return l
 }
 
+// contentOrigin is the screen position of the first cell of the content:
+// past the frame (and menu or tabs) and the padding of renderContent.
+func (l layoutInfo) contentOrigin() (x, y int) {
+	if l.wide {
+		return 1 + l.sidebarW + 1 + 2, l.bodyTop + 1
+	}
+	return 1 + 2, l.bodyTop + 2 + 1 // below the tabs and their separator
+}
+
 func frame(s string) string { return lipgloss.NewStyle().Foreground(ui.ColFrame).Render(s) }
 
 func (m *model) render() string {
@@ -125,11 +134,10 @@ func (m *model) renderSidebar(h int) string {
 			pad = 1
 		}
 		switch {
-		case i == m.active && m.focus == focusMenu:
-			row := "▌ " + title + strings.Repeat(" ", pad) + s.Shortcut() + " "
-			lines = append(lines, lipgloss.NewStyle().Background(ui.ColSelection).Foreground(ui.ColAccent2).Bold(true).Width(sidebarW).Render(row))
+		case i == m.active && m.focus == focusMenu && !m.pal.open && !m.help:
+			lines = append(lines, ui.Selected(title+strings.Repeat(" ", pad)+s.Shortcut(), sidebarW))
 		case i == m.active:
-			lines = append(lines, ui.Accent.Render("▸ ")+lipgloss.NewStyle().Foreground(ui.ColAccent2).Render(title)+strings.Repeat(" ", pad)+key+" ")
+			lines = append(lines, ui.SelectedIdle(lipgloss.NewStyle().Foreground(ui.ColAccent2).Bold(true).Render(title)+strings.Repeat(" ", pad)+key+" "))
 		default:
 			lines = append(lines, "  "+ui.Label.Render(title)+strings.Repeat(" ", pad)+key+" ")
 		}
@@ -158,7 +166,7 @@ func (m *model) renderTabs(w int) string {
 	for i := start; i < len(m.screens); i++ {
 		label := " " + m.screens[i].Title() + " "
 		if i == m.active {
-			parts = append(parts, lipgloss.NewStyle().Background(ui.ColSelection).Foreground(ui.ColAccent2).Bold(true).Render(label))
+			parts = append(parts, lipgloss.NewStyle().Background(ui.ColSelection).Foreground(ui.ColSelectionFg).Bold(true).Render(label))
 		} else {
 			parts = append(parts, ui.Label.Render(label))
 		}
@@ -166,6 +174,7 @@ func (m *model) renderTabs(w int) string {
 	return fit(strings.Join(parts, " "), w, 1)
 }
 
+// renderContent pads the screen; Context.Width and Height match cw and ch.
 func (m *model) renderContent(w, h int) string {
 	cw, ch := w-4, h-2
 	var content string
@@ -175,6 +184,7 @@ func (m *model) renderContent(w, h int) string {
 	case m.help:
 		content = m.helpView(cw)
 	default:
+		m.ctx.MenuFocused = m.focus == focusMenu
 		content = m.current().View(m.ctx, cw, ch)
 	}
 	return lipgloss.NewStyle().Padding(1, 2).Render(fit(content, cw, ch))

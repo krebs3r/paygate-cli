@@ -36,12 +36,12 @@ func (s *inspectorScreen) ID() string       { return "inspect" }
 func (s *inspectorScreen) Title() string    { return t("menu.inspect") }
 func (s *inspectorScreen) Shortcut() string { return "i" }
 func (s *inspectorScreen) Capturing() bool  { return s.form != nil }
-func (s *inspectorScreen) Back(*Context) bool {
+func (s *inspectorScreen) Back(*Context) (bool, tea.Cmd) {
 	if s.form != nil {
 		s.form = nil
-		return true
+		return true, nil
 	}
-	return false
+	return false, nil
 }
 
 func (s *inspectorScreen) Activate(*Context) tea.Cmd {
@@ -186,16 +186,16 @@ func (s *inspectorScreen) View(ctx *Context, w, h int) string {
 	avail := h - lipgloss.Height(out)
 	if w >= 104 {
 		listW := 46
-		list := s.listView(listW, avail)
+		list := s.listView(ctx, listW, avail)
 		detail := s.detailView(w-listW-3, avail)
 		sep := ui.Muted.Render(strings.TrimSuffix(strings.Repeat("│\n", avail), "\n"))
 		return out + lipgloss.JoinHorizontal(lipgloss.Top, fit(list, listW, avail), " ", sep, " ", detail)
 	}
 	listH := min(8, max(3, avail/3))
-	return out + fit(s.listView(w, listH), w, listH) + "\n" + ui.Muted.Render(strings.Repeat("─", w)) + "\n" + s.detailView(w, avail-listH-1)
+	return out + fit(s.listView(ctx, w, listH), w, listH) + "\n" + ui.Muted.Render(strings.Repeat("─", w)) + "\n" + s.detailView(w, avail-listH-1)
 }
 
-func (s *inspectorScreen) listView(w, h int) string {
+func (s *inspectorScreen) listView(ctx *Context, w, h int) string {
 	if s.sel < s.offset {
 		s.offset = s.sel
 	}
@@ -210,7 +210,7 @@ func (s *inspectorScreen) listView(w, h int) string {
 			lipgloss.NewStyle().Foreground(ui.ColAccent).Render(fmt.Sprintf("%-5s", e.Method)) + " " +
 			padCells(path, max(w-30, 8)) + " " + statusText(e) + " " +
 			ui.Muted.Render(fmt.Sprintf("%7s", paygate.FormatDuration(msDuration(e.DurationMs))))
-		lines = append(lines, selectable(row, i == s.sel, w))
+		lines = append(lines, selectable(ctx, row, i == s.sel, w))
 	}
 	return strings.Join(lines, "\n")
 }

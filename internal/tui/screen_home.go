@@ -19,7 +19,6 @@ var homeActions = []homeAction{
 	{"n", "act.new", "new"},
 	{"l", "act.lookup", "payments"},
 	{"p", "act.profile", "profiles"},
-	{"t", "act.cards", "cards"},
 	{"s", "act.settings", "settings"},
 }
 
@@ -27,12 +26,12 @@ type homeScreen struct{ sel int }
 
 func newHomeScreen() *homeScreen { return &homeScreen{} }
 
-func (s *homeScreen) ID() string                { return "home" }
-func (s *homeScreen) Title() string             { return t("menu.home") }
-func (s *homeScreen) Shortcut() string          { return "h" }
-func (s *homeScreen) Activate(*Context) tea.Cmd { return nil }
-func (s *homeScreen) Capturing() bool           { return false }
-func (s *homeScreen) Back(*Context) bool        { return false }
+func (s *homeScreen) ID() string                    { return "home" }
+func (s *homeScreen) Title() string                 { return t("menu.home") }
+func (s *homeScreen) Shortcut() string              { return "h" }
+func (s *homeScreen) Activate(*Context) tea.Cmd     { return nil }
+func (s *homeScreen) Capturing() bool               { return false }
+func (s *homeScreen) Back(*Context) (bool, tea.Cmd) { return false, nil }
 func (s *homeScreen) Hints(ctx *Context) []Hint {
 	if ctx.Session == nil {
 		return []Hint{{"enter", t("home.add")}}
@@ -72,7 +71,7 @@ func (s *homeScreen) View(ctx *Context, w, h int) string {
 		if ctx.SessionErr != nil && !errors.Is(ctx.SessionErr, config.ErrNoProfile) {
 			out += ui.Warning.Render(t("home.session.err")) + "\n" + ui.Muted.Render(wrap(ctx.SessionErr.Error(), min(w, 72))) + "\n\n"
 		}
-		return out + selectable(ui.Bold.Render(t("home.add")), true, min(w, 40))
+		return out + selectable(ctx, ui.Bold.Render(t("home.add")), true, min(w, 40))
 	}
 
 	p := ctx.Session.Profile
@@ -103,7 +102,7 @@ func (s *homeScreen) View(ctx *Context, w, h int) string {
 	out += "\n" + section(t("home.actions")) + "\n"
 	for i, a := range homeActions {
 		row := ui.Accent.Render(a.key) + "  " + t(a.label)
-		out += selectable(row, i == s.sel, min(w, 40)) + "\n"
+		out += selectable(ctx, row, i == s.sel, min(w, 40)) + "\n"
 	}
 	return out + recentPayments(ctx, w)
 }

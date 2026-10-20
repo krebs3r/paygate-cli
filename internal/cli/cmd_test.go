@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/krebs3r/paygate-cli/internal/config"
 	"github.com/krebs3r/paygate-cli/internal/history"
 	"github.com/krebs3r/paygate-cli/internal/mockpaygate"
 	"github.com/krebs3r/paygate-cli/internal/ui"
@@ -276,6 +278,48 @@ func TestPaySimulation(t *testing.T) {
 	recs, _ := history.Load()
 	if len(recs) != 2 || recs[0].Simulation != "Test:0305" {
 		t.Errorf("history = %+v", recs)
+	}
+}
+
+// Production Paygate starts 3-D Secure for every direct card payment, which
+// the terminal cannot complete.
+func TestPayDirect3DS(t *testing.T) {
+	m := setup(t)
+	m.Require3DS = true
+	mustInit(t)
+	if ok := payJSON(t, "pay", "--card", "visa-ok"); ok["status"] != "OK" {
+		t.Errorf("test cards without 3DS must skip it, status = %v", ok["status"])
+	}
+	out, _, err := run(t, "pay", "--card", "visa-3ds-challenge")
+	if err != nil || !strings.Contains(out, "requires 3-D Secure") || !strings.Contains(out, "--skip-3ds") {
+		t.Errorf("3DS card must explain the way out: %v\n%s", err, out)
+	}
+	if ok := payJSON(t, "pay", "--card", "visa-3ds-challenge", "--skip-3ds"); ok["status"] != "OK" {
+		t.Errorf("--skip-3ds status = %v", ok["status"])
+	}
+}
+
+func TestReset(t *testing.T) {
+	setup(t)
+	mustInit(t)
+	payJSON(t, "pay", "--card", "visa-ok")
+	dir, _ := config.Dir()
+
+	if _, _, err := run(t, "reset"); err == nil || !strings.Contains(err.Error(), "without --yes") {
+		t.Fatalf("reset without --yes must refuse in scripts, got %v", err)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("a refused reset must not delete anything: %v", err)
+	}
+	out, _, err := run(t, "reset", "--yes")
+	if err != nil || !strings.Contains(out, "All data deleted") || !strings.Contains(out, "paygate init") {
+		t.Fatalf("reset: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("config directory still exists: %v", err)
+	}
+	if _, _, err := run(t, "pay", "--card", "visa-ok"); err == nil || !strings.Contains(err.Error(), "no profile") {
+		t.Errorf("after a reset no profile may be left, got %v", err)
 	}
 }
 
