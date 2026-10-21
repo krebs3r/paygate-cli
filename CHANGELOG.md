@@ -21,6 +21,9 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The links on the About screen open in the browser when you click them,
   like the checkout URL. A click into the content also moves the keyboard
   there from the menu.
+- Adding another profile when one exists no longer skips platform and
+  environment after the name. The steps of a form moved the New payment
+  form kept in the background, and its answer moved the profile form on.
 
 ### Changed
 

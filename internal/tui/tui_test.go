@@ -217,6 +217,19 @@ func TestAddProfileThroughForm(t *testing.T) {
 	}
 }
 
+func TestAddSecondProfileChoosesPlatform(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	// With a profile the new payment keeps a form while it is not in front.
+	// The steps of the profile form must not move it, nor its answers this one.
+	send(m, keys("p"), keys("a"), keys("shop-cp"), enter)
+	send(m, down, enter, enter) // Computop, test system
+	send(m, keys("demo-shop"), enter, keys("demo-key"), enter, enter)
+	if p := m.ctx.Cfg.Profiles["shop-cp"]; p == nil || p.Brand != "computop" || p.Env != "test" {
+		t.Fatalf("profile = %+v; view:\n%s", p, m.View())
+	}
+}
+
 func TestProfileFormShowsWhereCallsGo(t *testing.T) {
 	m := setup(t, nil, "")
 	i18n.Set(i18n.EN)

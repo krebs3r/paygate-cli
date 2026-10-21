@@ -2,10 +2,12 @@ package tui
 
 import (
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 
 	"github.com/krebs3r/paygate-cli/internal/ui"
 )
@@ -184,6 +186,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.handleKey(msg)
 	}
 
+	// huh's own messages (next field, next group …) come from the form in
+	// front. On all screens they would also move a form kept on another
+	// screen, and its answer, such as a next group, then moved the one in
+	// front: adding a second profile skipped platform and environment.
+	if fromHuh(msg) {
+		return m, m.current().Update(m.ctx, msg)
+	}
+
 	// Everything else (spinner ticks, API results) goes to all screens.
 	var cmds []tea.Cmd
 	if m.pal.open {
@@ -195,6 +205,15 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, s.Update(m.ctx, msg))
 	}
 	return m, tea.Batch(cmds...)
+}
+
+var huhPkg = reflect.TypeOf(huh.Form{}).PkgPath()
+
+// fromHuh reports whether msg is one of huh's own messages, which it does
+// not export.
+func fromHuh(msg tea.Msg) bool {
+	t := reflect.TypeOf(msg)
+	return t != nil && t.PkgPath() == huhPkg
 }
 
 func (m *model) handleKey(msg tea.KeyMsg) tea.Cmd {
