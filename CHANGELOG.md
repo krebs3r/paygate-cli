@@ -5,6 +5,8 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.1]
+
 ### Fixed
 
 - The webhook list in the app sizes its columns to their content, so a
