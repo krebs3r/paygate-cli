@@ -122,6 +122,12 @@ func (m *model) paletteCommands() []paletteCmd {
 			return toast(t("set.saved"), ui.ToneSuccess)
 		})
 	}
+	if m.ctx.Listen != nil {
+		add(t("pal.stoplisten"), "webhooks stop listening tunnel cloudflared zuhören beenden", func(*model) tea.Cmd { return switchTo("webhooks", "stop") })
+	} else if m.ctx.Session != nil {
+		add(t("pal.listen"), "webhooks listen receive tunnel cloudflared zuhören empfangen", func(*model) tea.Cmd { return switchTo("webhooks", "listen") })
+	}
+	add(t("pal.clearhooks"), "webhooks clear delete received empfangene löschen leeren", func(*model) tea.Cmd { return switchTo("webhooks", "clear") })
 	add(t("pal.clearlog"), "clear request log inspector leeren protokoll", func(m *model) tea.Cmd {
 		if err := reqlog.Clear(); err != nil {
 			return toast(err.Error(), ui.ToneDanger)
@@ -139,7 +145,7 @@ func (m *model) paletteCommands() []paletteCmd {
 			return toast(t("cards.copied"), ui.ToneSuccess)
 		})
 	}
-	add(t("pal.quit"), "quit exit beenden", func(*model) tea.Cmd { return tea.Quit })
+	add(t("pal.quit"), "quit exit beenden", func(m *model) tea.Cmd { return m.quit() })
 	return cmds
 }
 

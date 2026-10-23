@@ -49,6 +49,7 @@ type Server struct {
 	client   *http.Client
 
 	mu    sync.Mutex
+	key   string
 	first map[string]time.Time
 	count map[string]int
 }
@@ -69,6 +70,7 @@ func NewServer(opts Options) (*Server, error) {
 			Timeout:       10 * time.Second,
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
+		key:   opts.Key,
 		first: map[string]time.Time{},
 		count: map[string]int{},
 	}
@@ -85,6 +87,13 @@ func (s *Server) LocalURL() string { return "http://" + s.ln.Addr().String() }
 
 // Port is the port the listener got.
 func (s *Server) Port() int { return s.ln.Addr().(*net.TCPAddr).Port }
+
+// SetKey replaces the HMAC key the signatures are compared with.
+func (s *Server) SetKey(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.key = key
+}
 
 // Close stops the listener.
 func (s *Server) Close() error {
@@ -120,7 +129,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	ev := Event{Time: now, Profile: s.opts.Profile, Target: r.URL.RequestURI(), Header: r.Header.Clone(), Body: body, RemoteIP: remoteIP(r)}
 	ev.Header.Del("Authorization")
-	check := webhooks.Verify(r.Header, body, s.opts.Key, now)
+	s.mu.Lock()
+	key := s.key
+	s.mu.Unlock()
+	check := webhooks.Verify(r.Header, body, key, now)
 	ev.Kind = check.Kind
 	switch {
 	case !check.Signed:

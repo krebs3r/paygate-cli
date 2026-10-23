@@ -1,7 +1,9 @@
 package core
 
 import (
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -17,6 +19,25 @@ func Origin(p *config.Profile) (string, error) {
 		return strings.TrimRight(o, "/"), nil
 	}
 	return paygate.Origin(paygate.Brand(p.Brand), paygate.Env(p.Env))
+}
+
+// LocalOrigin reports an API on this computer (the mock server). It
+// reaches a webhook listener directly, so no tunnel is needed.
+func LocalOrigin(p *config.Profile) bool {
+	origin, err := Origin(p)
+	if err != nil {
+		return false
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // Endpoints returns where the calls of a profile go: the base URL of the API

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/url"
 	"os"
 	"os/signal"
@@ -17,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/krebs3r/paygate-cli/internal/config"
+	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/listen"
 	"github.com/krebs3r/paygate-cli/internal/money"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
@@ -80,7 +80,7 @@ func runListen(app *App, o *listenOptions) error {
 	// The API client confirms every webhook with GET; without an API key
 	// the webhooks are still shown.
 	_, _, client, clientErr := app.Client()
-	local := o.local || localAPI(app, prof)
+	local := o.local || core.LocalOrigin(prof)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -172,25 +172,6 @@ func (o *listenOptions) validate() error {
 		return fmt.Errorf("--respond %d is not an HTTP status", o.respond)
 	}
 	return nil
-}
-
-// localAPI reports an API on this computer (the mock server): it reaches
-// the listener directly, so no tunnel is needed.
-func localAPI(app *App, prof *config.Profile) bool {
-	origin, err := app.Origin(prof)
-	if err != nil {
-		return false
-	}
-	u, err := url.Parse(origin)
-	if err != nil {
-		return false
-	}
-	host := u.Hostname()
-	if host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }
 
 func printSession(s *listen.Session, key, profile, forwardTo string) {
@@ -361,7 +342,7 @@ func openPayHook(app *App, name string, prof *config.Profile) (*payHook, error) 
 	h := &payHook{key: key, profile: name}
 	opts := listen.SessionOptions{
 		Options: listen.Options{Profile: name, Key: key, OnEvent: h.add},
-		Local:   localAPI(app, prof),
+		Local:   core.LocalOrigin(prof),
 	}
 	what := "Opening a cloudflared tunnel for the webhook …"
 	if opts.Local {

@@ -1,11 +1,16 @@
 package tui
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,9 +22,11 @@ import (
 	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/history"
 	"github.com/krebs3r/paygate-cli/internal/i18n"
+	"github.com/krebs3r/paygate-cli/internal/listen"
 	"github.com/krebs3r/paygate-cli/internal/mockpaygate"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
 	"github.com/krebs3r/paygate-cli/internal/ui"
+	"github.com/krebs3r/paygate-cli/internal/webhooks"
 )
 
 // setup isolates config and keychain and points the client to a mock.
@@ -167,7 +174,7 @@ func TestNavigationAndShortcuts(t *testing.T) {
 		t.Fatalf("l should open the payments:\n%s", m.View())
 	}
 	send(m, esc, down)
-	if m.focus != focusMenu || m.current().ID() != "profiles" {
+	if m.focus != focusMenu || m.current().ID() != "webhooks" {
 		t.Fatalf("esc + down should move in the menu, got %s focus=%v", m.current().ID(), m.focus)
 	}
 	send(m, keys("?"))
@@ -402,10 +409,26 @@ func TestNewPaymentDirectCard(t *testing.T) {
 	if len(recs) != 1 || recs[0].Status != "OK" || recs[0].Profile != "shop-test" {
 		t.Errorf("history = %+v", recs)
 	}
+
 	// Refund the captured payment right from the result.
 	send(m, keys("f"), enter)
 	if s.opKind != "refund" {
 		t.Errorf("refund not executed: note %q", s.note)
+	}
+
+	// The payment is done: esc leaves to the menu and the receipt stays;
+	// shift+tab still leads back to the review.
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "esc menu") {
+		t.Errorf("the result should offer the way to the menu:\n%s", v)
+	}
+	transID := s.req.TransID
+	send(m, esc)
+	if m.focus != focusMenu || s.stage != stageResult || !strings.Contains(m.View(), "PAYMENT APPROVED") {
+		t.Fatalf("esc on a successful result should move to the menu, focus %v stage %d", m.focus, s.stage)
+	}
+	send(m, enter, shiftTab)
+	if s.stage != stageReview || s.req.TransID == transID {
+		t.Errorf("shift+tab on the result should open the review with a new trans ID, stage %d", s.stage)
 	}
 }
 
@@ -922,5 +945,279 @@ func TestWaitViewKeepsQRIntact(t *testing.T) {
 	}
 	if view := s.waitView(ctx, 120, 26); !strings.Contains(view, qrLines[0]) {
 		t.Error("a 120 x 30 window must show the QR code next to the text")
+	}
+}
+
+// startListening opens the app's listener without the spinner in between.
+// The mock server runs on this computer, so no tunnel is needed.
+func startListening(t *testing.T, m *model) *webhooksScreen {
+	t.Helper()
+	send(m, keys("w"))
+	s := m.current().(*webhooksScreen)
+	open, err := s.start(m.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { closeListen(m.ctx) })
+	send(m, open())
+	if m.ctx.Listen == nil {
+		t.Fatalf("listener not open: %s", s.message)
+	}
+	return s
+}
+
+// hookFor is the Enhanced webhook payload of a payment of the mock.
+func hookFor(p *paygate.Payment, value int64) webhooks.Payload {
+	pl := webhooks.FromPayment(p, time.Now())
+	pl.Amount = webhooks.Amount{Value: value, Currency: "EUR"}
+	return pl
+}
+
+// postHook posts a signed Enhanced webhook to the app's listener and passes
+// the stored event to the app, as the running program does.
+func postHook(t *testing.T, m *model, s *webhooksScreen, pl webhooks.Payload, key string) listen.Event {
+	t.Helper()
+	before, _ := listen.Load()
+	msg, err := webhooks.NewEnhanced(key, pl, time.Now(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequest(http.MethodPost, m.ctx.Listen.URL, bytes.NewReader(msg.Body))
+	for _, h := range msg.Headers() {
+		req.Header.Set(h[0], h[1])
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("listener answered %d", resp.StatusCode)
+	}
+	// The listener stores the webhook before it reports it.
+	all, _ := listen.Load()
+	if len(all) != len(before)+1 {
+		t.Fatalf("stored webhooks: %d, want %d", len(all), len(before)+1)
+	}
+	send(m, webhookMsg{ev: all[0], ch: s.incoming})
+	return all[0]
+}
+
+func TestWebhooksListenReceiveAndDetail(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	t.Setenv("PAYGATE_HMAC_KEY", "demo-hmac-key")
+	p := createPayment(t, m, core.PaymentInput{Flow: core.FlowDirect, Card: "visa-ok", Amount: "12.50"})
+
+	send(m, keys("w"))
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "not listening · space starts a listener for the mock server") || !strings.Contains(v, "No webhooks yet") {
+		t.Fatalf("webhooks before listening:\n%s", v)
+	}
+	s := startListening(t, m)
+	v := ansi.Strip(m.View())
+	for _, want := range []string{"listening in this app · this computer only", "URL  http://127.0.0.1:", "/paygate/wh/", "● w"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("listening view misses %q:\n%s", want, v)
+		}
+	}
+	if st, ok := listen.For("shop-test"); !ok || st.URL != m.ctx.Listen.URL {
+		t.Errorf("other commands should find the listener: %+v", st)
+	}
+
+	ev := postHook(t, m, s, hookFor(p, 1250), "demo-hmac-key")
+	if ev.Signature != "valid" || ev.TransID != p.TransID {
+		t.Fatalf("stored event: %+v", ev)
+	}
+	v = ansi.Strip(m.View())
+	for _, want := range []string{"1 received", "ENHANCED", "✓ valid", "12.50 EUR", p.TransID[:12]} {
+		if !strings.Contains(v, want) {
+			t.Errorf("list misses %q:\n%s", want, v)
+		}
+	}
+	if !strings.Contains(m.toast, "Webhook received: ENHANCED · ✓ valid") {
+		t.Errorf("toast = %q", m.toast)
+	}
+
+	send(m, enter)
+	v = ansi.Strip(m.View())
+	for _, want := range []string{"← Webhooks / #1", "the payment result, signed with HMAC-SHA256", p.PayID, "CHECKS", "HEADERS", "X-Paygate-Signature: v1=", "BODY · "} {
+		if !strings.Contains(v, want) {
+			t.Errorf("detail misses %q:\n%s", want, v)
+		}
+	}
+	if !s.check.Valid {
+		t.Errorf("detail check: %+v", s.check)
+	}
+
+	// r sends it again, unchanged, to another endpoint.
+	var got http.Header
+	var gotBody []byte
+	handler := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, gotBody = r.Header.Clone(), must(io.ReadAll(r.Body))
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer handler.Close()
+	s.target = handler.URL + "/paygate/webhook"
+	send(m, keys("r"), enter)
+	if !strings.Contains(s.message, "202 Accepted · your endpoint accepted it") {
+		t.Fatalf("resend message %q:\n%s", s.message, ansi.Strip(m.View()))
+	}
+	if got.Get(webhooks.HeaderSignature) != ev.Header.Get(webhooks.HeaderSignature) || !bytes.Equal(gotBody, ev.Body) {
+		t.Errorf("resent webhook differs: %v %s", got, gotBody)
+	}
+
+	// g opens the payment, whose detail lists the webhook.
+	send(m, keys("g"))
+	ps, ok := m.current().(*paymentsScreen)
+	if !ok || ps.mode != paysDetail || ps.rec.TransID != p.TransID {
+		t.Fatalf("g should open the payment, got %s", m.current().ID())
+	}
+	v = ansi.Strip(m.View())
+	if !strings.Contains(v, "1 · ENHANCED · ✓ valid") || !strings.Contains(v, "webhook") {
+		t.Errorf("payment detail misses the webhook:\n%s", v)
+	}
+
+	// A webhook stored elsewhere, e.g. by paygate listen in another
+	// terminal, shows up with the next tick.
+	if err := listen.Append(&listen.Event{Time: time.Now(), Profile: "shop-test", Kind: webhooks.Basic, PayID: p.PayID, Signature: "missing", Answer: 200}); err != nil {
+		t.Fatal(err)
+	}
+	send(m, listenTickMsg{})
+	if v = ansi.Strip(m.View()); !strings.Contains(v, "2 · BASIC · – none") {
+		t.Errorf("payment detail after a second webhook:\n%s", v)
+	}
+
+	send(m, keys("w"), esc, keys(" "))
+	if m.ctx.Listen != nil || m.ctx.Listening != nil {
+		t.Fatal("space should stop listening")
+	}
+	if _, ok := listen.Running(); ok {
+		t.Error("the listener state should be gone")
+	}
+	if v = ansi.Strip(m.View()); !strings.Contains(v, "not listening") || strings.Contains(v, "● w") {
+		t.Errorf("view after stopping:\n%s", v)
+	}
+}
+
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
+func TestWebhooksOtherTerminalAndNoCloudflared(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	send(m, keys("w"))
+	s := m.current().(*webhooksScreen)
+
+	// Without the mock, listening needs a tunnel.
+	t.Setenv("PAYGATE_BASE_URL", "https://paygate.example.invalid")
+	t.Setenv("PAYGATE_CLOUDFLARED", filepath.Join(t.TempDir(), "missing"))
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "space opens a cloudflared tunnel") {
+		t.Fatalf("view:\n%s", v)
+	}
+	send(m, keys(" "))
+	if m.ctx.Listen != nil || !strings.Contains(ansi.Strip(m.View()), "cloudflared is not installed") || !strings.Contains(ansi.Strip(m.View()), listen.InstallHint()) {
+		t.Fatalf("missing cloudflared should show how to install it:\n%s", ansi.Strip(m.View()))
+	}
+
+	// A listener in another terminal, here the test runner's parent.
+	dir, _ := config.Dir()
+	st, _ := json.Marshal(listen.State{Profile: "shop-test", URL: "https://demo.trycloudflare.com/paygate/wh/0123456789ab", PID: os.Getppid(), Started: time.Now()})
+	if err := os.WriteFile(filepath.Join(dir, "listen.json"), st, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	send(m, listenTickMsg{})
+	v := ansi.Strip(m.View())
+	for _, want := range []string{fmt.Sprintf("listening in another terminal (process %d)", os.Getppid()), "https://demo.trycloudflare.com/paygate/wh/0123456789ab", "● w"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("view misses %q:\n%s", want, v)
+		}
+	}
+	send(m, keys(" "))
+	if m.ctx.Listen != nil || !strings.Contains(s.message, "already runs for shop-test in another terminal") {
+		t.Errorf("a second listener must not start: %q", s.message)
+	}
+
+	// The dot belongs to the active profile's listener only.
+	send(m, keys("p"))
+	ps := m.current().(*profilesScreen)
+	for i := 0; i < 3 && m.ctx.Cfg.Names()[ps.sel] != "shop-prod"; i++ {
+		send(m, keys("j"))
+	}
+	send(m, enter, listenTickMsg{})
+	if m.ctx.Session.Name != "shop-prod" || m.ctx.Listening != nil || strings.Contains(ansi.Strip(m.View()), "● w") {
+		t.Errorf("after switching to shop-prod: listening %+v", m.ctx.Listening)
+	}
+}
+
+func TestWebhooksPaletteCommands(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	t.Setenv("PAYGATE_HMAC_KEY", "")
+	p := createPayment(t, m, core.PaymentInput{Flow: core.FlowDirect, Card: "visa-ok", Amount: "5"})
+	s := startListening(t, m)
+	postHook(t, m, s, hookFor(p, 500), "some-key")
+	if ev, _ := listen.Find(1); ev.Signature != "unchecked" {
+		t.Errorf("without a key the signature stays unchecked: %+v", ev)
+	}
+	send(m, esc, tea.KeyMsg{Type: tea.KeyCtrlK}, keys("stop listening"), enter)
+	if m.ctx.Listen != nil {
+		t.Fatal("the palette should stop listening")
+	}
+	send(m, tea.KeyMsg{Type: tea.KeyCtrlK}, keys("delete the received"), enter)
+	if all, _ := listen.Load(); len(all) != 0 || !strings.Contains(m.toast, "Deleted 1 received webhooks") {
+		t.Errorf("clear via palette: %d left, toast %q", len(all), m.toast)
+	}
+}
+
+func isQuit(cmd tea.Cmd) bool {
+	if cmd == nil {
+		return false
+	}
+	_, ok := cmd().(tea.QuitMsg)
+	return ok
+}
+
+// q quits at once, unless quitting would end a listener or the wait for a
+// payment; then it asks first.
+func TestQuitAsksWhileSomethingRuns(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	if !isQuit(m.handleKey(keys("q"))) {
+		t.Fatal("with nothing running q should quit at once")
+	}
+
+	startListening(t, m)
+	if isQuit(m.handleKey(keys("q"))) || m.quitAsk == nil {
+		t.Fatal("while listening q should ask first")
+	}
+	v := ansi.Strip(m.View())
+	for _, want := range []string{"Quit paygate?", "listening for webhooks", "enter quits · esc stays"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("question misses %q:\n%s", want, v)
+		}
+	}
+	send(m, esc)
+	if m.quitAsk != nil || m.ctx.Listen == nil {
+		t.Fatal("esc should keep the app and the listener")
+	}
+	m.handleKey(keys("q"))
+	if !isQuit(m.handleKey(enter)) {
+		t.Error("enter should quit after the question")
+	}
+
+	// Waiting for a hosted payment counts too; the palette asks as well.
+	send(m, esc)
+	m.current().(*webhooksScreen).stop(m.ctx)
+	m.screens[m.indexOf("new")].(*newPaymentScreen).stage = stageWaiting
+	send(m, tea.KeyMsg{Type: tea.KeyCtrlK}, keys("quit paygate"), enter)
+	if m.quitAsk == nil || !strings.Contains(ansi.Strip(m.View()), "waiting for a payment") {
+		t.Fatalf("the palette should ask while waiting for a payment:\n%s", ansi.Strip(m.View()))
+	}
+	if !isQuit(m.handleKey(keys("q"))) {
+		t.Error("a second q should quit")
 	}
 }

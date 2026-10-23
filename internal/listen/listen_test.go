@@ -126,6 +126,24 @@ func TestServerChecksAndStoresWebhooks(t *testing.T) {
 	}
 }
 
+func TestServerSetKey(t *testing.T) {
+	isolate(t)
+	s, events := collect(t, Options{Profile: "shop"})
+	msg, _ := webhooks.SignBody(testKey, enhancedBody, time.Now(), webhooks.TamperNone)
+	post(t, s.LocalURL()+s.Path(), msg.Headers(), msg.Body)
+	s.SetKey(testKey)
+	post(t, s.LocalURL()+s.Path(), msg.Headers(), msg.Body)
+	s.SetKey("another key")
+	post(t, s.LocalURL()+s.Path(), msg.Headers(), msg.Body)
+	var got []string
+	for _, e := range events() {
+		got = append(got, e.Signature)
+	}
+	if strings.Join(got, " ") != "unchecked valid invalid" {
+		t.Errorf("signatures = %v", got)
+	}
+}
+
 func TestServerForwardsUnchanged(t *testing.T) {
 	isolate(t)
 	t.Setenv("PAYGATE_NO_HISTORY", "1")

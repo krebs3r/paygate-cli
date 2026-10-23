@@ -144,14 +144,18 @@ func (m *model) renderSidebar(h int) string {
 	lines := []string{"  " + logo[0], "  " + logo[1], " " + ui.CLIDivider(sidebarW-2), ""}
 	for i, s := range m.screens {
 		title := truncate(s.Title(), sidebarW-6)
-		key := ui.Muted.Render(s.Shortcut())
-		pad := sidebarW - 4 - lipgloss.Width(title) - lipgloss.Width(s.Shortcut())
+		key, plainKey := ui.Muted.Render(s.Shortcut()), s.Shortcut()
+		// A dot marks a running webhook listener of the active profile.
+		if s.ID() == "webhooks" && m.ctx.Listening != nil {
+			key, plainKey = ui.Success.Render("●")+" "+key, "● "+plainKey
+		}
+		pad := sidebarW - 4 - lipgloss.Width(title) - lipgloss.Width(plainKey)
 		if pad < 1 {
 			pad = 1
 		}
 		switch {
 		case i == m.active && m.focus == focusMenu && !m.pal.open && !m.help:
-			lines = append(lines, ui.Selected(title+strings.Repeat(" ", pad)+s.Shortcut(), sidebarW))
+			lines = append(lines, ui.Selected(title+strings.Repeat(" ", pad)+plainKey, sidebarW))
 		case i == m.active:
 			lines = append(lines, ui.SelectedIdle(lipgloss.NewStyle().Foreground(ui.ColAccent2).Bold(true).Render(title)+strings.Repeat(" ", pad)+key+" "))
 		default:
@@ -197,6 +201,8 @@ func (m *model) renderContent(w, h int) string {
 	switch {
 	case m.pal.open:
 		content = m.paletteView(cw)
+	case m.quitAsk != nil:
+		content = m.quitView(cw)
 	case m.help:
 		content = m.helpView(cw)
 	default:
@@ -211,6 +217,8 @@ func (m *model) renderFooter(w int) string {
 	switch {
 	case m.pal.open:
 		hints = []Hint{{"↑↓", t("key.select")}, {"enter", t("key.open")}, {"esc", t("key.close")}}
+	case m.quitAsk != nil:
+		hints = []Hint{{"enter", t("key.quit")}, {"esc", t("quit.stay")}}
 	case m.help:
 		hints = []Hint{{"esc", t("key.close")}}
 	case m.focus == focusMenu:
@@ -225,7 +233,7 @@ func (m *model) renderFooter(w int) string {
 			hints = append(hints, Hint{"esc", t("key.menu")})
 		}
 	}
-	if !m.pal.open && (!m.current().Capturing() || m.focus == focusMenu) {
+	if !m.pal.open && m.quitAsk == nil && (!m.current().Capturing() || m.focus == focusMenu) {
 		hints = append(hints, Hint{"ctrl+k", t("key.commands")}, Hint{"?", t("key.help")}, Hint{"q", t("key.quit")})
 	}
 	var parts []string
@@ -290,6 +298,18 @@ func (m *model) helpView(w int) string {
 		b.WriteString(strings.Join(parts, ui.Muted.Render(" · ")))
 	}
 	return box(b.String(), min(w, 78), ui.ColAccent)
+}
+
+// quitView asks before quitting ends what is running.
+func (m *model) quitView(w int) string {
+	bw := min(w, 72)
+	var b strings.Builder
+	b.WriteString(ui.Bold.Render(t("quit.title")) + "\n\n")
+	for _, r := range m.quitAsk {
+		b.WriteString(ui.Warning.Render("! ") + ui.Label.Render(ui.WrapWords(r, bw-8, "  ")) + "\n")
+	}
+	b.WriteString("\n" + ui.Muted.Render(t("quit.keys")))
+	return box(b.String(), bw, ui.ColWarning)
 }
 
 func (m *model) renderSplash() string {

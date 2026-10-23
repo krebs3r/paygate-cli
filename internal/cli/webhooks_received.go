@@ -223,13 +223,7 @@ the 5-minute window rejects it later on. paygate webhooks send makes a fresh one
 			if err != nil {
 				return err
 			}
-			headers := [][2]string{}
-			for n, vs := range e.Header {
-				if strings.EqualFold(n, "Content-Type") || strings.HasPrefix(strings.ToLower(n), "x-paygate-") {
-					headers = append(headers, [2]string{n, strings.Join(vs, ", ")})
-				}
-			}
-			sort.Slice(headers, func(i, j int) bool { return headers[i][0] < headers[j][0] })
+			headers := e.ResendHeaders()
 			ui.Println()
 			ui.Println(" " + ui.Label.Render(fmt.Sprintf("Webhook #%d, %s, as received on %s", e.ID, strings.ToLower(string(e.Kind)), e.Time.Format("02.01. 15:04:05"))))
 			if e.Header.Get(webhooks.HeaderTimestamp) != "" {

@@ -331,6 +331,12 @@ func (s *settingsScreen) applyHMACKey(ctx *Context) tea.Cmd {
 	if err := ctx.Cfg.Save(); err != nil {
 		return toast(err.Error(), ui.ToneDanger)
 	}
+	// This app's listener runs for the active profile only (it stops on a
+	// switch), so it checks the next webhooks with the new key.
+	if ctx.Listen != nil {
+		k, _ := config.HMACKey(name, p)
+		ctx.Listen.Server.SetKey(k)
+	}
 	return toast(t(done), ui.ToneSuccess)
 }
 

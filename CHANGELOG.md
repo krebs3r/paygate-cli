@@ -5,6 +5,29 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Webhooks in the app (`w`): space starts and stops listening, through a
+  cloudflared quick tunnel or, against the mock server, directly. The list
+  of received webhooks updates by itself, also with those a `paygate listen`
+  in another terminal receives, and a dot in the menu shows a running
+  listener. Enter shows a webhook with all checks, headers and body, `r`
+  sends it again to your handler and `g` opens its payment. Quitting the app
+  or switching the profile closes the tunnel.
+- The payment detail in the app lists the payment's webhooks, in the card
+  and in the timeline.
+- Command palette: start and stop listening, delete the received webhooks.
+
+### Changed
+
+- In the app, q asks before quitting while the app listens for webhooks or
+  waits for a payment; otherwise it quits at once, and ctrl+c always does.
+- In the app, esc on the receipt of a successful payment returns to the
+  menu and leaves the receipt as it is; shift+tab still opens the review.
+  After a failed payment esc goes back to the review, as before.
+- `paygate webhooks verify` and `show` wrap long findings below their detail
+  column.
+
 ## [0.5.0]
 
 ### Added

@@ -59,7 +59,8 @@ every request can be inspected or exported as `curl`.
 - **Webhook testing**: send signed test webhooks to your own endpoint, also
   broken on purpose, and check received ones down to the mistake in your
   signature code. Receive Paygate's real webhooks on your computer through a
-  cloudflared tunnel, and forward them to your handler.
+  cloudflared tunnel, in a terminal or in the app, and forward them to your
+  handler.
 
 ![Payments, capture, Inspector and command palette](docs/demo-app-2.gif)
 
@@ -211,7 +212,8 @@ test card number. On first start it walks you through adding your merchant.
 | --- | --- |
 | Home | Active profile, credential check, today's numbers, latest payments |
 | New payment | Form, review (request JSON, copy as curl), send, receipt; QR code, live status and test cards for hosted pages |
-| Payments | Local history with filter (`/`), lookup by ID (`g`), details with capture, refund, reversal and refresh |
+| Payments | Local history with filter (`/`), lookup by ID (`g`), details with capture, refund, reversal, refresh and the payment's webhooks |
+| Webhooks | Listen with <kbd>space</kbd> through a cloudflared tunnel (against the mock server without one); received webhooks with all checks, headers and body; send one again to your handler (`r`), open its payment (`g`) |
 | Inspector | The last 200 requests to Paygate from the app and the command line: request and response with headers and JSON, timing, correlation ID; copy body or curl |
 | Profiles | Add (with credential check), switch, verify, delete |
 | Settings | Language, colour theme (Blue or Blurple), start screen, currency, payment page language, callback URLs, webhook HMAC key, customer IP, delete all data |
@@ -434,6 +436,15 @@ paygate pay --hosted --amount 12.99 --listen
 
 `paygate webhooks list`, `show`, `resend` and `clear` work with the received
 webhooks.
+
+In the app, Webhooks (<kbd>w</kbd>) does the same without a second terminal:
+<kbd>space</kbd> starts and stops listening, and the list updates by itself,
+also with the webhooks a `paygate listen` in another terminal receives. A
+green dot next to Webhooks in the menu shows a listener of the active
+profile. <kbd>Enter</kbd> shows a webhook with all checks, headers and body,
+<kbd>r</kbd> sends it again to your handler and <kbd>g</kbd> opens its
+payment, whose detail lists its webhooks too. Quitting the app or switching
+the profile closes the tunnel.
 
 On their way to your computer the webhooks pass through Cloudflare. If that
 is not an option, give an address of your own with `--public-url`, such as a

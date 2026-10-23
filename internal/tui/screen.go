@@ -11,6 +11,7 @@ import (
 	"github.com/krebs3r/paygate-cli/internal/config"
 	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/i18n"
+	"github.com/krebs3r/paygate-cli/internal/listen"
 	"github.com/krebs3r/paygate-cli/internal/reqlog"
 	"github.com/krebs3r/paygate-cli/internal/ui"
 )
@@ -43,6 +44,12 @@ type FullScreener interface {
 	FullScreen(ctx *Context, w, h int) (string, bool)
 }
 
+// Quitter screens say what quitting the app now would end, if anything,
+// so q asks first.
+type Quitter interface {
+	QuitWarning(ctx *Context) string
+}
+
 // Receiver screens accept data when another screen switches to them.
 type Receiver interface {
 	Receive(ctx *Context, data any) tea.Cmd
@@ -69,6 +76,12 @@ type Context struct {
 	Verified   bool
 	VerifyDone bool
 	VerifyErr  error
+
+	// Listen is the webhook listener this app runs; Listening is the one
+	// of the active profile, here or in another terminal.
+	Listen    *listen.Session
+	Listening *listen.State
+	opening   *listenOpening
 }
 
 // Reload reads the configuration again and reopens the active profile.

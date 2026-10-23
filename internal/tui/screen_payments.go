@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 
 	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/history"
+	"github.com/krebs3r/paygate-cli/internal/listen"
 	"github.com/krebs3r/paygate-cli/internal/money"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
 	"github.com/krebs3r/paygate-cli/internal/ui"
@@ -66,6 +68,9 @@ type paymentsScreen struct {
 	raw      []byte
 	loadErr  error
 	showJSON bool
+	hooks    []listen.Event // webhooks received for it, newest first
+	hookMod  time.Time
+	hookSize int64
 
 	// embedded forms: filter, lookup, operation
 	form     *huh.Form
@@ -185,6 +190,12 @@ func (s *paymentsScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 		// A payment was created or finished on the New payment screen.
 		s.reload(ctx)
 		return nil
+	case webhookMsg, listenTickMsg:
+		// Also webhooks a paygate listen in another terminal stores.
+		if s.mode == paysDetail {
+			s.loadHooks(false)
+		}
+		return nil
 	case detailLoadedMsg:
 		if msg.seq != s.seq {
 			return nil
@@ -298,7 +309,18 @@ func (s *paymentsScreen) detailKeys(ctx *Context, k string) tea.Cmd {
 
 func (s *paymentsScreen) openDetail(ctx *Context, r history.Record) tea.Cmd {
 	s.mode, s.rec, s.payment, s.raw, s.loadErr, s.showJSON, s.message = paysDetail, r, nil, nil, nil, false, ""
+	s.loadHooks(true)
 	return s.refresh(ctx)
+}
+
+// loadHooks reads the payment's webhooks again when the file changed.
+func (s *paymentsScreen) loadHooks(force bool) {
+	mod, size := hooksStamp()
+	if !force && mod.Equal(s.hookMod) && size == s.hookSize {
+		return
+	}
+	s.hookMod, s.hookSize = mod, size
+	s.hooks = paymentHooks(s.rec)
 }
 
 func (s *paymentsScreen) refresh(ctx *Context) tea.Cmd {
@@ -617,6 +639,9 @@ func (s *paymentsScreen) detailView(ctx *Context, w, h int) string {
 	if s.rec.Simulation != "" {
 		opts.Extra = append(opts.Extra, ui.Row{Label: t("pays.sim"), Value: ui.Warning.Render(s.rec.Simulation)})
 	}
+	if len(s.hooks) > 0 {
+		opts.Extra = append(opts.Extra, ui.Row{Label: t("pays.webhooks"), Value: hooksCardValue(s.hooks)})
+	}
 	out += ui.PaymentCard(p, nil, opts) + "\n"
 	if s.busy != "" {
 		out += " " + spinView(s.spin) + " " + ui.Label.Render(s.busy) + "\n"
@@ -638,15 +663,36 @@ func (s *paymentsScreen) detailView(ctx *Context, w, h int) string {
 		}
 		return out + "\n" + strings.Join(lines, "\n")
 	}
-	if len(s.rec.Events) > 0 {
+	if rows := s.timeline(); len(rows) > 0 {
 		out += "\n" + section(t("pays.timeline")) + "\n"
-		events := s.rec.Events
-		if len(events) > 8 {
-			events = events[len(events)-8:]
+		for _, r := range rows {
+			out += " " + r + "\n"
 		}
-		for _, ev := range events {
-			out += " " + timelineRow(ev, s.rec.Currency) + "\n"
-		}
+	}
+	return out
+}
+
+// timeline merges the payment's API events and its webhooks by time and
+// keeps the last eight.
+func (s *paymentsScreen) timeline() []string {
+	type entry struct {
+		at   time.Time
+		line string
+	}
+	var all []entry
+	for _, ev := range s.rec.Events {
+		all = append(all, entry{ev.Time, timelineRow(ev, s.rec.Currency)})
+	}
+	for _, e := range s.hooks {
+		all = append(all, entry{e.Time, hookTimelineRow(e)})
+	}
+	sort.SliceStable(all, func(i, j int) bool { return all[i].at.Before(all[j].at) })
+	if len(all) > 8 {
+		all = all[len(all)-8:]
+	}
+	out := make([]string, len(all))
+	for i, e := range all {
+		out[i] = e.line
 	}
 	return out
 }

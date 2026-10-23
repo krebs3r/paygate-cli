@@ -25,6 +25,7 @@ func Run(opts Options) error {
 	ctx.Reload()
 	m := newModel(ctx)
 	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+	closeListen(ctx)
 	return err
 }
 
@@ -49,6 +50,8 @@ type model struct {
 	tabStart int
 
 	pal palette
+	// quitAsk holds what quitting would end while q waits for a yes.
+	quitAsk []string
 
 	splash      bool
 	splashStart time.Time
@@ -68,6 +71,7 @@ func newModel(ctx *Context) *model {
 			newHomeScreen(),
 			newNewPaymentScreen(),
 			newPaymentsScreen(),
+			newWebhooksScreen(),
 			newProfilesScreen(),
 			newInspectorScreen(),
 			newSettingsScreen(),
@@ -83,7 +87,7 @@ func newModel(ctx *Context) *model {
 }
 
 func (m *model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.screens[m.active].Activate(m.ctx), verifySession(m.ctx)}
+	cmds := []tea.Cmd{m.screens[m.active].Activate(m.ctx), verifySession(m.ctx), listenTick()}
 	if m.splash {
 		cmds = append(cmds, splashTick())
 	}
@@ -231,6 +235,15 @@ func (m *model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	if m.pal.open {
 		return m.updatePalette(msg)
 	}
+	if m.quitAsk != nil {
+		switch k {
+		case "enter", "y", "j", "q":
+			return tea.Quit
+		case "esc", "n":
+			m.quitAsk = nil
+		}
+		return nil
+	}
 	if m.help {
 		switch k {
 		case "esc", "?", "q", "enter":
@@ -247,7 +260,7 @@ func (m *model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	if !capturing {
 		switch k {
 		case "q":
-			return tea.Quit
+			return m.quit()
 		case "?":
 			m.help = true
 			return nil
@@ -289,7 +302,29 @@ func (m *model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	return m.current().Update(m.ctx, msg)
 }
 
+// quit ends the app at once, or asks first while quitting would end
+// something: a webhook listener or the wait for a payment. ctrl+c always
+// quits at once.
+func (m *model) quit() tea.Cmd {
+	var reasons []string
+	for _, s := range m.screens {
+		if q, ok := s.(Quitter); ok {
+			if r := q.QuitWarning(m.ctx); r != "" {
+				reasons = append(reasons, r)
+			}
+		}
+	}
+	if len(reasons) == 0 {
+		return tea.Quit
+	}
+	m.quitAsk, m.help = reasons, false
+	return nil
+}
+
 func (m *model) handleMouse(msg tea.MouseMsg) tea.Cmd {
+	if m.quitAsk != nil {
+		return nil
+	}
 	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
 		if m.focus == focusContent {
 			return m.current().Update(m.ctx, msg)

@@ -129,6 +129,15 @@ func (s *newPaymentScreen) Activate(ctx *Context) tea.Cmd {
 	return nil
 }
 
+// QuitWarning: quitting stops waiting for the payment, which goes on at
+// Paygate.
+func (s *newPaymentScreen) QuitWarning(*Context) string {
+	if s.stage == stageWaiting {
+		return t("quit.waiting")
+	}
+	return ""
+}
+
 func (s *newPaymentScreen) Back(ctx *Context) (bool, tea.Cmd) {
 	switch s.stage {
 	case stageReview:
@@ -141,8 +150,12 @@ func (s *newPaymentScreen) Back(ctx *Context) (bool, tea.Cmd) {
 		s.stopWaiting()
 		return true, nil
 	case stageResult:
-		// Back to the review with a fresh transaction ID, ready to send again
-		// or to edit.
+		// A successful payment is done: esc leaves to the menu and the
+		// receipt stays. After a failure it goes back to the review with a
+		// fresh transaction ID, ready to fix and send again.
+		if s.succeeded() {
+			return false, nil
+		}
 		return true, s.review(ctx)
 	}
 	return false, nil
@@ -173,6 +186,9 @@ func (s *newPaymentScreen) Hints(ctx *Context) []Hint {
 		}
 		if s.canRefund() {
 			hints = append(hints, Hint{"f", t("key.refund")})
+		}
+		if s.succeeded() {
+			return append(hints, Hint{"esc", t("key.menu")})
 		}
 		return append(hints, Hint{"esc", t("key.back")})
 	case stageConfirmOp:
@@ -447,8 +463,7 @@ func (s *newPaymentScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 		case "n", "e":
 			return s.startForm(ctx)
 		case "shift+tab":
-			_, cmd := s.Back(ctx)
-			return cmd
+			return s.review(ctx)
 		case "d":
 			s.details = !s.details
 		case "x":

@@ -529,7 +529,7 @@ func runWebhookVerify(app *App, o *webhookVerifyOptions) error {
 			}
 		case diag.Cause != "":
 			ui.Println(ui.Fail(yours + " differs from Paygate's signature."))
-			ui.Println("   " + wrap("It matches "+diag.Cause+".", 76, "   "))
+			ui.Println("   " + ui.WrapWords("It matches "+diag.Cause+".", 76, "   "))
 			ui.Println("   " + ui.Label.Render("Paygate signs ") + ui.Link.Render(`timestamp + "." + raw body`) + ui.Label.Render(" with HMAC-SHA256, hex-encoded."))
 		default:
 			ui.Println(ui.Fail(yours + " differs from Paygate's signature."))
@@ -545,39 +545,15 @@ func runWebhookVerify(app *App, o *webhookVerifyOptions) error {
 
 // printChecks shows the kind of a webhook and every finding.
 func printChecks(check webhooks.Check) {
-	ui.Println(" " + kindBadge(check.Kind) + "  " + ui.Label.Render(kindSummary(check.Kind)))
+	ui.Println(" " + ui.WebhookKindBadge(check.Kind) + "  " + ui.Label.Render(kindSummary(check.Kind)))
 	ui.Println()
 	ui.Println(ui.Section("Checks"))
 	for _, f := range check.Findings {
-		printFinding(f)
+		ui.Println(ui.WebhookFinding(f, 80))
 		if f.Name == webhooks.HeaderTimestamp && f.Level == webhooks.Warn {
 			ui.Println("    " + ui.Label.Render("Fine for a saved request. A live receiver must reject anything more than 5 min off."))
 		}
 	}
-}
-
-func printFinding(f webhooks.Finding) {
-	icon := map[webhooks.Level]string{
-		webhooks.Pass: ui.Success.Render("✓"),
-		webhooks.Info: ui.Muted.Render("–"),
-		webhooks.Warn: ui.Warning.Render("!"),
-		webhooks.Fail: ui.Danger.Render("✗"),
-	}[f.Level]
-	if f.Name == "" {
-		ui.Println(" " + icon + "  " + wrap(f.Detail, 76, "    "))
-		return
-	}
-	ui.Println(" " + icon + "  " + ui.Label.Render(padTo(f.Name, 29)) + f.Detail)
-}
-
-func kindBadge(k webhooks.Kind) string {
-	switch k {
-	case webhooks.Enhanced:
-		return ui.Badge("ENHANCED", ui.ToneAccent)
-	case webhooks.Basic:
-		return ui.Badge("BASIC", ui.ToneNeutral)
-	}
-	return ui.Badge("UNKNOWN", ui.ToneDanger)
 }
 
 func kindSummary(k webhooks.Kind) string {
@@ -619,26 +595,4 @@ func padTo(s string, w int) string {
 		return s + strings.Repeat(" ", n)
 	}
 	return s + " "
-}
-
-// wrap breaks text into lines of at most width cells; continuation lines
-// start with indent.
-func wrap(text string, width int, indent string) string {
-	var lines []string
-	line := ""
-	for _, word := range strings.Fields(text) {
-		if line != "" && lipgloss.Width(line)+1+lipgloss.Width(word) > width {
-			lines = append(lines, line)
-			line = word
-			continue
-		}
-		if line != "" {
-			line += " "
-		}
-		line += word
-	}
-	if line != "" {
-		lines = append(lines, line)
-	}
-	return strings.Join(lines, "\n"+indent)
 }
