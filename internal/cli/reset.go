@@ -18,7 +18,7 @@ func newResetCmd(app *App) *cobra.Command {
 		Use:   "reset",
 		Short: "Delete all profiles, API keys, history and settings (factory reset)",
 		Long: `Delete everything paygate stored on this computer, as right after the
-installation: all profiles with their API keys in the keychain, the settings,
+installation: all profiles with their API and HMAC keys in the keychain, the settings,
 the local payment history and the request log.
 
 Payments at Paygate are not affected. The paygate program itself stays

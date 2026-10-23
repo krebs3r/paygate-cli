@@ -4,6 +4,7 @@
 package mockpaygate
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -11,6 +12,9 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/krebs3r/paygate-cli/internal/webhooks"
 )
 
 // Server is a mock Paygate. Create it with New and mount Handler.
@@ -28,6 +32,15 @@ type Server struct {
 	// Require3DS asks for 3-D Secure on every direct card payment that does
 	// not skip it. Otherwise only the 3DS test cards ask for it.
 	Require3DS bool
+	// Webhook is the webhook a hosted payment sends to its urls.webhook once
+	// it is final: "basic", "enhanced" (signed with HMACKey) or "" for none.
+	Webhook string
+	HMACKey string
+	// WebhookTo, if set, receives the webhooks instead of urls.webhook, so
+	// they can reach a local http endpoint that Paygate could not call.
+	WebhookTo string
+	// OnWebhook, if set, learns the outcome of every webhook delivery.
+	OnWebhook func(url string, status int, err error)
 
 	mu       sync.Mutex
 	byTrans  map[string]*record
@@ -41,6 +54,8 @@ type record struct {
 	Amount, Captured, Refunded                                         int64
 	Hosted                                                             bool
 	Brand, Last4                                                       string
+	WebhookURL                                                         string
+	Created                                                            time.Time
 }
 
 // New returns a mock that accepts the given credentials.
@@ -281,7 +296,10 @@ func (s *Server) newRecord(b *paymentBody) *record {
 	}
 	rec := &record{
 		PayID: randHex(16), TransID: b.TransID, Amount: b.Amount.Value,
-		Currency: strings.ToUpper(b.Amount.Currency), Capture: capture,
+		Currency: strings.ToUpper(b.Amount.Currency), Capture: capture, Created: time.Now(),
+	}
+	if b.URLs != nil {
+		rec.WebhookURL = b.URLs.Webhook
 	}
 	// Like Paygate: the order description Test:<code> simulates the result.
 	if b.Order != nil && strings.HasPrefix(b.Order.Description, "Test:") {
@@ -325,7 +343,13 @@ func (s *Server) getByTransID(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	s.mu.Lock()
 	rec, ok := s.byTrans[id]
+	var final *record // set when the payment completes with this lookup
 	if ok && rec.Hosted && rec.Status != "OK" && rec.Status != "FAILED" {
+		defer func() {
+			if final != nil {
+				go s.sendWebhook(*final)
+			}
+		}()
 		s.polls[id]++
 		n := s.polls[id]
 		switch {
@@ -337,6 +361,8 @@ func (s *Server) getByTransID(w http.ResponseWriter, r *http.Request) {
 			rec.Status, rec.Code, rec.Desc = "AUTHORIZE_REQUEST", "60000000", "waiting for customer"
 		case rec.Sim != "" && rec.Sim != "0000":
 			rec.Status, rec.Code, rec.Desc = "FAILED", "21000"+rec.Sim[1:], "simulated decline"
+			snapshot := *rec
+			final = &snapshot
 		default:
 			rec.Status, rec.Code, rec.Desc = "OK", "00000000", "success"
 			if rec.Method == "CARD" && rec.Brand == "" {
@@ -345,6 +371,8 @@ func (s *Server) getByTransID(w http.ResponseWriter, r *http.Request) {
 			if rec.Capture != "MANUAL" {
 				rec.Captured = rec.Amount
 			}
+			snapshot := *rec
+			final = &snapshot
 		}
 	}
 	s.mu.Unlock()
@@ -419,6 +447,54 @@ func (s *Server) operation(kind string) http.HandlerFunc {
 		}
 		writeJSON(w, 200, map[string]any{"merchantId": s.MerchantID, "payId": rec.PayID, "xId": randHex(16), "transId": rec.TransID,
 			"status": "OK", "responseCode": "00000000", "responseDescription": "success"})
+	}
+}
+
+// sendWebhook posts the configured webhook for a completed hosted payment.
+// Unlike Paygate it accepts any URL, http and localhost included.
+func (s *Server) sendWebhook(rec record) {
+	if s.WebhookTo != "" {
+		rec.WebhookURL = s.WebhookTo
+	}
+	if rec.WebhookURL == "" || (s.Webhook != "basic" && s.Webhook != "enhanced") {
+		return
+	}
+	msg := webhooks.NewBasic(rec.PayID)
+	if s.Webhook == "enhanced" {
+		pl := webhooks.Payload{
+			PayID: rec.PayID, TransID: rec.TransID, Status: rec.Status, ResponseCode: rec.Code, ResponseDescription: rec.Desc,
+			Amount:         webhooks.Amount{Value: rec.Amount, Currency: rec.Currency},
+			PaymentMethods: []webhooks.Method{{Type: rec.Method}},
+			CreationDate:   rec.Created.UTC().Format(time.RFC3339),
+		}
+		var err error
+		if msg, err = webhooks.NewEnhanced(s.HMACKey, pl, time.Now(), webhooks.TamperNone); err != nil {
+			s.webhookDone(rec.WebhookURL, 0, err)
+			return
+		}
+	}
+	req, err := http.NewRequest(http.MethodPost, rec.WebhookURL, bytes.NewReader(msg.Body))
+	if err != nil {
+		s.webhookDone(rec.WebhookURL, 0, err)
+		return
+	}
+	for _, h := range msg.Headers() {
+		req.Header.Set(h[0], h[1])
+	}
+	resp, err := webhookClient.Do(req)
+	if err != nil {
+		s.webhookDone(rec.WebhookURL, 0, err)
+		return
+	}
+	resp.Body.Close()
+	s.webhookDone(rec.WebhookURL, resp.StatusCode, nil)
+}
+
+var webhookClient = &http.Client{Timeout: 10 * time.Second}
+
+func (s *Server) webhookDone(url string, status int, err error) {
+	if s.OnWebhook != nil {
+		s.OnWebhook(url, status, err)
 	}
 }
 

@@ -111,6 +111,7 @@ func runInit(app *App, o *initOptions) error {
 		// Keep per-profile settings such as callback URLs.
 		prof.Currency, prof.Language = existing.Currency, existing.Language
 		prof.ReturnURL, prof.CancelURL, prof.WebhookURL = existing.ReturnURL, existing.CancelURL, existing.WebhookURL
+		prof.HMACStore, prof.HMACKey = existing.HMACStore, existing.HMACKey
 		if !app.Yes && ui.Interactive() {
 			ok, err := ui.Confirm("Profile "+o.name+" exists", "Overwrite its credentials?", true)
 			if err != nil {

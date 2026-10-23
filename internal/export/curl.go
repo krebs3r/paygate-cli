@@ -46,6 +46,17 @@ curl --request %s \
   --user "%s:%s"%s`, p.Method, p.URL, dq(c.MerchantID), dq(key), body.String())
 }
 
+// Webhook renders a webhook POST with its exact body and headers.
+func Webhook(url string, headers [][2]string, body []byte) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "curl --request POST \\\n  --url '%s'", shellQuote(url))
+	for _, h := range headers {
+		fmt.Fprintf(&b, " \\\n  --header '%s: %s'", shellQuote(h[0]), shellQuote(h[1]))
+	}
+	fmt.Fprintf(&b, " \\\n  --data-raw '%s'", shellQuote(string(body)))
+	return b.String()
+}
+
 // shellQuote escapes a value for use inside single quotes.
 func shellQuote(s string) string {
 	return strings.ReplaceAll(s, "'", `'\''`)

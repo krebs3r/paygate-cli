@@ -371,6 +371,7 @@ func (s *profilesScreen) save(ctx *Context) tea.Cmd {
 }
 
 func (s *profilesScreen) delete(ctx *Context, name string) tea.Cmd {
+	config.DeleteHMACKey(name, ctx.Cfg.Profiles[name])
 	delete(ctx.Cfg.Profiles, name)
 	config.DeleteAPIKey(name)
 	if ctx.Cfg.ActiveProfile == name {

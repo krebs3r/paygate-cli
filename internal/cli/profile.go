@@ -1,11 +1,15 @@
 package cli
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 
+	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
 	"github.com/krebs3r/paygate-cli/internal/config"
@@ -54,18 +58,31 @@ func newProfileCmd(app *App) *cobra.Command {
 			RunE:  func(cmd *cobra.Command, args []string) error { return profileDelete(app, args[0]) },
 		},
 		&cobra.Command{
-			Use:   "set <key> <value>",
-			Short: "Change a profile setting (currency, language, return-url, cancel-url, webhook-url, customer-ip, auth)",
+			Use:   "set <key> [value]",
+			Short: "Change a profile setting (currency, language, return-url, cancel-url, webhook-url, customer-ip, auth, hmac-key)",
 			Long: `Change a setting of the active profile (or --profile).
 
-Keys: currency, language, return-url, cancel-url, webhook-url, customer-ip, auth.
-Use the value "default" to reset a setting.
+Keys: currency, language, return-url, cancel-url, webhook-url, customer-ip, auth,
+hmac-key. Use the value "default" to reset a setting.
 
 Paygate only calls HTTPS URLs on port 443, so callback URLs cannot point
-to localhost.`,
-			Example: "  paygate profile set currency CHF\n  paygate profile set return-url https://shop.example.com/paygate/return",
-			Args:    cobra.ExactArgs(2),
-			RunE:    func(cmd *cobra.Command, args []string) error { return profileSet(app, args[0], args[1]) },
+to localhost.
+
+hmac-key is the key Paygate signs Enhanced webhooks with; paygate webhooks
+send and verify use it. Without a value it is asked for (hidden) or read from
+stdin, and stored in the system keychain.`,
+			Example: "  paygate profile set currency CHF\n" +
+				"  paygate profile set return-url https://shop.example.com/paygate/return\n" +
+				"  paygate profile set hmac-key\n" +
+				"  paygate profile set hmac-key < hmac-key.txt\n" +
+				"  paygate profile set hmac-key default   # remove it",
+			Args: cobra.RangeArgs(1, 2),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				if len(args) == 1 {
+					return profileSet(app, args[0], "", false)
+				}
+				return profileSet(app, args[0], args[1], true)
+			},
 		},
 	)
 	return cmd
@@ -160,12 +177,28 @@ func profileShow(app *App) error {
 		}
 		keyInfo = maskKey(k) + ui.Muted.Render("  in "+where)
 	}
+	hmacInfo := ui.Muted.Render("not set · paygate profile set hmac-key")
+	hmacSet := false
+	if k, err := config.HMACKey(name, p); err != nil {
+		hmacInfo = ui.Danger.Render("missing")
+	} else if k != "" {
+		hmacSet = true
+		where := "system keychain"
+		switch {
+		case os.Getenv("PAYGATE_HMAC_KEY") != "":
+			where = "$PAYGATE_HMAC_KEY"
+		case p.HMACStore == config.StoreFile:
+			where = "config file"
+		}
+		hmacInfo = maskKey(k) + ui.Muted.Render("  in "+where)
+	}
 	if app.JSON() {
 		b, _ := json.MarshalIndent(map[string]any{
 			"name": name, "active": name == cfg.ActiveProfile, "brand": p.Brand, "env": p.Env,
 			"host": origin, "merchantId": p.MerchantID, "auth": p.Auth,
 			"currency": p.DefaultCurrency(), "language": p.DefaultLanguage(),
 			"returnUrl": p.Return(), "cancelUrl": p.Cancel(), "webhookUrl": p.Webhook(),
+			"hmacKeySet": hmacSet,
 		}, "", "  ")
 		ui.Println(string(b))
 		return nil
@@ -190,6 +223,7 @@ func profileShow(app *App) error {
 			{Label: "Return URL", Value: urlValue(p.ReturnURL, p.Return())},
 			{Label: "Cancel URL", Value: urlValue(p.CancelURL, p.Cancel())},
 			{Label: "Webhook URL", Value: urlValue(p.WebhookURL, p.Webhook())},
+			{Label: "HMAC key", Value: hmacInfo},
 		},
 	}.String())
 	ui.Println()
@@ -223,6 +257,7 @@ func profileDelete(app *App, name string) error {
 			return ui.ErrAborted
 		}
 	}
+	config.DeleteHMACKey(name, cfg.Profiles[name])
 	delete(cfg.Profiles, name)
 	config.DeleteAPIKey(name)
 	if cfg.ActiveProfile == name {
@@ -241,7 +276,7 @@ func profileDelete(app *App, name string) error {
 	return nil
 }
 
-func profileSet(app *App, key, value string) error {
+func profileSet(app *App, key, value string, given bool) error {
 	cfg, err := app.Config()
 	if err != nil {
 		return err
@@ -249,6 +284,12 @@ func profileSet(app *App, key, value string) error {
 	name, p, err := cfg.Resolve(app.ProfileName)
 	if err != nil {
 		return err
+	}
+	if strings.EqualFold(key, "hmac-key") {
+		return profileSetHMACKey(cfg, name, p, value, given)
+	}
+	if !given {
+		return fmt.Errorf("missing value for %s", key)
 	}
 	v := strings.TrimSpace(value)
 	if strings.EqualFold(v, "default") {
@@ -291,7 +332,7 @@ func profileSet(app *App, key, value string) error {
 		}
 		p.Auth = v
 	default:
-		return fmt.Errorf("unknown setting %q (currency, language, return-url, cancel-url, webhook-url, customer-ip, auth)", key)
+		return fmt.Errorf("unknown setting %q (currency, language, return-url, cancel-url, webhook-url, customer-ip, auth, hmac-key)", key)
 	}
 	if err := cfg.Save(); err != nil {
 		return err
@@ -301,5 +342,54 @@ func profileSet(app *App, key, value string) error {
 		shown = "default"
 	}
 	ui.Println(ui.OK(fmt.Sprintf("%s · %s = %s", name, key, shown)))
+	return nil
+}
+
+// profileSetHMACKey stores or, with "default", removes the webhook HMAC key.
+// Without a value it is asked for, or read from stdin in scripts.
+func profileSetHMACKey(cfg *config.Config, name string, p *config.Profile, value string, given bool) error {
+	if given && (strings.TrimSpace(value) == "" || strings.EqualFold(strings.TrimSpace(value), "default")) {
+		config.DeleteHMACKey(name, p)
+		if err := cfg.Save(); err != nil {
+			return err
+		}
+		ui.Println(ui.OK("Removed the HMAC key of " + name))
+		return nil
+	}
+	if !given {
+		if ui.Interactive() {
+			err := ui.RunForm(huh.NewGroup(
+				huh.NewInput().Title("HMAC key of " + name).
+					Description("The key Paygate signs Enhanced webhooks with.\nIt is stored in your system keychain.").
+					EchoMode(huh.EchoModePassword).Value(&value).Validate(nonEmpty("HMAC key")),
+			))
+			if err != nil {
+				return err
+			}
+		} else {
+			line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+			if err != nil && line == "" {
+				return fmt.Errorf("read HMAC key from stdin: %w", err)
+			}
+			value = line
+		}
+	}
+	key := config.CleanSecret(value)
+	if key == "" {
+		return errors.New("the HMAC key is empty")
+	}
+	store, err := config.StoreHMACKey(name, p, key)
+	if err != nil {
+		return err
+	}
+	if err := cfg.Save(); err != nil {
+		return err
+	}
+	where := "system keychain"
+	if store == config.StoreFile {
+		where = "config file (no keychain available)"
+	}
+	ui.Println(ui.OK("HMAC key " + maskKey(key) + " of " + name + " stored in the " + where))
+	ui.Println(ui.Next("paygate webhooks send --to <url> --trans-id <id>", "paygate webhooks verify --request <file>"))
 	return nil
 }

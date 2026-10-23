@@ -72,3 +72,53 @@ func DeleteAPIKey(profileName string) {
 	}
 	_ = keyring.Delete(keyringService, profileName)
 }
+
+// hmacService keeps the webhook HMAC keys apart from the API keys.
+const hmacService = keyringService + ".hmac"
+
+// StoreHMACKey saves the key Paygate signs Enhanced webhooks with, in the
+// keychain or, without one, in the config file. It returns the backend used.
+func StoreHMACKey(profileName string, p *Profile, key string) (string, error) {
+	if os.Getenv("PAYGATE_NO_KEYCHAIN") == "" {
+		if err := keyring.Set(hmacService, profileName, key); err == nil {
+			p.HMACStore, p.HMACKey = StoreKeychain, ""
+			return StoreKeychain, nil
+		}
+	}
+	p.HMACStore, p.HMACKey = StoreFile, key
+	return StoreFile, nil
+}
+
+// HMACKey returns the profile's webhook HMAC key: PAYGATE_HMAC_KEY >
+// keychain > file. An empty key without error means none is set.
+func HMACKey(profileName string, p *Profile) (string, error) {
+	if v := CleanSecret(os.Getenv("PAYGATE_HMAC_KEY")); v != "" {
+		return v, nil
+	}
+	switch p.HMACStore {
+	case "":
+		return "", nil
+	case StoreFile:
+		return CleanSecret(p.HMACKey), nil
+	}
+	v, err := keyring.Get(hmacService, profileName)
+	if errors.Is(err, keyring.ErrNotFound) {
+		return "", fmt.Errorf("HMAC key for profile %q is missing in the keychain — run `paygate profile set hmac-key` again", profileName)
+	}
+	if err != nil {
+		return "", fmt.Errorf("read HMAC key from keychain: %w", err)
+	}
+	return CleanSecret(v), nil
+}
+
+// DeleteHMACKey removes the key from the keychain (ignoring "not found") and
+// from the profile, if one is given.
+func DeleteHMACKey(profileName string, p *Profile) {
+	if p != nil {
+		p.HMACStore, p.HMACKey = "", ""
+	}
+	if os.Getenv("PAYGATE_NO_KEYCHAIN") != "" {
+		return
+	}
+	_ = keyring.Delete(hmacService, profileName)
+}

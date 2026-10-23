@@ -35,6 +35,7 @@ every request can be inspected or exported as `curl`.
 - [Configuration and security](#configuration-and-security)
 - [Test transactions on production](#test-transactions-on-production)
 - [Test data](#test-data)
+- [Testing webhooks](#testing-webhooks)
 - [Troubleshooting](#troubleshooting)
 - [License](#license)
 - [Credits](#credits)
@@ -54,6 +55,9 @@ every request can be inspected or exported as `curl`.
 - **Developer friendly**: Inspector with every request and response, `-o json`,
   `--curl`, HTTP logging with redacted secrets, test card aliases and multiple
   merchant profiles. English and German interface.
+- **Webhook testing**: send signed test webhooks to your own endpoint, also
+  broken on purpose, and check received ones down to the mistake in your
+  signature code.
 
 ![Payments, capture, Inspector and command palette](docs/demo-app-2.gif)
 
@@ -246,6 +250,8 @@ Single commands work without the app, for example in scripts:
 | `paygate capture` | Capture an authorized payment | `paygate capture <payId>` |
 | `paygate refund` | Refund fully or partially | `paygate refund <payId> --amount 5` |
 | `paygate reverse` | Reversal: cancel an authorization before capture (alias `cancel`) | `paygate reverse <payId>` |
+| `paygate webhooks send` | Send a signed test webhook to your endpoint | `paygate webhooks send <payId> --to http://localhost:3000/webhook` |
+| `paygate webhooks verify` | Check a received webhook: signature, timestamp, body | `paygate webhooks verify --request webhook.http` |
 | `paygate testcards` | List test cards and aliases | `paygate testcards` |
 | `paygate profile` | List, switch, show, edit, delete profiles | `paygate profile use shop-prod` |
 | `paygate reset` | Delete all profiles, API keys, history and settings (also in the app under Settings) | `paygate reset` |
@@ -268,9 +274,9 @@ Global flags work with every command:
   in `%APPDATA%\paygate-cli\config.toml` on Windows (readable only by you).
   Each profile stores platform (Nexi or Computop), environment, merchant ID and
   auth mode (Basic Auth or OAuth2).
-- **API keys** are kept in the macOS Keychain, Windows Credential Manager or the
-  Linux Secret Service. Without a keychain, paygate falls back to the config file
-  and says so.
+- **API keys** and webhook **HMAC keys** are kept in the macOS Keychain, Windows
+  Credential Manager or the Linux Secret Service. Without a keychain, paygate
+  falls back to the config file and says so.
 - **Test first**: new profiles default to the test system. Production profiles
   show a red `PROD` badge and ask before sending anything.
 - **Callback URLs**: Paygate only calls HTTPS URLs on port 443, so `localhost`
@@ -290,6 +296,7 @@ Global flags work with every command:
 | --- | --- |
 | `PAYGATE_PROFILE` | Profile to use |
 | `PAYGATE_API_KEY` | API key override (CI) |
+| `PAYGATE_HMAC_KEY` | HMAC key override for `paygate webhooks` (CI) |
 | `PAYGATE_BASE_URL` | Send requests to another host (mock server, proxy) |
 | `PAYGATE_NO_KEYCHAIN` | Store keys in the config file instead of the keychain |
 | `PAYGATE_NO_HISTORY` | Do not keep the local payment history and request log |
@@ -329,6 +336,57 @@ make mock                                          # terminal 1
 export PAYGATE_BASE_URL=http://127.0.0.1:8089      # terminal 2
 paygate init --name mock --merchant-id demo-shop --api-key demo-key
 paygate pay
+```
+
+## Testing webhooks
+
+After a hosted payment Paygate posts a webhook to `urls.webhook`. The Basic
+webhook carries only the `payId`. The Enhanced webhook carries the payment
+result and a signature: HMAC-SHA256 with your HMAC key over
+`timestamp + "." + raw body`, sent as `X-Paygate-Signature: v1=<hex>` next to
+`X-Paygate-Timestamp` and `X-Paygate-Signature-Version`. Receivers reject
+timestamps more than 5 minutes off and answer 2xx; Paygate sends anything else
+again.
+
+paygate tests your webhook handler without waiting for Paygate. Store the HMAC
+key of the profile once; it is asked for hidden and kept in the keychain:
+
+```bash
+paygate profile set hmac-key
+```
+
+**Send** a webhook to your endpoint the way Paygate does, built from a payment
+or taken from a file:
+
+```bash
+paygate webhooks send <payId> --to http://localhost:3000/paygate/webhook
+paygate webhooks send --trans-id <transId> --to http://localhost:3000/paygate/webhook --tamper signature
+paygate webhooks send --body payload.json --to https://staging.example.com/webhook --curl
+```
+
+`--tamper` breaks the webhook on purpose, and your endpoint should answer 4xx:
+`signature` signs with another key, `timestamp` dates it 10 minutes back and
+`body` changes the amount after signing. `--type basic` sends a Basic webhook.
+
+**Verify** a webhook your endpoint received. Save the request as your endpoint
+logged it: an optional request line, the headers, a blank line and the body.
+
+```bash
+paygate webhooks verify --request webhook.http
+paygate webhooks verify --body body.json --timestamp 1792748527 --signature v1=…
+```
+
+paygate checks the three headers, the signature against the HMAC key, the
+timestamp and the body against the documented schema, field names included.
+If your own code computes another signature, pass it with `--yours`: paygate
+tries the usual mistakes (body without timestamp, body serialised again, Base64
+instead of hex, a line break in the key …) and names the one that produces it.
+
+In a checkout of this repository the mock server sends webhooks too, signed
+with `demo-hmac-key`, once a hosted payment completes:
+
+```bash
+go run ./tools/mockpaygate -webhook enhanced -webhook-to http://localhost:3000/paygate/webhook
 ```
 
 ## Troubleshooting

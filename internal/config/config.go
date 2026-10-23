@@ -41,7 +41,9 @@ type Profile struct {
 	MerchantID  string `toml:"merchant_id"`
 	Auth        string `toml:"auth"`
 	SecretStore string `toml:"secret_store"`
-	APIKey      string `toml:"api_key,omitempty"` // only when the keychain is unavailable
+	APIKey      string `toml:"api_key,omitempty"`    // only when the keychain is unavailable
+	HMACStore   string `toml:"hmac_store,omitempty"` // where the webhook HMAC key is; empty: none set
+	HMACKey     string `toml:"hmac_key,omitempty"`   // only when the keychain is unavailable
 	Currency    string `toml:"currency,omitempty"`
 	Language    string `toml:"language,omitempty"`
 	ReturnURL   string `toml:"return_url,omitempty"`

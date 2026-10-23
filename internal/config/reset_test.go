@@ -21,6 +21,9 @@ func TestReset(t *testing.T) {
 		}
 		cfg.Profiles[name] = p
 	}
+	if store, err := StoreHMACKey("shop", cfg.Profiles["shop"], "hmac-shop"); err != nil || store != StoreKeychain {
+		t.Fatalf("store HMAC key: %s %v", store, err)
+	}
 	// A key left behind by a profile removed from the file by hand.
 	_ = keyring.Set(keyringService, "orphan", "old-key")
 	if err := cfg.Save(); err != nil {
@@ -42,6 +45,9 @@ func TestReset(t *testing.T) {
 		if _, err := keyring.Get(keyringService, name); !errors.Is(err, keyring.ErrNotFound) {
 			t.Errorf("key of %s still in the keychain: %v", name, err)
 		}
+	}
+	if _, err := keyring.Get(hmacService, "shop"); !errors.Is(err, keyring.ErrNotFound) {
+		t.Errorf("HMAC key still in the keychain: %v", err)
 	}
 	if _, err := Reset(); err != nil {
 		t.Errorf("a second reset must succeed: %v", err)

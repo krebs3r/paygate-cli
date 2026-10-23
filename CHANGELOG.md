@@ -7,6 +7,23 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Webhook testing without waiting for Paygate. `paygate webhooks send` posts
+  the webhook Paygate would send for a payment (or a body from a file) to your
+  endpoint, Enhanced and signed with HMAC-SHA256 or Basic. `--tamper
+  signature|timestamp|body` breaks it on purpose to check that your endpoint
+  rejects it, and `--curl` prints it instead.
+- `paygate webhooks verify` checks a received webhook from a saved request or
+  a body: the three signature headers, the signature against the HMAC key, the
+  timestamp (±5 minutes) and the body against the documented schema, field
+  names included. `--yours` takes the signature your own code computed and
+  names the usual mistake that produces it, for example the body signed
+  without the timestamp.
+- `paygate profile set hmac-key` stores the webhook HMAC key of a profile in
+  the keychain (asked for hidden, or read from stdin); `PAYGATE_HMAC_KEY`
+  overrides it. `paygate profile show` says whether one is set.
+- The mock server sends Basic or Enhanced webhooks once a hosted payment
+  completes (`-webhook`, `-hmac-key`, `-webhook-to`).
+
 - The app shows the commit next to the version (top border, start screen,
   About), and so does `paygate --version`, so you can tell a fresh build
   apart. Builds with uncommitted changes add `-dirty`, and the install

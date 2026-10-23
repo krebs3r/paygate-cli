@@ -93,22 +93,27 @@ func (a *App) Origin(p *config.Profile) (string, error) {
 func (a *App) newClient(name string, p *config.Profile, apiKey string) (*paygate.Client, error) {
 	opts := core.ClientOptions{Version: a.Build.Version, Profile: name}
 	if a.Verbose > 0 {
-		opts.Transport = &paygate.LoggingTransport{
-			Level: a.Verbose,
-			Out:   ui.Stderr,
-			Style: func(kind, s string) string {
-				switch kind {
-				case "out":
-					return ui.Accent.Render(s)
-				case "in":
-					return ui.Link.Render(s)
-				default:
-					return ui.Muted.Render(s)
-				}
-			},
-		}
+		opts.Transport = a.loggingTransport()
 	}
 	return core.NewClient(p, apiKey, opts)
+}
+
+// loggingTransport writes HTTP traffic to stderr for -v and -vv.
+func (a *App) loggingTransport() *paygate.LoggingTransport {
+	return &paygate.LoggingTransport{
+		Level: a.Verbose,
+		Out:   ui.Stderr,
+		Style: func(kind, s string) string {
+			switch kind {
+			case "out":
+				return ui.Accent.Render(s)
+			case "in":
+				return ui.Link.Render(s)
+			default:
+				return ui.Muted.Render(s)
+			}
+		},
+	}
 }
 
 // PrintHeader shows the banner in human mode.
@@ -205,6 +210,7 @@ func NewRootCmd(build BuildInfo) *cobra.Command {
 		newOperationCmd(app, opCapture),
 		newOperationCmd(app, opRefund),
 		newOperationCmd(app, opCancel),
+		newWebhooksCmd(app),
 		newTestcardsCmd(app),
 	} {
 		c.GroupID = "payments"
