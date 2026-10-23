@@ -2,7 +2,7 @@
 
 Send real Nexi / Computop Paygate payments from your terminal.
 
-![Version](https://img.shields.io/badge/version-0.5.0-3d7eff)
+![Version](https://img.shields.io/badge/version-0.6.0-3d7eff)
 ![Go](https://img.shields.io/badge/go-1.27-00add8)
 ![Status](https://img.shields.io/badge/status-MVP-f59e0b)
 ![License](https://img.shields.io/badge/license-Apache--2.0-22c55e)
@@ -121,7 +121,7 @@ updated `PATH`.
 paygate --version
 ```
 
-You should see `paygate 0.5.0`. Continue with the [Quickstart](#quickstart).
+You should see `paygate 0.6.0`. Continue with the [Quickstart](#quickstart).
 
 </details>
 
@@ -166,7 +166,7 @@ that folder to your `PATH`. It ends with `Done. Next steps`.
 paygate --version
 ```
 
-You should see `paygate 0.5.0`. Continue with the [Quickstart](#quickstart).
+You should see `paygate 0.6.0`. Continue with the [Quickstart](#quickstart).
 
 </details>
 
@@ -445,6 +445,8 @@ profile. <kbd>Enter</kbd> shows a webhook with all checks, headers and body,
 <kbd>r</kbd> sends it again to your handler and <kbd>g</kbd> opens its
 payment, whose detail lists its webhooks too. Quitting the app or switching
 the profile closes the tunnel.
+
+![Webhooks in the app: listen, receive, check, open the payment](docs/demo-webhooks.gif)
 
 On their way to your computer the webhooks pass through Cloudflare. If that
 is not an option, give an address of your own with `--public-url`, such as a

@@ -5,6 +5,8 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.0]
+
 ### Added
 
 - Webhooks in the app (`w`): space starts and stops listening, through a
