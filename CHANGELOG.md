@@ -29,6 +29,12 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - When you add a profile, the environment choice now reads "Test system" or
   "Production system" ("Testsystem" or "Produktivsystem" in German).
+- Hosted payments send `https://webhook.invalid/paygate-cli` as webhook URL
+  by default. The `.invalid` domain never resolves, so Paygate's
+  notifications reach no server; paygate learns the result by polling as
+  before. Profiles that still name the old default
+  (`https://paygate.paytest.dev/cli/webhook`) switch to the new one, your own
+  webhook URLs stay.
 
 ## [0.3.0]
 

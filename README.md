@@ -276,7 +276,10 @@ Global flags work with every command:
 - **Callback URLs**: Paygate only calls HTTPS URLs on port 443, so `localhost`
   cannot receive redirects or webhooks. paygate does not need them: it polls the
   payment status itself. By default the customer lands on
-  `https://paygate.paytest.dev/cli/return`. Use your own URLs per profile:
+  `https://paygate.paytest.dev/cli/return` or `/cli/cancel`, static pages that
+  store nothing. Hosted payments require a webhook URL, so paygate sends
+  `https://webhook.invalid/paygate-cli`. The `.invalid` domain never resolves,
+  so the webhook reaches no server at all. Use your own URLs per profile:
 
   ```bash
   paygate profile set return-url  https://shop.example.com/paygate/return

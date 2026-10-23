@@ -16,11 +16,17 @@ import (
 
 // Default callback URLs. Paygate only accepts HTTPS URLs on port 443, so
 // localhost cannot be used; the CLI learns the outcome by polling instead.
+// Hosted payments require a webhook URL; the .invalid domain never resolves
+// (RFC 2606), so by default the webhook reaches no server at all.
 const (
 	DefaultReturnURL  = "https://paygate.paytest.dev/cli/return"
 	DefaultCancelURL  = "https://paygate.paytest.dev/cli/cancel"
-	DefaultWebhookURL = "https://paygate.paytest.dev/cli/webhook"
+	DefaultWebhookURL = "https://webhook.invalid/paygate-cli"
 )
+
+// legacyWebhookURL is the earlier default, a sink on paygate.paytest.dev.
+// Load drops it from profiles so they use DefaultWebhookURL.
+const legacyWebhookURL = "https://paygate.paytest.dev/cli/webhook"
 
 // Secret storage backends.
 const (
@@ -127,6 +133,11 @@ func Load() (*Config, error) {
 	}
 	if cfg.Profiles == nil {
 		cfg.Profiles = map[string]*Profile{}
+	}
+	for _, prof := range cfg.Profiles {
+		if strings.TrimSuffix(strings.TrimSpace(prof.WebhookURL), "/") == legacyWebhookURL {
+			prof.WebhookURL = ""
+		}
 	}
 	cfg.path = p
 	return cfg, nil

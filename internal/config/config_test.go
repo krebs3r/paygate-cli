@@ -58,3 +58,32 @@ func TestSaveLoadResolve(t *testing.T) {
 		t.Error("unknown profile should fail")
 	}
 }
+
+func TestLegacyWebhookURLDropped(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Profiles["old"] = &Profile{Brand: "nexi", Env: "test", MerchantID: "shop", WebhookURL: legacyWebhookURL + "/"}
+	cfg.Profiles["own"] = &Profile{Brand: "nexi", Env: "test", MerchantID: "shop", WebhookURL: "https://shop.example.com/paygate/webhook"}
+	cfg.Profiles["none"] = &Profile{Brand: "nexi", Env: "test", MerchantID: "shop"}
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := loaded.Profiles["old"]; p.WebhookURL != "" || p.Webhook() != DefaultWebhookURL {
+		t.Errorf("old default kept: %q → %s", p.WebhookURL, p.Webhook())
+	}
+	if p := loaded.Profiles["own"]; p.Webhook() != "https://shop.example.com/paygate/webhook" {
+		t.Errorf("own webhook URL lost: %s", p.Webhook())
+	}
+	if p := loaded.Profiles["none"]; p.Webhook() != "https://webhook.invalid/paygate-cli" {
+		t.Errorf("default webhook URL = %s", p.Webhook())
+	}
+}
