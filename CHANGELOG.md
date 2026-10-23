@@ -5,6 +5,13 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The webhook list in the app sizes its columns to their content, so a
+  status such as AUTHORIZED, a large amount or a date from another day no
+  longer runs into the next column and moves the IDs. The status line goes
+  below the title when both do not fit on one line.
+
 ## [0.6.0]
 
 ### Added

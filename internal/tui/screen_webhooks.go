@@ -477,7 +477,12 @@ func (s *webhooksScreen) View(ctx *Context, w, h int) string {
 	if s.mode == hooksDetail {
 		return s.detailView(ctx, w, h)
 	}
-	out := title(t("hooks.title")) + "  " + s.statusLine(ctx) + "\n"
+	// The status goes below the title when both do not fit on one line.
+	out := title(t("hooks.title")) + "  " + s.statusLine(ctx)
+	if lipgloss.Width(out) >= w {
+		out = title(t("hooks.title")) + "\n" + s.statusLine(ctx)
+	}
+	out += "\n"
 	if u := s.url(ctx); u != "" {
 		out += ui.Muted.Render(t("hooks.url")+"  ") + ui.Link.Render(truncate(u, w-6)) + "\n"
 	}
@@ -497,8 +502,9 @@ func (s *webhooksScreen) View(ctx *Context, w, h int) string {
 	if len(s.events) == 0 {
 		return out + ui.Label.Render(wrap(t("hooks.empty"), min(w, 72)))
 	}
-	out += ui.Muted.Render("  "+padCells(t("hooks.col.time"), 10)+padCells(t("hooks.col.type"), 10)+padCells(t("hooks.col.sig"), 13)+
-		padCells(t("hooks.col.status"), 9)+padCells(t("hooks.col.amount"), 12)+t("hooks.col.id")) + "\n"
+	cols := hookColumns(s.events)
+	out += ui.Muted.Render("  "+cols.row(t("hooks.col.time"), t("hooks.col.type"), t("hooks.col.sig"), t("hooks.col.status"),
+		t("hooks.col.amount"))+t("hooks.col.id")) + "\n"
 	room := max(h-lipgloss.Height(out)-1, 3)
 	s.sel = clamp(s.sel, len(s.events))
 	if s.sel < s.offset {
@@ -508,7 +514,7 @@ func (s *webhooksScreen) View(ctx *Context, w, h int) string {
 		s.offset = s.sel - room + 1
 	}
 	for i := s.offset; i < len(s.events) && i < s.offset+room; i++ {
-		out += selectable(ctx, hookRow(s.events[i], w-4), i == s.sel, w) + "\n"
+		out += selectable(ctx, hookRow(s.events[i], cols, w-4), i == s.sel, w) + "\n"
 	}
 	return out
 }
@@ -557,10 +563,44 @@ func (s *webhooksScreen) messageLine(w int) string {
 	return style.Render(wrap(s.message, min(w, 76)))
 }
 
-func hookRow(e listen.Event, w int) string {
-	ts := e.Time.Local().Format("15:04:05")
-	if e.Time.Local().YearDay() != time.Now().YearDay() {
-		ts = e.Time.Local().Format("02.01. 15:04")
+// hookCols are the widths of the list columns time, type, signature,
+// status and amount: the longest value of the received webhooks or the
+// heading, plus a gap. The trans or pay ID takes the rest of the line.
+type hookCols [5]int
+
+func hookColumns(events []listen.Event) hookCols {
+	var c hookCols
+	for i, k := range []string{"hooks.col.time", "hooks.col.type", "hooks.col.sig", "hooks.col.status", "hooks.col.amount"} {
+		c[i] = lipgloss.Width(t(k))
+	}
+	for _, e := range events {
+		for i, v := range hookCells(e) {
+			c[i] = max(c[i], lipgloss.Width(v))
+		}
+	}
+	for i := range c {
+		c[i] += 2
+	}
+	return c
+}
+
+// row pads the cells, styled or not, to the column widths.
+func (c hookCols) row(cells ...string) string {
+	out := ""
+	for i, v := range cells {
+		out += padCells(v, c[i])
+	}
+	return out
+}
+
+func (c hookCols) width() int { return c[0] + c[1] + c[2] + c[3] + c[4] }
+
+// hookCells are the unstyled values of a webhook's list columns.
+func hookCells(e listen.Event) [5]string {
+	at, now := e.Time.Local(), time.Now()
+	ts := at.Format("15:04:05")
+	if at.YearDay() != now.YearDay() || at.Year() != now.Year() {
+		ts = at.Format("02.01. 15:04")
 	}
 	status, amount := "–", ""
 	if e.Status != "" {
@@ -569,6 +609,11 @@ func hookRow(e listen.Event, w int) string {
 	if e.Amount != nil {
 		amount = money.Format(e.Amount.Value, e.Amount.Currency)
 	}
+	return [5]string{ts, string(e.Kind), signatureWord(e.Signature), status, amount}
+}
+
+func hookRow(e listen.Event, c hookCols, w int) string {
+	v := hookCells(e)
 	id := e.TransID
 	if id == "" {
 		id = e.PayID
@@ -582,8 +627,8 @@ func hookRow(e listen.Event, w int) string {
 	} else if e.Status == "" {
 		statusStyle = ui.Muted
 	}
-	return padCells(ts, 10) + padCells(ui.Link.Render(string(e.Kind)), 10) + padCells(signatureText(e.Signature), 13) +
-		padCells(statusStyle.Render(status), 9) + padCells(amount, 12) + ui.Label.Render(truncate(id, max(w-54, 10)))
+	return c.row(v[0], ui.Link.Render(v[1]), signatureText(e.Signature), statusStyle.Render(v[3]), v[4]) +
+		ui.Label.Render(truncate(id, max(w-c.width(), 10)))
 }
 
 // signatureWord is the signature check of a received webhook in words.

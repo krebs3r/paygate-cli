@@ -16,6 +16,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/krebs3r/paygate-cli/internal/config"
@@ -1219,5 +1220,47 @@ func TestQuitAsksWhileSomethingRuns(t *testing.T) {
 	}
 	if !isQuit(m.handleKey(keys("q"))) {
 		t.Error("a second q should quit")
+	}
+}
+
+// The list columns are as wide as their longest value, so a long status,
+// amount or an older date does not push the IDs out of line.
+func TestWebhooksListColumnsLineUp(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	now := time.Now()
+	for i, e := range []listen.Event{
+		{Time: now.Add(-26 * time.Hour), Kind: webhooks.Enhanced, Status: "OK", Amount: &webhooks.Amount{Value: 1, Currency: "EUR"}, TransID: "TIDOLDER0000000001"},
+		{Time: now.Add(-time.Minute), Kind: webhooks.Enhanced, Status: "AUTHORIZED", Amount: &webhooks.Amount{Value: 123456789, Currency: "EUR"}, TransID: "TIDAUTHORIZED00002"},
+		{Time: now, Kind: webhooks.Basic, PayID: "0123456789abcdef0123456789abcdef"},
+	} {
+		e.Profile, e.Signature, e.Answer = "shop-test", []string{"valid", "valid", "missing"}[i], 200
+		if err := listen.Append(&e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send(m, keys("w"))
+	column := func(line, s string) int {
+		i := strings.Index(line, s)
+		if i < 0 {
+			return -1
+		}
+		return lipgloss.Width(line[:i])
+	}
+	v := ansi.Strip(m.View())
+	var want int
+	ids := []string{"TIDOLDER0000000001", "TIDAUTHORIZED00002", "0123456789abcdef"}
+	for _, line := range strings.Split(v, "\n") {
+		if c := column(line, "TRANS / PAY ID"); c >= 0 {
+			want = c
+		}
+		for _, id := range ids {
+			if c := column(line, id); c >= 0 && c != want {
+				t.Errorf("%s starts at column %d, the heading at %d:\n%s", id, c, want, v)
+			}
+		}
+	}
+	if want == 0 || !strings.Contains(v, "AUTHORIZED  1,234,567.89 EUR") && !strings.Contains(v, "AUTHORIZED  1234567.89 EUR") {
+		t.Errorf("status and amount need a gap:\n%s", v)
 	}
 }
