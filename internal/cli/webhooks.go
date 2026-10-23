@@ -30,15 +30,20 @@ func newWebhooksCmd(app *App) *cobra.Command {
 		Use:     "webhooks",
 		Aliases: []string{"webhook"},
 		Short:   "Send test webhooks to your endpoint and check received ones",
-		Long: `Test the webhook handling of your own integration without waiting for Paygate.
+		Long: `Test the webhook handling of your own integration.
 
   send     builds the webhook Paygate sends for a payment, signs it with the
            profile's HMAC key and posts it to your endpoint
   verify   checks a webhook you received: signature, timestamp and body
+  list     the webhooks paygate listen received, show one in detail,
+  show     resend one to your handler or clear them all
+  resend
+  clear
 
 Set the HMAC key once with: paygate profile set hmac-key`,
 	}
-	cmd.AddCommand(newWebhooksSendCmd(app), newWebhooksVerifyCmd(app))
+	cmd.AddCommand(newWebhooksSendCmd(app), newWebhooksVerifyCmd(app),
+		newWebhooksListCmd(app), newWebhooksShowCmd(app), newWebhooksResendCmd(app), newWebhooksClearCmd(app))
 	return cmd
 }
 
@@ -205,7 +210,7 @@ func runWebhookSend(app *App, o *webhookSendOptions, payID string) error {
 	var res *webhookResponse
 	err = ui.Spin("Sending webhook …", func() error {
 		var e error
-		res, e = postWebhook(app, o.to, msg)
+		res, e = postWebhook(app, o.to, msg.Headers(), msg.Body)
 		return e
 	})
 	if err != nil {
@@ -263,7 +268,7 @@ type webhookResponse struct {
 // Accepted reports a 2xx answer, the only one Paygate counts as delivered.
 func (r *webhookResponse) Accepted() bool { return r.Code >= 200 && r.Code <= 299 }
 
-func postWebhook(app *App, to string, msg webhooks.Message) (*webhookResponse, error) {
+func postWebhook(app *App, to string, headers [][2]string, body []byte) (*webhookResponse, error) {
 	client := &http.Client{
 		Timeout: 15 * time.Second,
 		// Like Paygate, report a redirect instead of following it.
@@ -272,11 +277,11 @@ func postWebhook(app *App, to string, msg webhooks.Message) (*webhookResponse, e
 	if app.Verbose > 0 {
 		client.Transport = app.loggingTransport()
 	}
-	req, err := http.NewRequest(http.MethodPost, to, bytes.NewReader(msg.Body))
+	req, err := http.NewRequest(http.MethodPost, to, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
-	for _, h := range msg.Headers() {
+	for _, h := range headers {
 		req.Header.Set(h[0], h[1])
 	}
 	req.Header.Set("User-Agent", "paygate-cli (webhook test)")
@@ -286,8 +291,8 @@ func postWebhook(app *App, to string, msg webhooks.Message) (*webhookResponse, e
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	return &webhookResponse{Code: resp.StatusCode, Status: resp.Status, Body: body, Duration: time.Since(start)}, nil
+	answer, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	return &webhookResponse{Code: resp.StatusCode, Status: resp.Status, Body: answer, Duration: time.Since(start)}, nil
 }
 
 func sendWebhookJSON(app *App, to string, msg webhooks.Message, tamper webhooks.Tamper) error {
@@ -298,7 +303,7 @@ func sendWebhookJSON(app *App, to string, msg webhooks.Message, tamper webhooks.
 	out := map[string]any{
 		"request": map[string]any{"url": to, "type": msg.Kind, "tamper": string(tamper), "headers": headers, "body": string(msg.Body)},
 	}
-	res, err := postWebhook(app, to, msg)
+	res, err := postWebhook(app, to, msg.Headers(), msg.Body)
 	if err != nil {
 		return err
 	}
@@ -510,15 +515,7 @@ func runWebhookVerify(app *App, o *webhookVerifyOptions) error {
 		ui.Println(ui.Warn(n))
 	}
 	ui.Println()
-	ui.Println(" " + kindBadge(check.Kind) + "  " + ui.Label.Render(kindSummary(check.Kind)))
-	ui.Println()
-	ui.Println(ui.Section("Checks"))
-	for _, f := range check.Findings {
-		printFinding(f)
-		if f.Name == webhooks.HeaderTimestamp && f.Level == webhooks.Warn {
-			ui.Println("    " + ui.Label.Render("Fine for a saved request. A live receiver must reject anything more than 5 min off."))
-		}
-	}
+	printChecks(check)
 	if diag != nil {
 		ui.Println()
 		ui.Println(ui.Section("Your signature"))
@@ -526,6 +523,10 @@ func runWebhookVerify(app *App, o *webhookVerifyOptions) error {
 		switch {
 		case diag.Match:
 			ui.Println(ui.OK(yours + " matches Paygate's signature."))
+			mine := strings.TrimPrefix(strings.TrimSpace(o.yours), "v1=")
+			if check.Received != "" && !strings.Contains(check.Received, mine) {
+				ui.Println("   " + ui.Label.Render("Paygate writes the same value in another case: compare case-insensitively."))
+			}
 		case diag.Cause != "":
 			ui.Println(ui.Fail(yours + " differs from Paygate's signature."))
 			ui.Println("   " + wrap("It matches "+diag.Cause+".", 76, "   "))
@@ -540,6 +541,19 @@ func runWebhookVerify(app *App, o *webhookVerifyOptions) error {
 		return errSilentFail
 	}
 	return nil
+}
+
+// printChecks shows the kind of a webhook and every finding.
+func printChecks(check webhooks.Check) {
+	ui.Println(" " + kindBadge(check.Kind) + "  " + ui.Label.Render(kindSummary(check.Kind)))
+	ui.Println()
+	ui.Println(ui.Section("Checks"))
+	for _, f := range check.Findings {
+		printFinding(f)
+		if f.Name == webhooks.HeaderTimestamp && f.Level == webhooks.Warn {
+			ui.Println("    " + ui.Label.Render("Fine for a saved request. A live receiver must reject anything more than 5 min off."))
+		}
+	}
 }
 
 func printFinding(f webhooks.Finding) {

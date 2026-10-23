@@ -5,6 +5,32 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `paygate listen` receives Paygate's webhooks on this computer, through a
+  cloudflared quick tunnel (no account needed) or an address of your own
+  (`--public-url`). It checks every webhook, confirms it with a GET of the
+  payment, keeps it locally and marks repeated deliveries. `--forward-to`
+  passes it on unchanged to your own handler and gives Paygate its status;
+  `--respond` sets the status yourself.
+- Hosted payments send their webhook to a running `paygate listen` of the
+  same profile, from `paygate pay` and from the app. `paygate pay --listen`
+  opens a tunnel just for one payment and waits for its webhook.
+- `paygate webhooks list`, `show`, `resend` and `clear` for the received
+  webhooks. `PAYGATE_CLOUDFLARED` points to cloudflared if it is not on the
+  `PATH`.
+- `paygate init` and Profiles → Add in the app ask whether to store the
+  webhook HMAC key right away. For an existing profile, Settings → Webhook
+  HMAC key in the app shows whether one is stored and sets, replaces or
+  removes it.
+
+### Changed
+
+- `paygate webhooks send` builds Basic and Enhanced webhooks the way Paygate
+  sends them. `verify`, `listen` and `webhooks show` grade every finding as
+  a note or an error, and `verify --yours` also says when your signature
+  differs only in upper and lower case.
+
 ## [0.4.0]
 
 ### Added

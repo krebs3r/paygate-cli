@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -32,6 +33,7 @@ func settingsList() []setting {
 		{"return_url", "set.return", true},
 		{"cancel_url", "set.cancel", true},
 		{"webhook_url", "set.webhook", true},
+		{"hmac_key", "set.hmac", true},
 		{"customer_ip", "set.ip", true},
 		{"reset", "set.reset", false},
 	}
@@ -42,6 +44,7 @@ type settingsScreen struct {
 	form    *huh.Form
 	editing string
 	value   string
+	choice  string // hmac_key: replace or remove
 	confirm bool
 	width   int
 }
@@ -130,6 +133,17 @@ func (s *settingsScreen) current(ctx *Context, id string) (value string, isDefau
 		return p.Cancel(), p.CancelURL == ""
 	case "webhook_url":
 		return p.Webhook(), p.WebhookURL == ""
+	case "hmac_key":
+		// From the profile only: the view is drawn often, the keychain is slow.
+		switch {
+		case os.Getenv("PAYGATE_HMAC_KEY") != "":
+			return t("set.hmac.env"), false
+		case p.HMACStore == config.StoreKeychain:
+			return t("set.hmac.keychain"), false
+		case p.HMACStore == config.StoreFile:
+			return t("set.hmac.file"), false
+		}
+		return ui.Muted.Render(t("set.hmac.none")), false
 	case "customer_ip":
 		if p.CustomerIP == "" {
 			return core.LocalIP() + " " + t("set.ip.auto"), true
@@ -145,7 +159,7 @@ func (s *settingsScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 		s.form = f.(*huh.Form)
 		switch s.form.State {
 		case huh.StateAborted:
-			s.form = nil
+			s.form, s.value = nil, ""
 		case huh.StateCompleted:
 			s.form = nil
 			return s.apply(ctx)
@@ -215,6 +229,22 @@ func (s *settingsScreen) edit(ctx *Context, st setting) tea.Cmd {
 			huh.NewOption("English", "en"), huh.NewOption("Deutsch", "de"), huh.NewOption("Français", "fr"),
 			huh.NewOption("Español", "es"), huh.NewOption("Italiano", "it"), huh.NewOption("Nederlands", "nl"),
 		).Value(&s.value)
+	case "hmac_key":
+		s.value, s.choice = "", "replace"
+		input := huh.NewGroup(huh.NewInput().Title(t(st.label)).Description(t("set.hmac.desc")).
+			EchoMode(huh.EchoModePassword).Value(&s.value))
+		if ctx.Session.Profile.HMACStore == "" {
+			s.form = newForm(s.width, input)
+			return s.form.Init()
+		}
+		s.form = newForm(s.width,
+			huh.NewGroup(huh.NewSelect[string]().Title(t("set.hmac.action")).Options(
+				huh.NewOption(t("set.hmac.replace"), "replace"),
+				huh.NewOption(t("set.hmac.remove"), "remove"),
+			).Value(&s.choice)),
+			input.WithHideFunc(func() bool { return s.choice != "replace" }),
+		)
+		return s.form.Init()
 	case "customer_ip":
 		s.value = ctx.Session.Profile.CustomerIP
 		field = huh.NewInput().Title(t(st.label)).Description(t("set.ip.desc")).Placeholder(core.LocalIP()).Value(&s.value).Validate(func(v string) error {
@@ -242,6 +272,9 @@ func (s *settingsScreen) apply(ctx *Context) tea.Cmd {
 			return nil
 		}
 		return s.reset()
+	}
+	if s.editing == "hmac_key" {
+		return s.applyHMACKey(ctx)
 	}
 	v := strings.TrimSpace(s.value)
 	if s.editing == "theme" {
@@ -275,6 +308,30 @@ func (s *settingsScreen) apply(ctx *Context) tea.Cmd {
 		return toast(err.Error(), ui.ToneDanger)
 	}
 	return toast(t("set.saved"), ui.ToneSuccess)
+}
+
+// applyHMACKey stores, replaces or removes the webhook HMAC key of the
+// active profile. An empty entry changes nothing.
+func (s *settingsScreen) applyHMACKey(ctx *Context) tea.Cmd {
+	name, p := ctx.Session.Name, ctx.Session.Profile
+	key := config.CleanSecret(s.value)
+	s.value = ""
+	done := "set.hmac.saved"
+	switch {
+	case s.choice == "remove" && p.HMACStore != "":
+		config.DeleteHMACKey(name, p)
+		done = "set.hmac.removed"
+	case key == "":
+		return nil
+	default:
+		if _, err := config.StoreHMACKey(name, p, key); err != nil {
+			return toast(err.Error(), ui.ToneDanger)
+		}
+	}
+	if err := ctx.Cfg.Save(); err != nil {
+		return toast(err.Error(), ui.ToneDanger)
+	}
+	return toast(t(done), ui.ToneSuccess)
 }
 
 // themeLabel names a colour theme.

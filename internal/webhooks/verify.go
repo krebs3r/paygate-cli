@@ -141,6 +141,9 @@ func Verify(h http.Header, body []byte, key string, at time.Time) Check {
 		switch {
 		case c.Valid:
 			c.add(Pass, HeaderSignature, Short(c.Received)+" · matches the HMAC key")
+			if c.Received != strings.ToLower(c.Received) {
+				c.add(Warn, "", "The signature is in upper-case hex: compare it case-insensitively.")
+			}
 		case len(values) == 0:
 			c.add(Fail, HeaderSignature, Short(c.Received)+" · no v1=… value")
 		default:
@@ -202,7 +205,7 @@ func Diagnose(key, ts string, body []byte, yours string) Diagnosis {
 	yours = strings.TrimSpace(yours)
 	yours = strings.TrimPrefix(yours, "v1=")
 	right := mac(sha256.New, []byte(key), signedPayload(ts, body))
-	if yours == hex.EncodeToString(right) {
+	if strings.EqualFold(yours, hex.EncodeToString(right)) {
 		return Diagnosis{Match: true}
 	}
 	for _, v := range variants(key, ts, body) {
@@ -305,15 +308,13 @@ func reserialised(body []byte) []reserialisation {
 	return out
 }
 
-// encodingOf tells how yours encodes sum: "hex", "upper-case hex instead of
-// lower case" or "Base64 instead of hex"; empty if it does not.
+// encodingOf tells how yours encodes sum: "hex" (either case) or "Base64
+// instead of hex"; empty if it does not.
 func encodingOf(yours string, sum []byte) string {
 	h := hex.EncodeToString(sum)
 	switch {
-	case yours == h:
-		return "hex"
 	case strings.EqualFold(yours, h):
-		return "upper-case hex instead of lower case"
+		return "hex"
 	case yours == base64.StdEncoding.EncodeToString(sum), yours == base64.RawURLEncoding.EncodeToString(sum),
 		yours == base64.URLEncoding.EncodeToString(sum):
 		return "Base64 instead of hex"

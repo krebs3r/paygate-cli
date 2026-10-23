@@ -208,12 +208,19 @@ func TestAddProfileThroughForm(t *testing.T) {
 	send(m, enter)                                                      // open form from the welcome screen
 	send(m, keys("x"), enter, enter, enter)                             // name "defaultx", platform, environment
 	send(m, keys("demo-shop"), enter, keys(" demo-key "), enter, enter) // merchant, padded key, auth
+	if !strings.Contains(m.View(), "HMAC key for webhooks") {
+		t.Fatalf("the form should offer the HMAC key; view:\n%s", m.View())
+	}
+	send(m, keys("y"), keys("demo-hmac-key"), enter) // yes, then the key
 	if m.ctx.Session == nil || m.ctx.Session.Name != "defaultx" {
 		t.Fatalf("profile not created; view:\n%s", m.View())
 	}
 	key, err := config.APIKey("defaultx", m.ctx.Session.Profile)
 	if err != nil || key != "demo-key" {
 		t.Errorf("stored key = %q, %v", key, err)
+	}
+	if hmacKey, err := config.HMACKey("defaultx", m.ctx.Session.Profile); err != nil || hmacKey != "demo-hmac-key" {
+		t.Errorf("stored HMAC key = %q, %v", hmacKey, err)
 	}
 }
 
@@ -225,7 +232,8 @@ func TestAddSecondProfileChoosesPlatform(t *testing.T) {
 	send(m, keys("p"), keys("a"), keys("shop-cp"), enter)
 	send(m, down, enter, enter) // Computop, test system
 	send(m, keys("demo-shop"), enter, keys("demo-key"), enter, enter)
-	if p := m.ctx.Cfg.Profiles["shop-cp"]; p == nil || p.Brand != "computop" || p.Env != "test" {
+	send(m, enter) // no HMAC key for now
+	if p := m.ctx.Cfg.Profiles["shop-cp"]; p == nil || p.Brand != "computop" || p.Env != "test" || p.HMACStore != "" {
 		t.Fatalf("profile = %+v; view:\n%s", p, m.View())
 	}
 }
@@ -282,6 +290,50 @@ func TestLanguageSwitch(t *testing.T) {
 		t.Errorf("ui_language = %q", cfg.UILanguage)
 	}
 	i18n.Set(i18n.EN)
+}
+
+func TestHMACKeySetting(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	t.Setenv("PAYGATE_HMAC_KEY", "")
+	send(m, keys("s"))
+	s := m.current().(*settingsScreen)
+	for i, st := range s.visible(m.ctx) {
+		if st.id == "hmac_key" {
+			s.sel = i
+		}
+	}
+	if v := m.View(); !strings.Contains(v, "Webhook HMAC key") || !strings.Contains(v, "not set") {
+		t.Fatalf("settings should show the HMAC key row:\n%s", v)
+	}
+	stored := func() string {
+		k, err := config.HMACKey("shop-test", m.ctx.Session.Profile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return k
+	}
+
+	send(m, enter, keys("demo-hmac-key"), enter) // no key yet: straight to the input
+	if stored() != "demo-hmac-key" || !strings.Contains(m.View(), "set · in the config file") || strings.Contains(m.View(), "demo-hmac-key") {
+		t.Fatalf("set: key %q, view:\n%s", stored(), m.View())
+	}
+	if cfg, _ := config.Load(); cfg.Profiles["shop-test"].HMACStore != config.StoreFile {
+		t.Error("the key must be saved with the profile")
+	}
+
+	send(m, enter, enter, keys("new-key"), enter) // replace (preselected), new key
+	if stored() != "new-key" {
+		t.Errorf("replace: key %q", stored())
+	}
+	send(m, enter, down, enter) // remove
+	if stored() != "" || !strings.Contains(m.View(), "not set") {
+		t.Errorf("remove: key %q, view:\n%s", stored(), m.View())
+	}
+	send(m, enter, enter) // an empty entry changes nothing
+	if stored() != "" || s.form != nil {
+		t.Errorf("empty entry: key %q", stored())
+	}
 }
 
 func TestThemeSetting(t *testing.T) {

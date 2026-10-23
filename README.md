@@ -36,6 +36,7 @@ every request can be inspected or exported as `curl`.
 - [Test transactions on production](#test-transactions-on-production)
 - [Test data](#test-data)
 - [Testing webhooks](#testing-webhooks)
+- [Receiving webhooks](#receiving-webhooks)
 - [Troubleshooting](#troubleshooting)
 - [License](#license)
 - [Credits](#credits)
@@ -57,7 +58,8 @@ every request can be inspected or exported as `curl`.
   merchant profiles. English and German interface.
 - **Webhook testing**: send signed test webhooks to your own endpoint, also
   broken on purpose, and check received ones down to the mistake in your
-  signature code.
+  signature code. Receive Paygate's real webhooks on your computer through a
+  cloudflared tunnel, and forward them to your handler.
 
 ![Payments, capture, Inspector and command palette](docs/demo-app-2.gif)
 
@@ -212,7 +214,7 @@ test card number. On first start it walks you through adding your merchant.
 | Payments | Local history with filter (`/`), lookup by ID (`g`), details with capture, refund, reversal and refresh |
 | Inspector | The last 200 requests to Paygate from the app and the command line: request and response with headers and JSON, timing, correlation ID; copy body or curl |
 | Profiles | Add (with credential check), switch, verify, delete |
-| Settings | Language, colour theme (Blue or Blurple), start screen, currency, payment page language, callback URLs, customer IP, delete all data |
+| Settings | Language, colour theme (Blue or Blurple), start screen, currency, payment page language, callback URLs, webhook HMAC key, customer IP, delete all data |
 
 Everything in the app also works as a single command, for scripts and CI.
 
@@ -252,6 +254,8 @@ Single commands work without the app, for example in scripts:
 | `paygate reverse` | Reversal: cancel an authorization before capture (alias `cancel`) | `paygate reverse <payId>` |
 | `paygate webhooks send` | Send a signed test webhook to your endpoint | `paygate webhooks send <payId> --to http://localhost:3000/webhook` |
 | `paygate webhooks verify` | Check a received webhook: signature, timestamp, body | `paygate webhooks verify --request webhook.http` |
+| `paygate listen` | Receive Paygate's webhooks on this computer (cloudflared tunnel) | `paygate listen --forward-to http://localhost:3000/webhook` |
+| `paygate webhooks list` | List received webhooks; `show`, `resend`, `clear` work with them | `paygate webhooks show 12` |
 | `paygate testcards` | List test cards and aliases | `paygate testcards` |
 | `paygate profile` | List, switch, show, edit, delete profiles | `paygate profile use shop-prod` |
 | `paygate reset` | Delete all profiles, API keys, history and settings (also in the app under Settings) | `paygate reset` |
@@ -297,6 +301,7 @@ Global flags work with every command:
 | `PAYGATE_PROFILE` | Profile to use |
 | `PAYGATE_API_KEY` | API key override (CI) |
 | `PAYGATE_HMAC_KEY` | HMAC key override for `paygate webhooks` (CI) |
+| `PAYGATE_CLOUDFLARED` | Path to cloudflared, if it is not on your `PATH` |
 | `PAYGATE_BASE_URL` | Send requests to another host (mock server, proxy) |
 | `PAYGATE_NO_KEYCHAIN` | Store keys in the config file instead of the keychain |
 | `PAYGATE_NO_HISTORY` | Do not keep the local payment history and request log |
@@ -341,7 +346,7 @@ paygate pay
 ## Testing webhooks
 
 After a hosted payment Paygate posts a webhook to `urls.webhook`. The Basic
-webhook carries only the `payId`. The Enhanced webhook carries the payment
+webhook carries only the pay ID. The Enhanced webhook carries the payment
 result and a signature: HMAC-SHA256 with your HMAC key over
 `timestamp + "." + raw body`, sent as `X-Paygate-Signature: v1=<hex>` next to
 `X-Paygate-Timestamp` and `X-Paygate-Signature-Version`. Receivers reject
@@ -349,7 +354,9 @@ timestamps more than 5 minutes off and answer 2xx; Paygate sends anything else
 again.
 
 paygate tests your webhook handler without waiting for Paygate. Store the HMAC
-key of the profile once; it is asked for hidden and kept in the keychain:
+key of the profile once; it is asked for hidden and kept in the keychain.
+`paygate init` and Profiles → Add in the app offer it as well, and in the app
+Settings → Webhook HMAC key sets, replaces or removes it later:
 
 ```bash
 paygate profile set hmac-key
@@ -378,6 +385,7 @@ paygate webhooks verify --body body.json --timestamp 1792748527 --signature v1=�
 
 paygate checks the three headers, the signature against the HMAC key, the
 timestamp and the body against the documented schema, field names included.
+Each finding is marked as passed, a note or an error.
 If your own code computes another signature, pass it with `--yours`: paygate
 tries the usual mistakes (body without timestamp, body serialised again, Base64
 instead of hex, a line break in the key …) and names the one that produces it.
@@ -388,6 +396,50 @@ with `demo-hmac-key`, once a hosted payment completes:
 ```bash
 go run ./tools/mockpaygate -webhook enhanced -webhook-to http://localhost:3000/paygate/webhook
 ```
+
+## Receiving webhooks
+
+`paygate listen` receives the webhooks Paygate sends for your payments.
+Paygate only calls public HTTPS addresses, so paygate starts a cloudflared
+quick tunnel to a listener on this computer. Install cloudflared once; no
+Cloudflare account is needed:
+
+```bash
+brew install cloudflared
+```
+
+On Windows: `winget install --id Cloudflare.cloudflared`. On Linux, use the
+[packages from Cloudflare](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/).
+
+```bash
+paygate listen
+paygate listen --forward-to http://localhost:3000/paygate/webhook
+paygate listen --respond 503
+```
+
+While it runs, hosted payments of the same profile send their webhooks there,
+from other terminals and from the app as well. Every webhook is checked like
+`paygate webhooks verify` does, confirmed with a GET of the payment, answered
+with 200 and kept locally. With `--forward-to` it also goes to your own
+handler, unchanged, and Paygate gets your handler's status. `--respond` sets
+the status yourself, for example to watch Paygate send a webhook again;
+repeated deliveries are marked.
+
+For a single payment, `--listen` does it all in one go: open the tunnel,
+create the payment, wait for its webhook, confirm with GET, close the tunnel.
+
+```bash
+paygate pay --hosted --amount 12.99 --listen
+```
+
+`paygate webhooks list`, `show`, `resend` and `clear` work with the received
+webhooks.
+
+On their way to your computer the webhooks pass through Cloudflare. If that
+is not an option, give an address of your own with `--public-url`, such as a
+reverse proxy or another tunnel. The listener only answers POST requests on a
+random path, and the address ends with ctrl+c. Against the mock server, which
+runs on this computer, no tunnel is needed.
 
 ## Troubleshooting
 

@@ -128,12 +128,10 @@ func ParseTamper(s string) (Tamper, error) {
 	return "", fmt.Errorf("unknown --tamper %q (use signature, timestamp or body)", s)
 }
 
-// NewBasic builds a Basic webhook.
+// NewBasic builds a Basic webhook: {"PayID": "…"}.
 func NewBasic(payID string) Message {
-	b, _ := json.Marshal(struct {
-		PayID string `json:"payId"`
-	}{payID})
-	return Message{Kind: Basic, Body: b}
+	id, _ := json.Marshal(payID)
+	return Message{Kind: Basic, Body: []byte(`{"PayID": ` + string(id) + `}`)}
 }
 
 // NewEnhanced signs a payload with key at now, broken as t asks.
@@ -189,14 +187,14 @@ func changeAmount(body []byte) ([]byte, error) {
 	return json.Marshal(obj)
 }
 
-// Sign returns the header value "v1=<hex>": HMAC-SHA256 with the key over
-// timestamp + "." + raw body.
+// Sign returns the header value "v1=<HEX>": HMAC-SHA256 with the key over
+// timestamp + "." + raw body, in upper-case hex.
 func Sign(key string, ts int64, body []byte) string {
 	return "v1=" + signHex(key, strconv.FormatInt(ts, 10), body)
 }
 
 func signHex(key, ts string, body []byte) string {
-	return hex.EncodeToString(mac(sha256.New, []byte(key), signedPayload(ts, body)))
+	return strings.ToUpper(hex.EncodeToString(mac(sha256.New, []byte(key), signedPayload(ts, body))))
 }
 
 func signedPayload(ts string, body []byte) []byte {

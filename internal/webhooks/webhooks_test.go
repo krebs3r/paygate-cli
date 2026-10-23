@@ -43,8 +43,8 @@ func signedHeader(key string, ts int64, body []byte) http.Header {
 }
 
 func TestSignMatchesReferenceValue(t *testing.T) {
-	// Computed independently with Python's hmac module.
-	want := "v1=7f1466d30e5e2afbfe9c17d2f0a30a7ab30dbdf072c7850c33e780b3578474ce"
+	// Computed independently with Python's hmac module, written in upper case.
+	want := "v1=" + strings.ToUpper("7f1466d30e5e2afbfe9c17d2f0a30a7ab30dbdf072c7850c33e780b3578474ce")
 	if got := Sign(testKey, testTS, basicBody); got != want {
 		t.Fatalf("Sign = %s, want %s", got, want)
 	}
@@ -103,8 +103,14 @@ func TestInspect(t *testing.T) {
 	if k, fs := Inspect(basicBody); k != Basic || len(fs) != 1 || fs[0].Level != Pass {
 		t.Errorf("basic: %s %+v", k, fs)
 	}
-	if k, fs := Inspect([]byte(`{"PayID":"p1"}`)); k != Basic || !hasLevel(fs, "PayID", Fail) {
-		t.Errorf("PayID should be flagged: %s %+v", k, fs)
+	if k, fs := Inspect(NewBasic("p1").Body); k != Basic || !hasLevel(fs, "PayID", Warn) || hasLevel(fs, "PayID", Fail) {
+		t.Errorf("PayID should be a note: %s %+v", k, fs)
+	}
+	if string(NewBasic("5e0f").Body) != `{"PayID": "5e0f"}` {
+		t.Errorf("Basic body = %s", NewBasic("5e0f").Body)
+	}
+	if k, fs := Inspect([]byte(`{"payid":"p1"}`)); k != Basic || !hasLevel(fs, "payid", Fail) {
+		t.Errorf("other spellings stay errors: %s %+v", k, fs)
 	}
 	if k, fs := Inspect(docExample); k != Enhanced || len(fs) != 1 || fs[0].Level != Pass {
 		t.Errorf("documentation example: %s %+v", k, fs)
@@ -137,15 +143,16 @@ func TestInspect(t *testing.T) {
 func TestDiagnose(t *testing.T) {
 	ts := "1792748527"
 	right := mac256([]byte(testKey), signedPayload(ts, docExample))
-	if d := Diagnose(testKey, ts, docExample, "v1="+hex.EncodeToString(right)); !d.Match {
-		t.Errorf("correct value: %+v", d)
+	for _, v := range []string{"v1=" + hex.EncodeToString(right), strings.ToUpper(hex.EncodeToString(right))} {
+		if d := Diagnose(testKey, ts, docExample, v); !d.Match {
+			t.Errorf("correct value in either case: %+v", d)
+		}
 	}
 	cases := []struct {
 		yours string
 		want  string
 	}{
 		{hex.EncodeToString(mac256([]byte(testKey), docExample)), "body alone"},
-		{strings.ToUpper(hex.EncodeToString(right)), "upper-case hex"},
 		{base64.StdEncoding.EncodeToString(right), "Base64 instead of hex"},
 		{hex.EncodeToString(mac256([]byte(testKey), signedPayload(ts, compactJSON(t, docExample)))), "serialised again (compact)"},
 		{hex.EncodeToString(mac256([]byte(testKey+"\n"), signedPayload(ts, docExample))), "trailing line break"},
@@ -163,6 +170,40 @@ func TestDiagnose(t *testing.T) {
 }
 
 func mac256(key, msg []byte) []byte { return mac(sha256.New, key, msg) }
+
+// lenientEnhanced is an Enhanced webhook beyond the documented schema
+// (example values): extra fields, "null" as text, paymentMethods as an object.
+var lenientEnhanced = []byte(`{"merchantId": "demo-shop","payId": "5e0f1c2a9b8d4e7f8a6b3c2d1e0f9a8b",` +
+	`"transId": "TIDDEMO0000000001","xid": "0a1b2c3d4e5f60718293a4b5c6d7e8f9","refNr": "null","status": "OK",` +
+	`"responseCode": "00000000","responseDescription": "success","amount": {"value": 1,"currency": "EUR"},` +
+	`"paymentMethods": {"type": "IDEAL"},"creationDate": "2026-10-23T10:00:00Z","channel": "null"}`)
+
+func TestLenientEnhancedFormat(t *testing.T) {
+	k, fs := Inspect(lenientEnhanced)
+	if k != Enhanced {
+		t.Fatalf("kind = %s", k)
+	}
+	for _, f := range fs {
+		if f.Level == Fail {
+			t.Errorf("these variations must not fail: %+v", f)
+		}
+	}
+	for _, name := range []string{"paymentMethods", "refNr", "channel", "merchantId", "xid"} {
+		if !hasLevel(fs, name, Warn) {
+			t.Errorf("missing note for %s: %+v", name, fs)
+		}
+	}
+
+	h := signedHeader(testKey, testTS, lenientEnhanced)
+	c := Verify(h, lenientEnhanced, testKey, time.Unix(testTS, 0))
+	if !c.Valid || c.Failed() || !hasLevel(c.Findings, "", Warn) {
+		t.Errorf("upper-case signature should verify with a note: %+v", c.Findings)
+	}
+	h.Set(HeaderSignature, strings.ToLower(h.Get(HeaderSignature)))
+	if c := Verify(h, lenientEnhanced, testKey, time.Unix(testTS, 0)); !c.Valid || hasLevel(c.Findings, "", Warn) {
+		t.Errorf("lower case verifies without the note: %+v", c.Findings)
+	}
+}
 
 func compactJSON(t *testing.T, b []byte) []byte {
 	t.Helper()

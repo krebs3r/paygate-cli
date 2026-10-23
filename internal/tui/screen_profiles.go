@@ -50,6 +50,8 @@ type profilesScreen struct {
 
 	// add form values
 	fName, fBrand, fEnv, fMID, fKey, fAuth string
+	fWantHMAC                              bool
+	fHMAC                                  string
 	pending                                *config.Profile
 	match                                  *config.Profile
 	confirm                                bool
@@ -185,6 +187,7 @@ func (s *profilesScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 func (s *profilesScreen) startForm(ctx *Context, errText string) tea.Cmd {
 	if errText == "" {
 		s.fName, s.fBrand, s.fEnv, s.fMID, s.fKey, s.fAuth = "", "nexi", "test", "", "", "basic"
+		s.fWantHMAC, s.fHMAC = false, ""
 		if len(ctx.Cfg.Profiles) == 0 {
 			s.fName = "default"
 		}
@@ -226,6 +229,13 @@ func (s *profilesScreen) startForm(ctx *Context, errText string) tea.Cmd {
 			).Value(&s.fAuth),
 			ui.LiveNote(s.authTarget),
 		),
+		huh.NewGroup(
+			huh.NewConfirm().Title(t("prof.form.hmac.ask")).Description(t("prof.form.hmac.desc")).
+				Affirmative(t("yes")).Negative(t("prof.form.hmac.later")).Value(&s.fWantHMAC),
+		),
+		huh.NewGroup(
+			huh.NewInput().Title(t("prof.form.hmac")).EchoMode(huh.EchoModePassword).Value(&s.fHMAC).Validate(required),
+		).WithHideFunc(func() bool { return !s.fWantHMAC }),
 	)
 	return s.form.Init()
 }
@@ -355,12 +365,17 @@ func (s *profilesScreen) save(ctx *Context) tea.Cmd {
 	if _, err := config.StoreAPIKey(s.fName, p, config.CleanSecret(s.fKey)); err != nil {
 		return toast(err.Error(), ui.ToneDanger)
 	}
+	if key := config.CleanSecret(s.fHMAC); s.fWantHMAC && key != "" {
+		if _, err := config.StoreHMACKey(s.fName, p, key); err != nil {
+			return toast(err.Error(), ui.ToneDanger)
+		}
+	}
 	ctx.Cfg.Profiles[s.fName] = p
 	ctx.Cfg.ActiveProfile = s.fName
 	if err := ctx.Cfg.Save(); err != nil {
 		return toast(err.Error(), ui.ToneDanger)
 	}
-	s.fKey, s.pending, s.match = "", nil, nil
+	s.fKey, s.fHMAC, s.pending, s.match = "", "", nil, nil
 	s.message = ""
 	for i, n := range ctx.Cfg.Names() {
 		if n == s.fName {

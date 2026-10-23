@@ -151,10 +151,28 @@ func runInit(app *App, o *initOptions) error {
 	if err := cfg.Save(); err != nil {
 		return err
 	}
+	if prof.HMACStore == "" && ui.Interactive() && !app.Yes && !app.JSON() {
+		if key, ok := askHMACKey(o.name); ok {
+			if _, err := config.StoreHMACKey(o.name, prof, key); err != nil {
+				return err
+			}
+			if err := cfg.Save(); err != nil {
+				return err
+			}
+		}
+	}
 
 	storeLabel := "system keychain"
 	if store == config.StoreFile {
 		storeLabel = "config file (no keychain available)"
+	}
+	hmacInfo := ui.Muted.Render("not set · paygate profile set hmac-key")
+	if k, err := config.HMACKey(o.name, prof); err == nil && k != "" {
+		where := "system keychain"
+		if prof.HMACStore == config.StoreFile {
+			where = "config file"
+		}
+		hmacInfo = maskKey(k) + ui.Muted.Render("  in "+where)
 	}
 	ui.Println()
 	ui.Println(ui.Card{
@@ -167,6 +185,7 @@ func runInit(app *App, o *initOptions) error {
 			{Label: "Merchant ID", Value: prof.MerchantID},
 			{Label: "Auth", Value: authLabel(prof.Auth)},
 			{Label: "API key", Value: maskKey(o.apiKey) + ui.Muted.Render("  in "+storeLabel)},
+			{Label: "HMAC key", Value: hmacInfo},
 		},
 	}.String())
 	ui.Println(ui.Muted.Render("   Saved to " + config.Tilde(cfg.FilePath())))
@@ -341,6 +360,27 @@ func authLabel(a string) string {
 		return "OAuth2 client credentials"
 	}
 	return "Basic Auth"
+}
+
+// askHMACKey offers to store the webhook HMAC key right away. An abort
+// counts as "not now", because the profile is saved already.
+func askHMACKey(profile string) (string, bool) {
+	want, key := false, ""
+	err := ui.RunForm(
+		huh.NewGroup(huh.NewConfirm().
+			Title("Add the HMAC key for webhooks?").
+			Description("Paygate signs Enhanced webhooks with it; paygate webhooks and paygate listen check them.\n"+
+				"It is in the Merchant Portal next to the API key. Later: paygate profile set hmac-key").
+			Affirmative("Yes").Negative("Not now").Value(&want)),
+		huh.NewGroup(huh.NewInput().Title("HMAC key of "+profile).EchoMode(huh.EchoModePassword).
+			Value(&key).Validate(nonEmpty("HMAC key"))).
+			WithHideFunc(func() bool { return !want }),
+	)
+	key = config.CleanSecret(key)
+	if err != nil || !want || key == "" {
+		return "", false
+	}
+	return key, true
 }
 
 func maskKey(k string) string {

@@ -20,6 +20,7 @@ import (
 	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/export"
 	"github.com/krebs3r/paygate-cli/internal/ids"
+	"github.com/krebs3r/paygate-cli/internal/listen"
 	"github.com/krebs3r/paygate-cli/internal/money"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
 	"github.com/krebs3r/paygate-cli/internal/ui"
@@ -306,6 +307,10 @@ func (s *newPaymentScreen) input() core.PaymentInput {
 func (s *newPaymentScreen) review(ctx *Context) tea.Cmd {
 	in := s.input()
 	in.TransID = ids.NewTransID()
+	// Webhooks go to a paygate listen running in another terminal.
+	if st, ok := listen.For(ctx.Session.Name); ok && in.Flow != core.FlowDirect {
+		in.WebhookURL = st.URL
+	}
 	req, label, err := core.BuildPaymentRequest(in, ctx.Session.Profile)
 	if err != nil {
 		return s.formWithError(ctx, err)

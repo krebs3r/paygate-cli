@@ -16,6 +16,7 @@ import (
 	"github.com/krebs3r/paygate-cli/internal/cards"
 	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/export"
+	"github.com/krebs3r/paygate-cli/internal/listen"
 	"github.com/krebs3r/paygate-cli/internal/money"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
 	"github.com/krebs3r/paygate-cli/internal/ui"
@@ -53,6 +54,7 @@ type payOptions struct {
 	open        bool
 	noWait      bool
 	noQR        bool
+	listen      bool
 	timeout     time.Duration
 	interval    time.Duration
 }
@@ -70,10 +72,15 @@ with flags for scripts:
   --hosted               hosted payment page with all (or --methods) payment methods
   --method <name>        hosted form for one method (paypal, ideal, sepa, klarna, card …)
   --card <alias>         direct card payment with a test card (see paygate testcards)
-  --card-number <pan>    direct card payment with your own card data`,
+  --card-number <pan>    direct card payment with your own card data
+
+Hosted payments send their webhook to a running paygate listen of the same
+profile. --listen opens a tunnel just for this payment, waits for the
+webhook and closes the tunnel again.`,
 		Example: `  paygate pay
   paygate pay --card visa-ok --amount 12.99
   paygate pay --hosted --amount 49 --methods card,paypal,ideal --open
+  paygate pay --hosted --amount 49 --listen       # receive its webhook too
   paygate pay --method paypal --amount 5 --currency EUR
   paygate pay --card visa-ok --curl
   paygate pay --card visa-ok --simulate ok        # test transaction on production`,
@@ -105,6 +112,7 @@ with flags for scripts:
 	f.BoolVar(&o.open, "open", false, "open the checkout URL in the browser")
 	f.BoolVar(&o.noWait, "no-wait", false, "do not wait for the hosted payment to complete")
 	f.BoolVar(&o.noQR, "no-qr", false, "do not show a QR code for the checkout URL")
+	f.BoolVar(&o.listen, "listen", false, "hosted payments: receive the webhook through a cloudflared tunnel and wait for it")
 	f.DurationVar(&o.timeout, "timeout", 10*time.Minute, "how long to wait for a hosted payment")
 	f.DurationVar(&o.interval, "poll-interval", 2*time.Second, "status polling interval while waiting")
 	_ = f.MarkHidden("poll-interval")
@@ -169,7 +177,36 @@ func runPay(app *App, o *payOptions, cmd *cobra.Command) error {
 		o.amount = core.ProdDefaultAmount
 	}
 
-	req, cardLabel, err := core.BuildPaymentRequest(o.input(), prof)
+	in := o.input()
+	var hook *payHook
+	listenNote := ""
+	switch {
+	case o.listen:
+		switch {
+		case o.flow == flowDirect:
+			return errors.New("--listen needs a hosted payment (--hosted or --method); direct card payments send no webhook")
+		case o.noWait:
+			return errors.New("--listen waits for the webhook; leave out --no-wait")
+		case app.Curl:
+			return errors.New("--listen sends the payment; leave out --curl")
+		}
+		if !headerShown {
+			app.PrintHeader(name, prof)
+			headerShown = true
+		}
+		if hook, err = openPayHook(app, name, prof); err != nil {
+			return err
+		}
+		defer hook.close()
+		in.WebhookURL = hook.session.URL
+	case o.flow != flowDirect:
+		if st, ok := listen.For(name); ok {
+			in.WebhookURL = st.URL
+			listenNote = "Webhook goes to the running paygate listen " + ui.Muted.Render("("+st.URL+")")
+		}
+	}
+
+	req, cardLabel, err := core.BuildPaymentRequest(in, prof)
 	if err != nil {
 		return err
 	}
@@ -189,6 +226,9 @@ func runPay(app *App, o *payOptions, cmd *cobra.Command) error {
 	if !headerShown {
 		app.PrintHeader(name, prof)
 	}
+	if listenNote != "" && !app.JSON() {
+		ui.Println(ui.Info(listenNote))
+	}
 
 	host := hostOf(client.Origin)
 	var res *paygate.Result
@@ -207,7 +247,7 @@ func runPay(app *App, o *payOptions, cmd *cobra.Command) error {
 	}
 
 	if url := res.Payment.RedirectURL(); url != "" {
-		return handleRedirect(app, name, client, req, res, o)
+		return handleRedirect(app, name, client, req, res, o, hook)
 	}
 	if res.Payment.TransID == "" {
 		res.Payment.TransID = req.TransID
@@ -250,9 +290,10 @@ func (o *payOptions) input() core.PaymentInput {
 	}
 }
 
-func handleRedirect(app *App, profileName string, client *paygate.Client, req *paygate.PaymentRequest, res *paygate.Result, o *payOptions) error {
+func handleRedirect(app *App, profileName string, client *paygate.Client, req *paygate.PaymentRequest, res *paygate.Result, o *payOptions, hook *payHook) error {
 	checkout := res.Payment.RedirectURL()
 	transID := req.TransID
+	created := time.Now()
 
 	if !app.JSON() {
 		what := "Checkout session created"
@@ -318,7 +359,11 @@ func handleRedirect(app *App, profileName string, client *paygate.Client, req *p
 			}
 			last = r
 			done := paygate.OutcomeOf(r.Payment) != paygate.OutcomePending
-			return r.Payment.Status, done, nil
+			status := r.Payment.Status
+			if hook != nil && len(hook.received()) > 0 {
+				status += " · webhook received"
+			}
+			return status, done, nil
 		},
 	})
 
@@ -330,6 +375,9 @@ func handleRedirect(app *App, profileName string, client *paygate.Client, req *p
 		if app.JSON() {
 			printJSON(last.Response.Body)
 		} else {
+			if hook != nil {
+				hook.report(created, last.Response)
+			}
 			p := last.Payment
 			title := outcomeTitle(p, "Payment")
 			if m := p.Method(); m.Type != "" && m.Type != "CARD" && paygate.OutcomeOf(p) == paygate.OutcomeSuccess {

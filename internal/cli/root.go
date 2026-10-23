@@ -210,6 +210,7 @@ func NewRootCmd(build BuildInfo) *cobra.Command {
 		newOperationCmd(app, opCapture),
 		newOperationCmd(app, opRefund),
 		newOperationCmd(app, opCancel),
+		newListenCmd(app),
 		newWebhooksCmd(app),
 		newTestcardsCmd(app),
 	} {

@@ -53,6 +53,9 @@ type PaymentInput struct {
 	// Simulate turns the payment into a test transaction, also on
 	// production, by sending the order description "Test:<code>".
 	Simulate string
+	// WebhookURL replaces the profile's webhook URL, e.g. with the address
+	// of a running paygate listen.
+	WebhookURL string
 }
 
 var simCode = regexp.MustCompile(`^\d{4}$`)
@@ -133,6 +136,9 @@ func BuildPaymentRequest(in PaymentInput, prof *config.Profile) (*paygate.Paymen
 		Order:         &paygate.Order{Description: description, MerchantReference: transID},
 	}
 	urls := &paygate.URLs{Return: prof.Return(), Cancel: prof.Cancel(), Webhook: prof.Webhook()}
+	if in.WebhookURL != "" {
+		urls.Webhook = in.WebhookURL
+	}
 
 	switch in.Flow {
 	case FlowHosted:

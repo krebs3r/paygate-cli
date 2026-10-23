@@ -92,7 +92,12 @@ func (s *schema) field(name string, required bool) (json.RawMessage, bool) {
 	}
 	if actual, ok := s.byLower[strings.ToLower(name)]; ok {
 		s.used[actual] = true
-		s.add(Fail, actual, "should be "+name+" (field names are case-sensitive)")
+		if name == "payId" && actual == "PayID" {
+			// PayID is accepted as a spelling of payId.
+			s.add(Warn, actual, "accepted; the documented name is payId")
+		} else {
+			s.add(Fail, actual, "should be "+name+" (field names are case-sensitive)")
+		}
 		return s.obj[actual], true
 	}
 	if required {
@@ -115,6 +120,8 @@ func (s *schema) str(name string, required bool) {
 	var v string
 	if json.Unmarshal(raw, &v) != nil {
 		s.add(Fail, name, "must be a string")
+	} else if v == "null" {
+		s.add(Warn, name, `the text "null", not null`)
 	}
 }
 
@@ -152,12 +159,20 @@ func (s *schema) methods() {
 		return
 	}
 	var list []map[string]json.RawMessage
+	prefix := func(i int) string { return "paymentMethods[" + strconv.Itoa(i) + "]" }
 	if json.Unmarshal(raw, &list) != nil {
-		s.add(Fail, "paymentMethods", "must be an array of objects")
-		return
+		var one map[string]json.RawMessage
+		if json.Unmarshal(raw, &one) != nil || one == nil {
+			s.add(Fail, "paymentMethods", "must be an array of objects")
+			return
+		}
+		// A single object is accepted in place of the array.
+		s.add(Warn, "paymentMethods", "an object; accepted, the documented type is an array")
+		list = []map[string]json.RawMessage{one}
+		prefix = func(int) string { return "paymentMethods" }
 	}
 	for i, m := range list {
-		name := "paymentMethods[" + strconv.Itoa(i) + "].type"
+		name := prefix(i) + ".type"
 		var t string
 		if v, ok := m["type"]; !ok {
 			s.add(Fail, name, "missing")
