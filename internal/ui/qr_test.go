@@ -80,3 +80,25 @@ func TestQRPlainFallback(t *testing.T) {
 		t.Errorf("plain QR should use block characters without colours:\n%s", out)
 	}
 }
+
+// A terminal too narrow for the QR code and its explanation side by side
+// shows the explanation below the code instead of dropping it.
+func TestCheckoutBlockKeepsTextWhenNarrow(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+	url := "https://test.computop-paygate.com?token=7186c6fbec6d43d3b1b731dff5497ffe"
+	lines := []string{"Link ready to share", "Card, PayPal · valid until 27 Oct 12:34", "Send it to your customer or scan it to pay yourself."}
+	narrow := lipgloss.Width(QR(url)) + 10
+	for w, beside := range map[int]bool{narrow: false, 200: true} {
+		out := checkoutBlock("Payment link", url, lines, true, w)
+		for _, want := range append(lines, "Payment link  "+url) {
+			if !strings.Contains(out, want) {
+				t.Errorf("width %d misses %q:\n%s", w, want, out)
+			}
+		}
+		for _, l := range strings.Split(out, "\n") {
+			if strings.Contains(l, lines[0]) && strings.ContainsAny(l, "█▀▄") != beside {
+				t.Errorf("width %d: text beside the code = %v, want %v", w, !beside, beside)
+			}
+		}
+	}
+}

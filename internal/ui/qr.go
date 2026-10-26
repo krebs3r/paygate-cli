@@ -103,17 +103,22 @@ func qrPlain(width, height int, dark func(x, y int) bool) string {
 }
 
 // CheckoutBlock shows a QR code (optional) with a short explanation and the
-// checkout URL on its own line, so terminals keep it clickable.
-func CheckoutBlock(url string, lines []string, withQR bool) string {
-	urlLine := " " + Label.Render("Checkout URL") + "  " + Link.Render(url)
+// URL on its own line after its label, so terminals keep it clickable.
+func CheckoutBlock(label, url string, lines []string, withQR bool) string {
+	return checkoutBlock(label, url, lines, withQR, Width())
+}
+
+func checkoutBlock(label, url string, lines []string, withQR bool, width int) string {
+	urlLine := " " + Label.Render(label) + "  " + Link.Render(url)
 	if !withQR {
 		return urlLine
 	}
 	qr := QR(url)
 	text := strings.Join(lines, "\n")
 	block := lipgloss.JoinHorizontal(lipgloss.Center, qr, "   ", text)
-	if Width() < lipgloss.Width(block)+2 {
-		block = qr
+	if width < lipgloss.Width(block)+2 {
+		// Too narrow for both side by side: the explanation goes below.
+		block = qr + "\n\n" + IndentLines(text, " ")
 	}
 	return IndentLines(block, " ") + "\n\n" + urlLine
 }

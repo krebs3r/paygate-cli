@@ -26,6 +26,7 @@ const (
 	flowHosted = string(core.FlowHosted)
 	flowMethod = string(core.FlowMethod)
 	flowDirect = string(core.FlowDirect)
+	flowLink   = string(core.FlowLink)
 
 	manualCard = "__manual__"
 )
@@ -57,6 +58,14 @@ type payOptions struct {
 	listen      bool
 	timeout     time.Duration
 	interval    time.Duration
+
+	// paygate link
+	send    string
+	email   string
+	phone   string
+	name    string
+	expires string
+	partial bool
 }
 
 func newPayCmd(app *App) *cobra.Command {
@@ -98,24 +107,10 @@ webhook and closes the tunnel again.`,
 	f.StringVar(&o.expiry, "expiry", "", "card expiry YYYYMM (default: December, four years ahead)")
 	f.StringVar(&o.cvc, "cvc", "123", "card security code")
 	f.StringVar(&o.holder, "holder", "Paygate Tester", "card holder name")
-	f.StringVarP(&o.amount, "amount", "a", "", "amount, e.g. 12.99 (default "+core.DefaultAmount+", on production "+core.ProdDefaultAmount+")")
-	f.StringVarP(&o.currency, "currency", "c", "", "ISO currency (default: profile currency, EUR)")
-	f.StringVarP(&o.description, "description", "d", "", "order description")
-	f.StringVar(&o.transID, "trans-id", "", "your transaction ID (default: generated)")
-	f.StringVar(&o.refNr, "ref-nr", "", "your reference number")
-	f.StringVar(&o.capture, "capture", "auto", "capture method: auto or manual")
-	f.StringVar(&o.language, "language", "", "language of the hosted page, e.g. de, en")
 	f.StringVar(&o.channel, "channel", "ECOM", "channel for direct payments: ECOM or MOTO")
 	f.BoolVar(&o.skip3DS, "skip-3ds", false, "direct card payments: ask Paygate to skip 3-D Secure (test cards without 3DS always do)")
 	f.StringVar(&o.ip, "ip", "", "customer IP for direct card payments (default: profile setting or this computer)")
-	f.StringVar(&o.simulate, "simulate", "", "test transaction, also on production: ok (Test:0000), decline (Test:0305) or a 4-digit code")
-	f.BoolVar(&o.open, "open", false, "open the checkout URL in the browser")
-	f.BoolVar(&o.noWait, "no-wait", false, "do not wait for the hosted payment to complete")
-	f.BoolVar(&o.noQR, "no-qr", false, "do not show a QR code for the checkout URL")
-	f.BoolVar(&o.listen, "listen", false, "hosted payments: receive the webhook through a cloudflared tunnel and wait for it")
-	f.DurationVar(&o.timeout, "timeout", 10*time.Minute, "how long to wait for a hosted payment")
-	f.DurationVar(&o.interval, "poll-interval", 2*time.Second, "status polling interval while waiting")
-	_ = f.MarkHidden("poll-interval")
+	addPaymentFlags(cmd, o)
 	_ = cmd.RegisterFlagCompletionFunc("card", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return cards.Aliases(), cobra.ShellCompDirectiveNoFileComp
 	})
@@ -125,7 +120,30 @@ webhook and closes the tunnel again.`,
 	return cmd
 }
 
+// addPaymentFlags registers the flags pay and link share.
+func addPaymentFlags(cmd *cobra.Command, o *payOptions) {
+	f := cmd.Flags()
+	f.StringVarP(&o.amount, "amount", "a", "", "amount, e.g. 12.99 (default "+core.DefaultAmount+", on production "+core.ProdDefaultAmount+")")
+	f.StringVarP(&o.currency, "currency", "c", "", "ISO currency (default: profile currency, EUR)")
+	f.StringVarP(&o.description, "description", "d", "", "order description")
+	f.StringVar(&o.transID, "trans-id", "", "your transaction ID (default: generated)")
+	f.StringVar(&o.refNr, "ref-nr", "", "your reference number")
+	f.StringVar(&o.capture, "capture", "auto", "capture method: auto or manual")
+	f.StringVar(&o.language, "language", "", "language of the hosted page, e.g. de, en")
+	f.StringVar(&o.simulate, "simulate", "", "test transaction, also on production: ok (Test:0000), decline (Test:0305) or a 4-digit code")
+	f.BoolVar(&o.open, "open", false, "open the payment page in the browser")
+	f.BoolVar(&o.noWait, "no-wait", false, "do not wait for the payment to complete")
+	f.BoolVar(&o.noQR, "no-qr", false, "do not show a QR code for the payment page")
+	f.BoolVar(&o.listen, "listen", false, "receive the webhook through a cloudflared tunnel and wait for it")
+	f.DurationVar(&o.timeout, "timeout", 10*time.Minute, "how long to wait for the payment")
+	f.DurationVar(&o.interval, "poll-interval", 2*time.Second, "status polling interval while waiting")
+	_ = f.MarkHidden("poll-interval")
+}
+
 func (o *payOptions) detectFlow() error {
+	if o.flow == flowLink {
+		return nil // paygate link: --methods belongs to the link
+	}
 	n := 0
 	if o.hosted || len(o.methods) > 0 {
 		o.flow = flowHosted
@@ -218,21 +236,31 @@ func runPay(app *App, o *payOptions, cmd *cobra.Command) error {
 		printCurl(app, prepared, client)
 		return nil
 	}
-	if o.simulate == "" {
+	// The header comes first, so a production confirmation shows which
+	// profile and merchant it is about.
+	if !headerShown {
+		app.PrintHeader(name, prof)
+	}
+	switch {
+	case o.flow == flowLink:
+		if err := confirmLink(app, prof, req, o.simulate != ""); err != nil {
+			return err
+		}
+	case o.simulate == "":
 		if err := app.ConfirmProd(prof, "send this payment"); err != nil {
 			return err
 		}
-	}
-	if !headerShown {
-		app.PrintHeader(name, prof)
 	}
 	if listenNote != "" && !app.JSON() {
 		ui.Println(ui.Info(listenNote))
 	}
 
-	host := hostOf(client.Origin)
+	sending := "Sending payment to "
+	if o.flow == flowLink {
+		sending = "Creating payment link at "
+	}
 	var res *paygate.Result
-	err = ui.Spin("Sending payment to "+host+" …", func() error {
+	err = ui.Spin(sending+hostOf(client.Origin)+" …", func() error {
 		var e error
 		res, e = client.Exec(context.Background(), prepared)
 		return e
@@ -287,6 +315,7 @@ func (o *payOptions) input() core.PaymentInput {
 		Amount: o.amount, Currency: o.currency, Description: o.description,
 		TransID: o.transID, RefNr: o.refNr, Capture: o.capture, Language: o.language,
 		Channel: o.channel, Skip3DS: o.skip3DS, Simulate: o.simulate, IP: o.ip,
+		Send: o.send, Email: o.email, Phone: o.phone, Name: o.name, Expires: o.expires, Partial: o.partial,
 	}
 }
 
@@ -297,10 +326,16 @@ func handleRedirect(app *App, profileName string, client *paygate.Client, req *p
 
 	if !app.JSON() {
 		what := "Checkout session created"
-		if o.flow == flowDirect {
+		switch o.flow {
+		case flowDirect:
 			what = "Customer action required (3-D Secure)"
-		} else if o.flow == flowMethod {
+		case flowMethod:
 			what = core.MethodName(req.PaymentMethods.Type) + " checkout created"
+		case flowLink:
+			what = "Payment link created"
+			if to := core.LinkRecipient(req); to != "" {
+				what += " · Paygate sends it to " + to
+			}
 		}
 		ui.Println(ui.OK(what + "  " + ui.Muted.Render(durationLine(res.Response))))
 		ui.Println()
@@ -311,11 +346,15 @@ func handleRedirect(app *App, profileName string, client *paygate.Client, req *p
 			"",
 			ui.Muted.Render("Scan with your phone or open the link below."),
 		}
-		if o.flow == flowDirect {
+		label := "Checkout URL"
+		switch o.flow {
+		case flowDirect:
 			lines[0] = ui.Bold.Render("Authenticate the card")
 			lines[3] = ui.Muted.Render("Test ACS: OTP 1234 = authenticated.")
+		case flowLink:
+			label, lines = "Payment link", linkLines(req)
 		}
-		ui.Println(ui.CheckoutBlock(checkout, lines, withQR))
+		ui.Println(ui.CheckoutBlock(label, checkout, lines, withQR))
 		ui.Println()
 	}
 
@@ -341,8 +380,13 @@ func handleRedirect(app *App, profileName string, client *paygate.Client, req *p
 		return nil
 	}
 
+	noun, pending := "URL", "The payment may still complete."
+	if o.flow == flowLink {
+		noun, pending = "link", "The link stays valid, the customer can still pay."
+	}
 	var last *paygate.Result
 	result := ui.Wait(ui.WaitOptions{
+		Noun:     noun,
 		URL:      checkout,
 		Interval: o.interval,
 		Timeout:  o.timeout,
@@ -396,13 +440,13 @@ func handleRedirect(app *App, profileName string, client *paygate.Client, req *p
 		return nil
 	case result.TimedOut:
 		if !app.JSON() {
-			ui.Println(ui.Warn(fmt.Sprintf("No final status after %s. The payment may still complete.", o.timeout)))
+			ui.Println(ui.Warn(fmt.Sprintf("No final status after %s. %s", o.timeout, pending)))
 			ui.Println(ui.Next("paygate get --trans-id " + transID))
 		}
 		return errSilentFail
 	default:
 		if !app.JSON() {
-			ui.Println(ui.Warn("Stopped waiting. The payment may still complete."))
+			ui.Println(ui.Warn("Stopped waiting. " + pending))
 			ui.Println(ui.Next("paygate get --trans-id " + transID))
 			ui.Println()
 		}

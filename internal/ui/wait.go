@@ -25,6 +25,8 @@ type WaitOptions struct {
 	Plain bool
 	// Fatal reports errors that should stop polling (e.g. bad credentials).
 	Fatal func(error) bool
+	// Noun names the URL in the key hints: "URL" (default) or "link".
+	Noun string
 }
 
 // WaitResult tells how the wait ended.
@@ -45,6 +47,9 @@ func Wait(opts WaitOptions) WaitResult {
 	}
 	if opts.Timeout <= 0 {
 		opts.Timeout = 10 * time.Minute
+	}
+	if opts.Noun == "" {
+		opts.Noun = "URL"
 	}
 	if opts.Plain || !Interactive() || !StderrIsTTY() {
 		return waitPlain(opts)
@@ -134,7 +139,7 @@ func (m waitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if err := clipboard.WriteAll(m.opts.URL); err != nil {
 				m.notice = "clipboard unavailable"
 			} else {
-				m.notice = "URL copied"
+				m.notice = m.opts.Noun + " copied"
 			}
 		case "o":
 			if m.opts.Open != nil {
@@ -184,7 +189,7 @@ func (m waitModel) View() string {
 	line := fmt.Sprintf(" %s %s  %s  %s", m.spin.View(), Text.Render("Waiting for payment …"),
 		Bold.Render(fmt.Sprintf("%d:%02d", int(el.Minutes()), int(el.Seconds())%60)),
 		Muted.Render("status "+status+" · polling every "+m.opts.Interval.String()))
-	help := "   " + Muted.Render("o open in browser · c copy URL · q stop waiting")
+	help := "   " + Muted.Render("o open in browser · c copy "+m.opts.Noun+" · q stop waiting")
 	if m.notice != "" {
 		help += "   " + Success.Render(m.notice)
 	}

@@ -33,6 +33,7 @@ every request can be inspected or exported as `curl`.
 - [Quickstart](#quickstart)
 - [Commands](#commands)
 - [Configuration and security](#configuration-and-security)
+- [Payment links](#payment-links)
 - [Test transactions on production](#test-transactions-on-production)
 - [Test data](#test-data)
 - [Testing webhooks](#testing-webhooks)
@@ -46,7 +47,8 @@ every request can be inspected or exported as `curl`.
 - **App and commands**: a full-screen app (`paygate`) with menu, key hints and
   command palette, and the same functions as single commands for scripts and CI.
 - **All integration types**: hosted payment page, hosted single method (PayPal,
-  iDEAL, SEPA, Klarna and more) and direct card payments.
+  iDEAL, SEPA, Klarna and more), direct card payments and payment links (Pay by
+  Link).
 - **Safe on production**: simulation with `Test:0000` / `Test:0305`, 0.01 as
   default amount and manual capture with one-key release.
 - **Live status**: checkout URL with QR code; paygate waits until the payment is
@@ -249,6 +251,7 @@ Single commands work without the app, for example in scripts:
 | `paygate pay` | Create a payment (wizard without flags) | `paygate pay --card visa-ok --amount 12.99` |
 | `paygate pay --hosted` | Hosted payment page with all or selected methods | `paygate pay --hosted --methods card,paypal --open` |
 | `paygate pay --method` | Hosted form for a single method | `paygate pay --method ideal --amount 5` |
+| `paygate link` | Payment link to share, or for Paygate to send by e-mail or SMS | `paygate link --amount 49 --expires 24h` |
 | `paygate get` | Show a payment by payId or transId | `paygate get --trans-id TIDMVGGX4YZ9I9APE` |
 | `paygate history` | List payments created or looked up with paygate | `paygate history --limit 50` |
 | `paygate capture` | Capture an authorized payment | `paygate capture <payId>` |
@@ -308,6 +311,25 @@ Global flags work with every command:
 | `PAYGATE_NO_KEYCHAIN` | Store keys in the config file instead of the keychain |
 | `PAYGATE_NO_HISTORY` | Do not keep the local payment history and request log |
 | `PAYGATE_NO_SPLASH` | Skip the start screen of the app |
+
+## Payment links
+
+`paygate link` creates a payment link (Pay by Link): Paygate answers with a
+link to its hosted payment page, and paygate shows it with a QR code and waits
+until the payment is final, like `paygate pay --hosted`. The link stays valid
+when you stop waiting.
+
+```bash
+paygate link --amount 49 --methods card,paypal --expires 24h
+paygate link --amount 49 --send email --email customer@example.com --name "Max Muster"
+paygate link --amount 49 --send sms --phone "+49 170 1234567"
+```
+
+Without `--send`, you share the link yourself. With `--send email` or
+`--send sms`, Paygate sends it to the customer; on production paygate asks
+first, also for a simulated payment, because the message reaches a real
+person. `--expires` takes minutes, hours or days (`30m`, `24h`, `7d`);
+without it, the validity set for your merchant at Paygate applies.
 
 ## Test transactions on production
 

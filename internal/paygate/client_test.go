@@ -95,6 +95,49 @@ func TestSessionRedirectAndPolling(t *testing.T) {
 	}
 }
 
+func TestPaymentLink(t *testing.T) {
+	m, url := newMock(t)
+	m.NotFoundPolls, m.PendingPolls = 1, 0
+	c := paygate.New(url, "demo-shop", "demo-key", paygate.AuthBasic)
+	req := &paygate.PaymentRequest{
+		TransID:        "TIDLINK",
+		Amount:         paygate.Amount{Value: 4900, Currency: "EUR"},
+		ExpirationTime: "2026-10-27T11:14:00Z",
+	}
+	p, err := c.CreateLinkRequest(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(p.URL, "/api/v2/payments/links") || p.IdempotencyKey != "TIDLINK" ||
+		!bytes.Contains(p.Body, []byte(`"expirationTime": "2026-10-27T11:14:00Z"`)) || bytes.Contains(p.Body, []byte("partialPayment")) {
+		t.Fatalf("link request = %s %s\n%s", p.URL, p.IdempotencyKey, p.Body)
+	}
+	res, err := c.Exec(context.Background(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Like Paygate: only the link comes back, no payId and no status.
+	if res.Response.StatusCode != http.StatusAccepted || res.Payment.RedirectURL() == "" || res.Payment.PayID != "" {
+		t.Fatalf("unexpected link answer: %d %+v", res.Response.StatusCode, res.Payment)
+	}
+	if _, err := c.GetByTransID(context.Background(), "TIDLINK"); !paygate.IsNotFound(err) {
+		t.Fatalf("first poll should be not found, got %v", err)
+	}
+	if r, err := c.GetByTransID(context.Background(), "TIDLINK"); err != nil || paygate.OutcomeOf(r.Payment) != paygate.OutcomeSuccess {
+		t.Fatalf("second poll should be paid, got %v %+v", err, r)
+	}
+
+	req.TransID, req.ServiceType = "TIDMAIL", "EMAIL"
+	_, err = c.CreateLink(context.Background(), req)
+	if e, ok := paygate.AsAPIError(err); !ok || e.StatusCode != 400 {
+		t.Fatalf("an e-mail link without an address must fail, got %v", err)
+	}
+	req.CustomerInfo = &paygate.CustomerInfo{Email: "customer@example.com"}
+	if _, err := c.CreateLink(context.Background(), req); err != nil {
+		t.Fatalf("e-mail link: %v", err)
+	}
+}
+
 func TestValidationProblem(t *testing.T) {
 	_, url := newMock(t)
 	c := paygate.New(url, "demo-shop", "demo-key", paygate.AuthBasic)

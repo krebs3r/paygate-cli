@@ -22,6 +22,7 @@ const (
 	FlowHosted Flow = "hosted" // hosted payment page with several methods
 	FlowMethod Flow = "method" // hosted form for one method
 	FlowDirect Flow = "direct" // server-to-server card payment
+	FlowLink   Flow = "link"   // payment link to share, opens the hosted payment page
 )
 
 const (
@@ -56,6 +57,15 @@ type PaymentInput struct {
 	// WebhookURL replaces the profile's webhook URL, e.g. with the address
 	// of a running paygate listen.
 	WebhookURL string
+	// FlowLink: how the customer gets the link (link, email, sms), who the
+	// customer is and how long the link stays valid ("24h", "7d"; empty:
+	// Paygate's setting).
+	Send    string
+	Email   string
+	Phone   string
+	Name    string
+	Expires string
+	Partial bool
 }
 
 var simCode = regexp.MustCompile(`^\d{4}$`)
@@ -141,7 +151,7 @@ func BuildPaymentRequest(in PaymentInput, prof *config.Profile) (*paygate.Paymen
 	}
 
 	switch in.Flow {
-	case FlowHosted:
+	case FlowHosted, FlowLink:
 		req.URLs = urls
 		for _, m := range in.Methods {
 			for _, part := range strings.Split(m, ",") {
@@ -153,6 +163,11 @@ func BuildPaymentRequest(in PaymentInput, prof *config.Profile) (*paygate.Paymen
 					return nil, "", err
 				}
 				req.AllowedPaymentMethods = append(req.AllowedPaymentMethods, pm.Type)
+			}
+		}
+		if in.Flow == FlowLink {
+			if err := applyLink(req, in, time.Now()); err != nil {
+				return nil, "", err
 			}
 		}
 		return req, "", nil
@@ -261,8 +276,11 @@ func LocalIP() string {
 
 // Prepare builds the HTTP request for a payment without sending it.
 func Prepare(c *paygate.Client, flow Flow, req *paygate.PaymentRequest) (*paygate.Prepared, error) {
-	if flow == FlowHosted {
+	switch flow {
+	case FlowHosted:
 		return c.CreateSessionRequest(req)
+	case FlowLink:
+		return c.CreateLinkRequest(req)
 	}
 	return c.CreatePaymentRequest(req)
 }

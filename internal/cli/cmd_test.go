@@ -281,6 +281,74 @@ func TestPaySimulation(t *testing.T) {
 	}
 }
 
+func TestPaymentLink(t *testing.T) {
+	m := setup(t)
+	mustInit(t)
+
+	paid := payJSON(t, "link", "--amount", "49", "--methods", "card,paypal", "--poll-interval", "10ms")
+	if paid["status"] != "OK" {
+		t.Errorf("link final status = %v", paid["status"])
+	}
+
+	out, _, err := run(t, "link", "--amount", "49", "--expires", "24h", "--trans-id", "TIDLINKNOWAIT", "--no-wait")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Payment link created", "Payment link  " + m.BaseURL, "paygate get --trans-id TIDLINKNOWAIT"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("--no-wait output misses %q:\n%s", want, out)
+		}
+	}
+	recs, _ := history.Load()
+	if len(recs) != 2 || recs[0].Flow != "link" || recs[0].TransID != "TIDLINKNOWAIT" || recs[1].Flow != "link" {
+		t.Errorf("history = %+v", recs)
+	}
+
+	before := m.Requests()
+	curl, _, err := run(t, "link", "--methods", "card,paypal", "--send", "email", "--email", "customer@example.com", "--name", "Max Muster", "--curl")
+	if err != nil || m.Requests() != before {
+		t.Fatalf("--curl: %v, sent %d requests", err, m.Requests()-before)
+	}
+	// --methods must not turn the link into a checkout session.
+	for _, want := range []string{"/api/v2/payments/links", `"PAYPAL"`, `"serviceType": "EMAIL"`, `"email": "customer@example.com"`, `"lastName": "Muster"`} {
+		if !strings.Contains(curl, want) {
+			t.Errorf("curl misses %q:\n%s", want, curl)
+		}
+	}
+
+	if _, _, err := run(t, "link", "--send", "email"); err == nil || !strings.Contains(err.Error(), "e-mail address") {
+		t.Errorf("--send email without --email: %v", err)
+	}
+	if _, _, err := run(t, "link", "--expires", "soon"); err == nil || !strings.Contains(err.Error(), "24h") {
+		t.Errorf("bad --expires: %v", err)
+	}
+}
+
+// On production, a script must confirm with --yes that Paygate e-mails a real
+// customer, even when the payment itself is only simulated.
+func TestPaymentLinkDeliveryOnProduction(t *testing.T) {
+	m := setup(t)
+	if _, _, err := run(t, "init", "--name", "prod", "--env", "prod", "--merchant-id", "demo-shop", "--api-key", "demo-key"); err != nil {
+		t.Fatal(err)
+	}
+	before := m.Requests()
+	out, _, err := run(t, "link", "--simulate", "ok", "--send", "email", "--email", "customer@example.com", "--no-wait")
+	if err == nil || !strings.Contains(err.Error(), "customer@example.com on PRODUCTION without --yes") || m.Requests() != before {
+		t.Fatalf("expected a refusal without sending, got %v", err)
+	}
+	// The header comes before the confirmation and names the profile.
+	if !strings.Contains(out, "PROD") || !strings.Contains(out, "nexi · prod (demo-shop)") {
+		t.Errorf("the header should precede the confirmation:\n%s", out)
+	}
+	if _, _, err := run(t, "link", "--simulate", "ok", "--no-wait"); err != nil {
+		t.Errorf("a simulated link the merchant shares needs no confirmation: %v", err)
+	}
+	out, _, err = run(t, "link", "--simulate", "ok", "--send", "email", "--email", "customer@example.com", "--no-wait", "--yes")
+	if err != nil || !strings.Contains(out, "Paygate sends it to customer@example.com") {
+		t.Errorf("--yes: %v\n%s", err, out)
+	}
+}
+
 // When Paygate asks for 3-D Secure, a direct payment cannot complete it in the
 // terminal.
 func TestPayDirect3DS(t *testing.T) {

@@ -96,6 +96,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /authorization/oauth/token", s.token)
 	mux.HandleFunc("POST /api/v2/payments/sessions", s.auth(s.createSession))
+	mux.HandleFunc("POST /api/v2/payments/links", s.auth(s.createLink))
 	mux.HandleFunc("POST /api/v2/payments", s.auth(s.createPayment))
 	mux.HandleFunc("GET /api/v2/payments/getByTransId/{id}", s.auth(s.getByTransID))
 	mux.HandleFunc("GET /api/v2/payments/getByPayId/{id}", s.auth(s.getByPayID))
@@ -174,6 +175,13 @@ type paymentBody struct {
 			} `json:"threeDsPolicy"`
 		} `json:"card"`
 	} `json:"paymentMethods"`
+	ServiceType  string `json:"serviceType"`
+	CustomerInfo *struct {
+		Email string `json:"email"`
+		Phone *struct {
+			Number string `json:"number"`
+		} `json:"phone"`
+	} `json:"customerInfo"`
 }
 
 func (s *Server) decode(w http.ResponseWriter, r *http.Request) (*paymentBody, bool) {
@@ -206,6 +214,31 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	if b.URLs == nil || b.URLs.Return == "" || b.URLs.Cancel == "" || b.URLs.Webhook == "" {
 		problem(w, map[string][]string{"urls": {"urls.return, urls.cancel and urls.webhook are required."}})
 		return
+	}
+	s.hosted(w, b, s.HostedMethod)
+}
+
+// createLink answers like Paygate with nothing but the link to the hosted
+// payment page. Status lookups then behave as for a checkout session.
+func (s *Server) createLink(w http.ResponseWriter, r *http.Request) {
+	b, ok := s.decode(w, r)
+	if !ok {
+		return
+	}
+	// Paygate needs an address to send the link to (assumed, the API
+	// reference does not say).
+	ci := b.CustomerInfo
+	switch strings.ToUpper(b.ServiceType) {
+	case "EMAIL":
+		if ci == nil || ci.Email == "" {
+			problem(w, map[string][]string{"customerInfo.email": {"Mandatory when serviceType=EMAIL."}})
+			return
+		}
+	case "SMS":
+		if ci == nil || ci.Phone == nil || ci.Phone.Number == "" {
+			problem(w, map[string][]string{"customerInfo.phone": {"Mandatory when serviceType=SMS."}})
+			return
+		}
 	}
 	s.hosted(w, b, s.HostedMethod)
 }

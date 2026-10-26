@@ -5,11 +5,30 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `paygate link` creates a payment link (Pay by Link) and shows it with a QR
+  code, then waits for the payment like `paygate pay --hosted`. `--methods`
+  limits the payment methods, `--expires` sets how long the link stays valid
+  (`30m`, `24h`, `7d`) and `--partial` allows paying in parts. With
+  `--send email` or `--send sms` Paygate sends the link to the customer
+  (`--email`, `--phone`, `--name`); on production paygate asks first, also
+  for a simulated payment. The mock server answers payment links too.
+
 ### Changed
 
 - In the app, the request JSON of the review (`j`) scrolls with ↑↓ and
   pgup/pgdn, like a body in the Inspector. Its last line counts the lines
   still below; before, the JSON ended at the bottom of the window.
+- `paygate pay` and `paygate link` show the header with profile and merchant
+  ID before they ask to confirm on production, so the question names the
+  profile it is about; before, the header came after the answer.
+
+### Fixed
+
+- In a terminal too narrow for the QR code and its explanation side by side,
+  `paygate pay --hosted`, `--method` and `paygate link` show the amount,
+  transaction ID and hints below the code instead of leaving them out.
 
 ## [0.6.1]
 

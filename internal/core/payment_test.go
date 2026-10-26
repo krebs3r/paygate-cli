@@ -1,9 +1,12 @@
 package core
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/krebs3r/paygate-cli/internal/config"
+	"github.com/krebs3r/paygate-cli/internal/paygate"
 )
 
 func TestSimulationDescription(t *testing.T) {
@@ -19,6 +22,73 @@ func TestSimulationDescription(t *testing.T) {
 	}
 	if _, err := SimulationDescription("maybe"); err == nil {
 		t.Error("unknown simulation must fail")
+	}
+}
+
+func TestBuildLinkRequest(t *testing.T) {
+	prof := &config.Profile{Brand: "computop", Env: "test", MerchantID: "m"}
+	before := time.Now()
+	req, _, err := BuildPaymentRequest(PaymentInput{
+		Flow: FlowLink, Methods: []string{"card,paypal"}, Amount: "49",
+		Send: "email", Email: "customer@example.com", Name: "Max van Muster", Expires: "24h", Partial: true,
+	}, prof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.ServiceType != "EMAIL" || req.URLs == nil || len(req.AllowedPaymentMethods) != 2 || !req.PartialPayment {
+		t.Errorf("link request = %+v", req)
+	}
+	if ci := req.CustomerInfo; ci == nil || ci.Email != "customer@example.com" || ci.FirstName != "Max van" || ci.LastName != "Muster" {
+		t.Errorf("customer = %+v", req.CustomerInfo)
+	}
+	exp, err := time.Parse(time.RFC3339, req.ExpirationTime)
+	if err != nil || !strings.HasSuffix(req.ExpirationTime, "Z") || exp.Sub(before) < 23*time.Hour || exp.Sub(before) > 25*time.Hour {
+		t.Errorf("expirationTime = %q", req.ExpirationTime)
+	}
+	if got := LinkRecipient(req); got != "customer@example.com" {
+		t.Errorf("recipient = %q", got)
+	}
+
+	// Without a delivery, Paygate's defaults apply and nothing extra is sent.
+	req, _, err = BuildPaymentRequest(PaymentInput{Flow: FlowLink}, prof)
+	if err != nil || req.ServiceType != "" || req.CustomerInfo != nil || req.ExpirationTime != "" || LinkRecipient(req) != "" {
+		t.Errorf("plain link = %+v, %v", req, err)
+	}
+
+	req, _, err = BuildPaymentRequest(PaymentInput{Flow: FlowLink, Send: "sms", Phone: "+49 170 123-4567"}, prof)
+	if err != nil || req.ServiceType != "SMS" || *req.CustomerInfo.Phone != (paygate.Phone{CountryCode: "49", Number: "1701234567"}) {
+		t.Errorf("sms link = %+v, %v", req.CustomerInfo, err)
+	}
+	if got := LinkRecipient(req); got != "+49 1701234567" {
+		t.Errorf("sms recipient = %q", got)
+	}
+
+	for name, in := range map[string]PaymentInput{
+		"email without address": {Send: "email"},
+		"sms without number":    {Send: "sms", Email: "customer@example.com"},
+		"bad address":           {Email: "customer at example.com"},
+		"number without +":      {Phone: "0170 1234567"},
+		"unknown delivery":      {Send: "fax"},
+		"bad validity":          {Expires: "soon"},
+		"too short validity":    {Expires: "10s"},
+	} {
+		in.Flow = FlowLink
+		if _, _, err := BuildPaymentRequest(in, prof); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
+}
+
+func TestParseValidity(t *testing.T) {
+	for in, want := range map[string]time.Duration{"": 0, "30m": 30 * time.Minute, "24h": 24 * time.Hour, "7d": 7 * 24 * time.Hour} {
+		if got, err := ParseValidity(in); err != nil || got != want {
+			t.Errorf("ParseValidity(%q) = %v, %v; want %v", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"0d", "-1h", "1w", "d"} {
+		if _, err := ParseValidity(in); err == nil {
+			t.Errorf("ParseValidity(%q) should fail", in)
+		}
 	}
 }
 

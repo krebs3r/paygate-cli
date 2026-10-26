@@ -92,7 +92,22 @@ type PaymentMethods struct {
 	Ideal           *SubTyped `json:"ideal,omitempty"`
 }
 
-// PaymentRequest is the body of POST /payments and POST /payments/sessions.
+type Phone struct {
+	CountryCode string `json:"countryCode,omitempty"` // digits only, no "+"
+	Number      string `json:"number,omitempty"`
+}
+
+// CustomerInfo is the customer a payment link is for. Only the fields the
+// CLI sends are modelled.
+type CustomerInfo struct {
+	FirstName string `json:"firstName,omitempty"`
+	LastName  string `json:"lastName,omitempty"`
+	Email     string `json:"email,omitempty"`
+	Phone     *Phone `json:"phone,omitempty"`
+}
+
+// PaymentRequest is the body of POST /payments, POST /payments/sessions and
+// POST /payments/links. The link fields stay empty for the others.
 type PaymentRequest struct {
 	TransID               string          `json:"transId"`
 	RefNr                 string          `json:"refNr,omitempty"`
@@ -105,6 +120,11 @@ type PaymentRequest struct {
 	BrowserInfo           *BrowserInfo    `json:"browserInfo,omitempty"`
 	AllowedPaymentMethods []string        `json:"allowedPaymentMethods,omitempty"`
 	PaymentMethods        *PaymentMethods `json:"paymentMethods,omitempty"`
+
+	CustomerInfo   *CustomerInfo `json:"customerInfo,omitempty"`
+	ServiceType    string        `json:"serviceType,omitempty"`    // LINK | EMAIL | SMS
+	ExpirationTime string        `json:"expirationTime,omitempty"` // RFC 3339, UTC
+	PartialPayment bool          `json:"partialPayment,omitempty"`
 }
 
 // OperationRequest is the body of captures, refunds and reversals.

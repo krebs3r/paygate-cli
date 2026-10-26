@@ -38,6 +38,10 @@ func (c *Client) CreatePaymentRequest(r *PaymentRequest) (*Prepared, error) {
 	return c.Prepare(http.MethodPost, "/payments", r, r.TransID)
 }
 
+func (c *Client) CreateLinkRequest(r *PaymentRequest) (*Prepared, error) {
+	return c.Prepare(http.MethodPost, "/payments/links", r, r.TransID)
+}
+
 func (c *Client) GetByPayIDRequest(payID string) (*Prepared, error) {
 	return c.Prepare(http.MethodGet, "/payments/getByPayId/"+url.PathEscape(payID), nil, "")
 }
@@ -71,6 +75,14 @@ func (c *Client) CreateSession(ctx context.Context, r *PaymentRequest) (*Result,
 
 func (c *Client) CreatePayment(ctx context.Context, r *PaymentRequest) (*Result, error) {
 	p, err := c.CreatePaymentRequest(r)
+	if err != nil {
+		return nil, err
+	}
+	return c.exec(ctx, p)
+}
+
+func (c *Client) CreateLink(ctx context.Context, r *PaymentRequest) (*Result, error) {
+	p, err := c.CreateLinkRequest(r)
 	if err != nil {
 		return nil, err
 	}

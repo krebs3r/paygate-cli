@@ -205,6 +205,7 @@ func NewRootCmd(build BuildInfo) *cobra.Command {
 	)
 	for _, c := range []*cobra.Command{
 		newPayCmd(app),
+		newLinkCmd(app),
 		newGetCmd(app),
 		newHistoryCmd(app),
 		newOperationCmd(app, opCapture),
