@@ -126,6 +126,18 @@ func splitName(name string) (first, last string) {
 	return strings.Join(words[:len(words)-1], " "), words[len(words)-1]
 }
 
+// WaitOutcome is the outcome of a status lookup while waiting for a hosted
+// payment or a payment link. Paygate answers the lookup of a link with a
+// successful record of its own (no payment method, amount 0) until the
+// customer makes an attempt, which adds a payment with its method under the
+// same trans ID. That record is not a payment yet.
+func WaitOutcome(flow Flow, p *paygate.Payment) paygate.Outcome {
+	if flow == FlowLink && p.Method().Type == "" {
+		return paygate.OutcomePending
+	}
+	return paygate.OutcomeOf(p)
+}
+
 // LinkRecipient says where Paygate sends a payment link: the e-mail address
 // or the mobile number, empty when the merchant shares the link.
 func LinkRecipient(req *paygate.PaymentRequest) string {

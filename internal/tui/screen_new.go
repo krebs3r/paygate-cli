@@ -328,7 +328,12 @@ func (s *newPaymentScreen) startForm(ctx *Context) tea.Cmd {
 			}),
 			huh.NewSelect[string]().Title(t("new.currency")).Options(currencies...).Inline(true).Value(&s.currency),
 			huh.NewInput().Title(t("new.desc")).Value(&s.description),
-			huh.NewSelect[string]().Title(t("new.sim")).Description(t("new.sim.desc")).Options(
+			huh.NewSelect[string]().Title(t("new.sim")).DescriptionFunc(func() string {
+				if s.flow == string(core.FlowLink) {
+					return t("new.sim.link")
+				}
+				return t("new.sim.desc")
+			}, &s.flow).Options(
 				huh.NewOption(t("sim.off"), "off"),
 				huh.NewOption(t("sim.ok"), "ok"),
 				huh.NewOption(t("sim.decline"), "decline"),
@@ -600,7 +605,10 @@ func (s *newPaymentScreen) poll(ctx *Context, delay time.Duration) tea.Cmd {
 func (s *newPaymentScreen) onPoll(ctx *Context, msg pollResultMsg) tea.Cmd {
 	if msg.err == nil {
 		s.lastStatus = msg.res.Payment.Status
-		if paygate.OutcomeOf(msg.res.Payment) != paygate.OutcomePending {
+		if core.Flow(s.flow) == core.FlowLink && msg.res.Payment.Method().Type == "" {
+			s.lastStatus = "" // a link's own record says OK before any attempt
+		}
+		if core.WaitOutcome(core.Flow(s.flow), msg.res.Payment) != paygate.OutcomePending {
 			core.RecordStatus(ctx.Session.Name, msg.res.Payment)
 			s.result, s.response, s.stage = msg.res.Payment, nil, stageResult
 			s.waited = time.Since(s.waitStart)
@@ -841,7 +849,7 @@ func (s *newPaymentScreen) reviewView(ctx *Context, w, h int) string {
 	border := ui.ColBorder
 	out := box(kv(rows), min(w, 72), border) + "\n"
 	if p.IsProd() {
-		if s.simulate != "off" {
+		if s.simulated() {
 			out += ui.Warning.Render("! ") + ui.Label.Render(fmt.Sprintf(t("rev.prod.sim"), req.Order.Description)) + "\n"
 		} else {
 			out += ui.Danger.Render("! "+t("rev.prod.real")) + "\n"
@@ -853,6 +861,9 @@ func (s *newPaymentScreen) reviewView(ctx *Context, w, h int) string {
 		if to := core.LinkRecipient(req); to != "" {
 			out += ui.Warning.Render("! ") + ui.Label.Render(fmt.Sprintf(t("rev.prod.send"), to)) + "\n"
 		}
+	}
+	if core.Flow(s.flow) == core.FlowLink && s.simulate != "off" {
+		out += hang(ui.Warning.Render("! "), ui.Label.Render(wrap(t("rev.link.nosim"), min(w-2, 74)))) + "\n"
 	}
 	if s.showJSON {
 		lines := strings.Split(ui.HighlightJSON(maskCard(s.prepared.Body)), "\n")
@@ -1032,14 +1043,14 @@ func (s *newPaymentScreen) resultView(ctx *Context, w int) string {
 		out = ui.PaymentCard(p, s.response, opts)
 	} else {
 		sim := ""
-		if s.simulate != "off" && s.req.Order != nil {
+		if s.simulated() && s.req.Order != nil {
 			sim = s.req.Order.Description
 		}
 		out = indentLines(ui.Receipt(p, ui.ReceiptOpts{
 			Amount: opts.Amount, Method: s.label, Simulation: sim, Prod: ctx.IsProd(), Time: s.paidAt,
 		}), " ")
 	}
-	if s.details && s.simulate != "off" && s.req.Order != nil {
+	if s.details && s.simulated() && s.req.Order != nil {
 		out += "\n" + ui.Warning.Render(" ◆ ") + ui.Label.Render(fmt.Sprintf(t("res.sim"), s.req.Order.Description))
 	}
 	if s.note != "" {
@@ -1088,6 +1099,12 @@ func flowLabel(f string) string {
 		return t("flow.link.short")
 	}
 	return t("flow.direct.short")
+}
+
+// simulated reports a payment Paygate runs as a test transaction. Paygate
+// does not apply the simulation to payment links.
+func (s *newPaymentScreen) simulated() bool {
+	return s.simulate != "off" && core.Flow(s.flow) != core.FlowLink
 }
 
 // linkRows say how the customer gets a payment link and until when it is

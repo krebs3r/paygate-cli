@@ -52,7 +52,8 @@ type Server struct {
 type record struct {
 	PayID, TransID, Status, Code, Desc, Method, Currency, Capture, Sim string
 	Amount, Captured, Refunded                                         int64
-	Hosted                                                             bool
+	Hosted, Link                                                       bool
+	LinkPayID                                                          string // the payment link's own record
 	Brand, Last4                                                       string
 	WebhookURL                                                         string
 	Created                                                            time.Time
@@ -215,7 +216,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		problem(w, map[string][]string{"urls": {"urls.return, urls.cancel and urls.webhook are required."}})
 		return
 	}
-	s.hosted(w, b, s.HostedMethod)
+	s.hosted(w, b, s.HostedMethod, false)
 }
 
 // createLink answers like Paygate with nothing but the link to the hosted
@@ -240,12 +241,16 @@ func (s *Server) createLink(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.hosted(w, b, s.HostedMethod)
+	b.Order = nil // like Paygate: the simulation does not reach payment links
+	s.hosted(w, b, s.HostedMethod, true)
 }
 
-func (s *Server) hosted(w http.ResponseWriter, b *paymentBody, method string) {
+func (s *Server) hosted(w http.ResponseWriter, b *paymentBody, method string, link bool) {
 	rec := s.newRecord(b)
 	rec.Hosted, rec.Method, rec.Status, rec.Code = true, method, "", ""
+	if link {
+		rec.Link, rec.LinkPayID = true, rec.PayID
+	}
 	s.store(rec)
 	token := randHex(16)
 	writeJSON(w, http.StatusAccepted, map[string]any{
@@ -267,7 +272,7 @@ func (s *Server) createPayment(w http.ResponseWriter, r *http.Request) {
 			problem(w, map[string][]string{"urls.return": {"Mandatory when paymentMethods.integrationType=HOSTED."}})
 			return
 		}
-		s.hosted(w, b, strings.ToUpper(b.PaymentMethods.Type))
+		s.hosted(w, b, strings.ToUpper(b.PaymentMethods.Type), false)
 		return
 	}
 	card := b.PaymentMethods.Card
@@ -361,6 +366,15 @@ func (s *Server) paymentJSON(rec *record) map[string]any {
 	return out
 }
 
+// linkJSON is the record Paygate keeps for a payment link before any attempt.
+func (s *Server) linkJSON(rec *record) map[string]any {
+	return map[string]any{
+		"merchantId": s.MerchantID, "payId": rec.LinkPayID, "xId": randHex(16), "transId": rec.TransID,
+		"status": "OK", "responseCode": "00000000", "responseDescription": "success",
+		"amount": map[string]any{"value": 0, "currency": rec.Currency, "capturedValue": 0, "refundedValue": 0},
+	}
+}
+
 func (s *Server) detailsJSON(rec *record) map[string]any {
 	out := s.paymentJSON(rec)
 	out["amount"] = map[string]any{"value": rec.Amount, "currency": rec.Currency, "capturedValue": rec.Captured, "refundedValue": rec.Refunded}
@@ -385,7 +399,20 @@ func (s *Server) getByTransID(w http.ResponseWriter, r *http.Request) {
 		}()
 		s.polls[id]++
 		n := s.polls[id]
+		if rec.Link && n == s.NotFoundPolls+s.PendingPolls+1 {
+			// The customer's attempt is a payment of its own.
+			rec.PayID = randHex(16)
+			s.byPayID[rec.PayID] = rec
+		}
 		switch {
+		case rec.Link && n <= s.NotFoundPolls+s.PendingPolls:
+			// Like Paygate: until the customer makes an attempt, a payment
+			// link answers with a successful record of its own, without a
+			// payment method and with amount 0.
+			out := s.linkJSON(rec)
+			s.mu.Unlock()
+			writeJSON(w, 200, out)
+			return
 		case n <= s.NotFoundPolls:
 			s.mu.Unlock()
 			notFound(w)

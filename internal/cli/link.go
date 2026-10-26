@@ -56,28 +56,29 @@ of the same profile, or with --listen to a tunnel just for this payment.`,
 	return cmd
 }
 
-// confirmLink asks before a link on production moves real money or Paygate
-// sends it to a real customer. A simulated payment moves no money, but the
-// e-mail or SMS still goes out.
-func confirmLink(app *App, prof *config.Profile, req *paygate.PaymentRequest, simulated bool) error {
-	to := core.LinkRecipient(req)
-	if to == "" {
-		if simulated {
-			return nil
-		}
-		return app.ConfirmProd(prof, "create this payment link")
-	}
+// linkSimulationNote says what --simulate means for a payment link. In tests
+// on Nexi, links created with Test:0000 ran their payments for real.
+const linkSimulationNote = "Paygate does not apply the simulation to payment links: paying this link moves real money."
+
+// confirmLink asks before a link is created on production, simulated or
+// not: paying it moves real money, and with --send Paygate e-mails or texts
+// a real person.
+func confirmLink(app *App, prof *config.Profile, req *paygate.PaymentRequest) error {
 	if !prof.IsProd() || app.Yes || app.Curl {
 		return nil
 	}
+	to := core.LinkRecipient(req)
 	if !ui.Interactive() {
-		return errors.New("refusing to send a payment link to " + to + " on PRODUCTION without --yes")
+		if to != "" {
+			return errors.New("refusing to send a payment link to " + to + " on PRODUCTION without --yes")
+		}
+		return errors.New("refusing to create a payment link on PRODUCTION without --yes")
 	}
-	question := "Paygate sends the link to " + to + "."
-	if !simulated {
-		question += " Paying it moves real money."
+	question, action := "Paying this link moves real money.", " Create it?"
+	if to != "" {
+		question, action = "Paygate sends the link to "+to+". "+question, " Create and send it?"
 	}
-	ok, err := ui.Confirm("This is a PRODUCTION profile", question+" Create and send it?", false)
+	ok, err := ui.Confirm("This is a PRODUCTION profile", question+action, false)
 	if err != nil {
 		return err
 	}

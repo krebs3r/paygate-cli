@@ -243,7 +243,10 @@ func runPay(app *App, o *payOptions, cmd *cobra.Command) error {
 	}
 	switch {
 	case o.flow == flowLink:
-		if err := confirmLink(app, prof, req, o.simulate != ""); err != nil {
+		if o.simulate != "" && !app.JSON() {
+			ui.Println(ui.Warn(linkSimulationNote))
+		}
+		if err := confirmLink(app, prof, req); err != nil {
 			return err
 		}
 	case o.simulate == "":
@@ -402,8 +405,11 @@ func handleRedirect(app *App, profileName string, client *paygate.Client, req *p
 				return "", false, err
 			}
 			last = r
-			done := paygate.OutcomeOf(r.Payment) != paygate.OutcomePending
+			done := core.WaitOutcome(core.Flow(o.flow), r.Payment) != paygate.OutcomePending
 			status := r.Payment.Status
+			if o.flow == flowLink && !done && r.Payment.Method().Type == "" {
+				status = "waiting for customer" // a link's own record says OK
+			}
 			if hook != nil && len(hook.received()) > 0 {
 				status += " · webhook received"
 			}

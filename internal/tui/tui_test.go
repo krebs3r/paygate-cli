@@ -652,8 +652,8 @@ func TestNewPaymentLink(t *testing.T) {
 	for i := 0; i < 20 && s.stage == stageWaiting; i++ {
 		send(m, run(s.poll(m.ctx, time.Millisecond)))
 	}
-	if s.stage != stageResult || s.result == nil || s.result.Status != "OK" {
-		t.Fatalf("link payment did not complete: stage %d %+v", s.stage, s.result)
+	if s.stage != stageResult || s.result == nil || s.result.Status != "OK" || s.result.Method().Type == "" {
+		t.Fatalf("link payment did not end with the paid attempt: stage %d %+v", s.stage, s.result)
 	}
 
 	// Stopped waiting, the link stays valid and the list shows it as a link.
@@ -675,17 +675,21 @@ func TestNewPaymentLink(t *testing.T) {
 	}
 }
 
-// On production the review warns that the e-mail reaches a real person, also
-// for a simulated payment.
+// On production the review of a link warns that real money moves, though
+// the simulation is on by default there, and that the e-mail reaches a real
+// person.
 func TestNewPaymentLinkOnProduction(t *testing.T) {
 	m := setup(t, twoProfiles(), "shop-prod")
 	i18n.Set(i18n.EN)
-	enterLinkForm(t, m)
+	s := enterLinkForm(t, m)
 	view := ansi.Strip(m.View())
-	for _, want := range []string{"simulated with Test:0000", "Paygate sends a real message to kunde@example.com"} {
+	for _, want := range []string{"real money will move", "does not apply the simulation to payment links", "Paygate sends a real message to kunde@example.com"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("production review misses %q:\n%s", want, view)
 		}
+	}
+	if strings.Contains(view, "no money moves") || s.simulated() {
+		t.Errorf("a link must not be shown as simulated:\n%s", view)
 	}
 }
 

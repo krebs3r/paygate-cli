@@ -316,8 +316,8 @@ Global flags work with every command:
 
 `paygate link` creates a payment link (Pay by Link): Paygate answers with a
 link to its hosted payment page, and paygate shows it with a QR code and waits
-until the payment is final, like `paygate pay --hosted`. The link stays valid
-when you stop waiting.
+for the customer's payment, like `paygate pay --hosted`. The link stays valid
+when you stop waiting, and also after a failed attempt.
 
 ```bash
 paygate link --amount 49 --methods card,paypal --expires 24h
@@ -326,10 +326,17 @@ paygate link --amount 49 --send sms --phone "+49 170 1234567"
 ```
 
 Without `--send`, you share the link yourself. With `--send email` or
-`--send sms`, Paygate sends it to the customer; on production paygate asks
-first, also for a simulated payment, because the message reaches a real
-person. `--expires` takes minutes, hours or days (`30m`, `24h`, `7d`);
-without it, the validity set for your merchant at Paygate applies.
+`--send sms`, Paygate sends it to the customer. `--expires` takes minutes,
+hours or days (`30m`, `24h`, `7d`); without it, the validity set for your
+merchant at Paygate applies.
+
+> [!WARNING]
+> **The simulation does not work for payment links.** In tests on Nexi,
+> Paygate did not pass `Test:0000` on to the payment of a link: test cards were
+> declined as on any real payment. Paying a link on production moves real
+> money, also with `--simulate`. paygate therefore always asks before it
+> creates a link on production (scripts need `--yes`) and warns when
+> `--simulate` is set.
 
 In the app, New payment → Payment link does the same; the command palette
 (`ctrl+k`) starts a new payment link directly.
@@ -337,7 +344,8 @@ In the app, New payment → Payment link does the same; the command palette
 ## Test transactions on production
 
 Paygate treats a payment whose order description is `Test:0000` as a test
-transaction, even on production; `Test:0305` simulates a decline. paygate calls
+transaction, even on production; `Test:0305` simulates a decline (not for
+[payment links](#payment-links)). paygate calls
 this **simulation**:
 
 ```bash

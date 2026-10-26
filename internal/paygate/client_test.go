@@ -120,11 +120,17 @@ func TestPaymentLink(t *testing.T) {
 	if res.Response.StatusCode != http.StatusAccepted || res.Payment.RedirectURL() == "" || res.Payment.PayID != "" {
 		t.Fatalf("unexpected link answer: %d %+v", res.Response.StatusCode, res.Payment)
 	}
-	if _, err := c.GetByTransID(context.Background(), "TIDLINK"); !paygate.IsNotFound(err) {
-		t.Fatalf("first poll should be not found, got %v", err)
+	// Like Paygate: before any attempt the link answers with a successful
+	// record of its own, without a payment method and with amount 0 ...
+	r, err := c.GetByTransID(context.Background(), "TIDLINK")
+	if err != nil || r.Payment.Status != "OK" || r.Payment.Method().Type != "" || r.Payment.Amount.Value != 0 {
+		t.Fatalf("first poll should be the link's own record, got %v %+v", err, r)
 	}
-	if r, err := c.GetByTransID(context.Background(), "TIDLINK"); err != nil || paygate.OutcomeOf(r.Payment) != paygate.OutcomeSuccess {
-		t.Fatalf("second poll should be paid, got %v %+v", err, r)
+	linkPayID := r.Payment.PayID
+	// ... and the customer's attempt is a payment of its own.
+	r, err = c.GetByTransID(context.Background(), "TIDLINK")
+	if err != nil || paygate.OutcomeOf(r.Payment) != paygate.OutcomeSuccess || r.Payment.Method().Type == "" || r.Payment.PayID == linkPayID {
+		t.Fatalf("second poll should be the paid attempt, got %v %+v", err, r)
 	}
 
 	req.TransID, req.ServiceType = "TIDMAIL", "EMAIL"

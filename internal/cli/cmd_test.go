@@ -285,9 +285,10 @@ func TestPaymentLink(t *testing.T) {
 	m := setup(t)
 	mustInit(t)
 
+	// The link's own record says OK as well; the wait ends with the attempt.
 	paid := payJSON(t, "link", "--amount", "49", "--methods", "card,paypal", "--poll-interval", "10ms")
-	if paid["status"] != "OK" {
-		t.Errorf("link final status = %v", paid["status"])
+	if paid["status"] != "OK" || paid["paymentMethods"] == nil {
+		t.Errorf("link should end with the paid attempt, got %v", paid)
 	}
 
 	out, _, err := run(t, "link", "--amount", "49", "--expires", "24h", "--trans-id", "TIDLINKNOWAIT", "--no-wait")
@@ -322,10 +323,17 @@ func TestPaymentLink(t *testing.T) {
 	if _, _, err := run(t, "link", "--expires", "soon"); err == nil || !strings.Contains(err.Error(), "24h") {
 		t.Errorf("bad --expires: %v", err)
 	}
+
+	// Like Paygate, the mock ignores the simulation for links: a simulated
+	// decline is paid, and paygate says why up front.
+	out, _, err = run(t, "link", "--simulate", "decline", "--poll-interval", "10ms")
+	if err != nil || !strings.Contains(out, "does not apply the simulation") || !strings.Contains(out, "Paid with PayPal") {
+		t.Errorf("--simulate decline on a link: %v\n%s", err, out)
+	}
 }
 
-// On production, a script must confirm with --yes that Paygate e-mails a real
-// customer, even when the payment itself is only simulated.
+// On production, a script must confirm every link with --yes: Paygate does
+// not apply the simulation to payment links, and --send reaches a real person.
 func TestPaymentLinkDeliveryOnProduction(t *testing.T) {
 	m := setup(t)
 	if _, _, err := run(t, "init", "--name", "prod", "--env", "prod", "--merchant-id", "demo-shop", "--api-key", "demo-key"); err != nil {
@@ -340,12 +348,17 @@ func TestPaymentLinkDeliveryOnProduction(t *testing.T) {
 	if !strings.Contains(out, "PROD") || !strings.Contains(out, "nexi · prod (demo-shop)") {
 		t.Errorf("the header should precede the confirmation:\n%s", out)
 	}
-	if _, _, err := run(t, "link", "--simulate", "ok", "--no-wait"); err != nil {
-		t.Errorf("a simulated link the merchant shares needs no confirmation: %v", err)
+	_, _, err = run(t, "link", "--simulate", "ok", "--no-wait")
+	if err == nil || !strings.Contains(err.Error(), "refusing to create a payment link on PRODUCTION without --yes") || m.Requests() != before {
+		t.Errorf("a simulated link needs a confirmation too: %v", err)
 	}
 	out, _, err = run(t, "link", "--simulate", "ok", "--send", "email", "--email", "customer@example.com", "--no-wait", "--yes")
-	if err != nil || !strings.Contains(out, "Paygate sends it to customer@example.com") {
+	if err != nil || !strings.Contains(out, "Paygate sends it to customer@example.com") || !strings.Contains(out, "does not apply the simulation") {
 		t.Errorf("--yes: %v\n%s", err, out)
+	}
+	recs, _ := history.Load()
+	if len(recs) != 1 || recs[0].Simulation != "" {
+		t.Errorf("a link must not be recorded as simulated: %+v", recs)
 	}
 }
 

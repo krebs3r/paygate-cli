@@ -79,6 +79,20 @@ func TestBuildLinkRequest(t *testing.T) {
 	}
 }
 
+func TestWaitOutcome(t *testing.T) {
+	linkRecord := &paygate.Payment{Status: "OK", ResponseCode: "00000000", Amount: &paygate.AmountDetails{}}
+	if got := WaitOutcome(FlowLink, linkRecord); got != paygate.OutcomePending {
+		t.Errorf("a link's own record must count as pending, got %v", got)
+	}
+	if got := WaitOutcome(FlowHosted, linkRecord); got != paygate.OutcomeSuccess {
+		t.Errorf("other flows keep Paygate's outcome, got %v", got)
+	}
+	attempt := &paygate.Payment{Status: "FAILED", ResponseCode: "21151201", PaymentMethods: []byte(`{"type":"IDEAL"}`)}
+	if got := WaitOutcome(FlowLink, attempt); got != paygate.OutcomeFailed {
+		t.Errorf("a failed attempt ends the wait, got %v", got)
+	}
+}
+
 func TestParseValidity(t *testing.T) {
 	for in, want := range map[string]time.Duration{"": 0, "30m": 30 * time.Minute, "24h": 24 * time.Hour, "7d": 7 * 24 * time.Hour} {
 		if got, err := ParseValidity(in); err != nil || got != want {

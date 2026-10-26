@@ -22,7 +22,8 @@ func RecordPayment(profileName string, p *config.Profile, flow Flow, req *paygat
 		Currency:   req.Amount.Currency,
 		Method:     method,
 	}
-	if req.Order != nil && len(req.Order.Description) == 9 && req.Order.Description[:5] == "Test:" {
+	// Paygate does not apply the simulation to payment links.
+	if flow != FlowLink && req.Order != nil && len(req.Order.Description) == 9 && req.Order.Description[:5] == "Test:" {
 		rec.Simulation = req.Order.Description
 	}
 	pay, resp := extract(res, err)
