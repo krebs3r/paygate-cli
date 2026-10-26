@@ -48,6 +48,13 @@ func TestBuildLinkRequest(t *testing.T) {
 	if got := LinkRecipient(req); got != "customer@example.com" {
 		t.Errorf("recipient = %q", got)
 	}
+	if req.ExternalTemplate != "" {
+		t.Errorf("an e-mail without template uses Nexi's standard template, got %q", req.ExternalTemplate)
+	}
+	req, _, _ = BuildPaymentRequest(PaymentInput{Flow: FlowLink, Send: "email", Email: "customer@example.com", Template: " shop_mail_de "}, prof)
+	if req.ExternalTemplate != "shop_mail_de" {
+		t.Errorf("e-mail template = %q", req.ExternalTemplate)
+	}
 
 	// Without a delivery, Paygate's defaults apply and nothing extra is sent.
 	req, _, err = BuildPaymentRequest(PaymentInput{Flow: FlowLink}, prof)
@@ -55,8 +62,8 @@ func TestBuildLinkRequest(t *testing.T) {
 		t.Errorf("plain link = %+v, %v", req, err)
 	}
 
-	req, _, err = BuildPaymentRequest(PaymentInput{Flow: FlowLink, Send: "sms", Phone: "+49 170 123-4567"}, prof)
-	if err != nil || req.ServiceType != "SMS" || *req.CustomerInfo.Phone != (paygate.Phone{CountryCode: "49", Number: "1701234567"}) {
+	req, _, err = BuildPaymentRequest(PaymentInput{Flow: FlowLink, Send: "sms", Phone: "+49 170 123-4567", Template: "shop_sms"}, prof)
+	if err != nil || req.ServiceType != "SMS" || req.ExternalTemplate != "shop_sms" || *req.CustomerInfo.Phone != (paygate.Phone{CountryCode: "49", Number: "1701234567"}) {
 		t.Errorf("sms link = %+v, %v", req.CustomerInfo, err)
 	}
 	if got := LinkRecipient(req); got != "+49 1701234567" {
@@ -65,7 +72,10 @@ func TestBuildLinkRequest(t *testing.T) {
 
 	for name, in := range map[string]PaymentInput{
 		"email without address": {Send: "email"},
-		"sms without number":    {Send: "sms", Email: "customer@example.com"},
+		"sms without number":    {Send: "sms", Email: "customer@example.com", Template: "shop_sms"},
+		"sms without template":  {Send: "sms", Phone: "+49 170 1234567"},
+		"template without send": {Template: "shop_mail_de"},
+		"template too long":     {Send: "email", Email: "customer@example.com", Template: strings.Repeat("x", 33)},
 		"bad address":           {Email: "customer at example.com"},
 		"number without +":      {Phone: "0170 1234567"},
 		"unknown delivery":      {Send: "fax"},

@@ -140,7 +140,19 @@ func TestPaymentLink(t *testing.T) {
 	}
 	req.CustomerInfo = &paygate.CustomerInfo{Email: "customer@example.com"}
 	if _, err := c.CreateLink(context.Background(), req); err != nil {
-		t.Fatalf("e-mail link: %v", err)
+		t.Fatalf("e-mail link without template: %v", err)
+	}
+
+	// Like Paygate: an SMS needs its template.
+	req.TransID, req.ServiceType = "TIDSMS", "SMS"
+	req.CustomerInfo = &paygate.CustomerInfo{Phone: &paygate.Phone{CountryCode: "49", Number: "1701234567"}}
+	_, err = c.CreateLink(context.Background(), req)
+	if e, ok := paygate.AsAPIError(err); !ok || e.StatusCode != 422 || e.Payment == nil || e.Payment.ResponseCode != "20102378" {
+		t.Fatalf("an SMS link without template must fail like Paygate, got %v", err)
+	}
+	req.TransID, req.ExternalTemplate = "TIDSMS2", "shop_sms"
+	if _, err := c.CreateLink(context.Background(), req); err != nil {
+		t.Fatalf("SMS link with template: %v", err)
 	}
 }
 

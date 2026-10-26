@@ -615,6 +615,7 @@ func enterLinkForm(t *testing.T, m *model) *newPaymentScreen {
 		send(m, tea.KeyMsg{Type: tea.KeyBackspace})
 	}
 	send(m, keys("kunde@example.com"), enter, keys("Max Muster"), enter)
+	send(m, enter)                             // template: Nexi's standard
 	send(m, enter, enter, enter, enter, enter) // amount, currency, description, simulation, capture
 	if s.stage != stageReview {
 		t.Fatalf("expected review, got stage %d:\n%s", s.stage, m.View())
@@ -627,7 +628,7 @@ func TestNewPaymentLink(t *testing.T) {
 	i18n.Set(i18n.EN)
 	s := enterLinkForm(t, m)
 	view := ansi.Strip(m.View())
-	for _, want := range []string{"Payment link", "e-mail to Max Muster · kunde@example.com", "Valid until"} {
+	for _, want := range []string{"Payment link", "e-mail to Max Muster · kunde@example.com", "Nexi standard", "Valid until"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("review misses %q:\n%s", want, view)
 		}
@@ -672,6 +673,31 @@ func TestNewPaymentLink(t *testing.T) {
 	send(m, keys("l"))
 	if v := ansi.Strip(m.View()); !strings.Contains(v, "Payment link") {
 		t.Errorf("the payments list should name the open link:\n%s", v)
+	}
+}
+
+// An SMS needs the name of its template; the form asks for it.
+func TestNewPaymentLinkSMSNeedsTemplate(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	send(m, keys("n"))
+	s := m.current().(*newPaymentScreen)
+	send(m, down, down, down, enter) // payment link
+	send(m, enter)                   // methods: all
+	send(m, down, down, enter)       // delivery: SMS
+	send(m, enter)                   // valid for: Paygate default
+	send(m, keys("+49 170 1234567"), enter, enter)
+	send(m, enter) // no template
+	if s.stage != stageForm || !strings.Contains(ansi.Strip(m.View()), "enter the template name") {
+		t.Fatalf("an SMS without template must stay in the form:\n%s", m.View())
+	}
+	send(m, keys("shop_sms"), enter)
+	send(m, enter, enter, enter, enter, enter)
+	if s.stage != stageReview || s.req.ServiceType != "SMS" || s.req.ExternalTemplate != "shop_sms" {
+		t.Fatalf("expected an SMS link with template in the review, got stage %d %+v", s.stage, s.req)
+	}
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "SMS to +49 1701234567") || !strings.Contains(v, "shop_sms") {
+		t.Errorf("review:\n%s", v)
 	}
 }
 

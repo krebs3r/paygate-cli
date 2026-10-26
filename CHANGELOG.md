@@ -12,15 +12,17 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   limits the payment methods, `--expires` sets how long the link stays valid
   (`30m`, `24h`, `7d`) and `--partial` allows paying in parts. With
   `--send email` or `--send sms` Paygate sends the link to the customer
-  (`--email`, `--phone`, `--name`). Paygate does not apply the simulation
+  (`--email`, `--phone`, `--name`); `--template` names the e-mail or SMS
+  template at Paygate, which an SMS needs and an e-mail may use instead of
+  Nexi's standard template. Paygate does not apply the simulation
   (`Test:0000`) to payment links, so on production paygate always asks
   before it creates one and warns when `--simulate` is set. The wait ends
   with the customer's first attempt: until then Paygate answers the status
   lookup with a successful record of the link itself. The mock server
   answers payment links the same way.
 - In the app, New payment offers a payment link as its fourth flow, with
-  the payment methods, the delivery (show it, e-mail or SMS), the customer
-  and how long the link stays valid. The review names delivery and
+  the payment methods, the delivery (show it, e-mail or SMS), the customer,
+  the template of the e-mail or SMS and how long the link stays valid. The review names delivery and
   validity, warns that the simulation does not apply to links and, on
   production, that real money moves and the message reaches a real
   person; the wait screen shows the link with its QR code. The command

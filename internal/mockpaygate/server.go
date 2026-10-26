@@ -176,8 +176,9 @@ type paymentBody struct {
 			} `json:"threeDsPolicy"`
 		} `json:"card"`
 	} `json:"paymentMethods"`
-	ServiceType  string `json:"serviceType"`
-	CustomerInfo *struct {
+	ServiceType      string `json:"serviceType"`
+	ExternalTemplate string `json:"externalTemplate"`
+	CustomerInfo     *struct {
 		Email string `json:"email"`
 		Phone *struct {
 			Number string `json:"number"`
@@ -238,6 +239,16 @@ func (s *Server) createLink(w http.ResponseWriter, r *http.Request) {
 	case "SMS":
 		if ci == nil || ci.Phone == nil || ci.Phone.Number == "" {
 			problem(w, map[string][]string{"customerInfo.phone": {"Mandatory when serviceType=SMS."}})
+			return
+		}
+		// Like Paygate: an SMS needs its template, e-mails fall back to
+		// Nexi's standard template.
+		if b.ExternalTemplate == "" {
+			writeJSON(w, 422, map[string]any{
+				"merchantId": s.MerchantID, "payId": randHex(16), "xId": randHex(16), "transId": b.TransID,
+				"status": "FAILED", "responseCode": "20102378", "responseDescription": "Param missing: externalTemplate",
+				"title": "Processing error",
+			})
 			return
 		}
 	}

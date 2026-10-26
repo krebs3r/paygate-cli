@@ -80,7 +80,7 @@ type newPaymentScreen struct {
 	flow, cardChoice, single, cardNumber, expiry, cvc, threeDS string
 	methods                                                    []string
 	amount, currency, description, simulate, capture           string
-	delivery, email, phone, name, expires                      string // payment link
+	delivery, email, phone, name, template, expires            string // payment link
 	initialized                                                bool
 
 	// prepared request
@@ -296,11 +296,13 @@ func (s *newPaymentScreen) startForm(ctx *Context) tea.Cmd {
 		huh.NewGroup(
 			huh.NewInput().Title(t("link.email")).Placeholder("customer@example.com").Value(&s.email).Validate(validEmail),
 			huh.NewInput().Title(t("link.name")).Placeholder("Max Muster").Value(&s.name),
+			huh.NewInput().Title(t("link.tpl.email")).Description(t("link.tpl.edesc")).Value(&s.template).Validate(validTemplate(false)),
 		).WithHideFunc(func() bool { return s.flow != string(core.FlowLink) || s.delivery != core.SendEmail }),
 		huh.NewGroup(
 			huh.NewInput().Title(t("link.phone")).Description(t("link.phone.desc")).Placeholder("+49 170 1234567").
 				Value(&s.phone).Validate(validPhone),
 			huh.NewInput().Title(t("link.name")).Placeholder("Max Muster").Value(&s.name),
+			huh.NewInput().Title(t("link.tpl.sms")).Description(t("link.tpl.sdesc")).Value(&s.template).Validate(validTemplate(true)),
 		).WithHideFunc(func() bool { return s.flow != string(core.FlowLink) || s.delivery != core.SendSMS }),
 		huh.NewGroup(huh.NewSelect[string]().Title(t("new.method")).Options(single...).Value(&s.single)).
 			WithHideFunc(func() bool { return s.flow != string(core.FlowMethod) }),
@@ -364,9 +366,9 @@ func (s *newPaymentScreen) input() core.PaymentInput {
 		in.Methods, in.Send, in.Expires = s.methods, s.delivery, s.expires
 		switch s.delivery {
 		case core.SendEmail:
-			in.Email, in.Name = s.email, s.name
+			in.Email, in.Name, in.Template = s.email, s.name, s.template
 		case core.SendSMS:
-			in.Phone, in.Name = s.phone, s.name
+			in.Phone, in.Name, in.Template = s.phone, s.name, s.template
 		}
 	case core.FlowDirect:
 		if s.cardChoice == manualCardChoice {
@@ -1121,11 +1123,19 @@ func (s *newPaymentScreen) linkRows() [][2]string {
 		}
 		delivery = fmt.Sprintf(t(via), to)
 	}
+	rows := [][2]string{{t("rev.link.send"), delivery}}
+	if s.req.ServiceType != "" {
+		tpl := s.req.ExternalTemplate
+		if tpl == "" {
+			tpl = ui.Muted.Render(t("rev.link.tpldef"))
+		}
+		rows = append(rows, [2]string{t("rev.link.tpl"), tpl})
+	}
 	valid := ui.Muted.Render(t("rev.link.default"))
 	if ts, err := time.Parse(time.RFC3339, s.req.ExpirationTime); err == nil {
 		valid = ts.Local().Format("02.01.2006 15:04")
 	}
-	return [][2]string{{t("rev.link.send"), delivery}, {t("rev.link.valid"), valid}}
+	return append(rows, [2]string{t("rev.link.valid"), valid})
 }
 
 func validEmail(v string) error {
@@ -1133,6 +1143,20 @@ func validEmail(v string) error {
 		return errors.New(t("link.email.bad"))
 	}
 	return nil
+}
+
+// validTemplate checks the name of an e-mail or SMS template: Paygate takes
+// up to 32 characters and needs one for an SMS.
+func validTemplate(required bool) func(string) error {
+	return func(v string) error {
+		switch v = strings.TrimSpace(v); {
+		case required && v == "":
+			return errors.New(t("link.tpl.bad"))
+		case len(v) > 32:
+			return errors.New(t("link.tpl.long"))
+		}
+		return nil
+	}
 }
 
 func validPhone(v string) error {

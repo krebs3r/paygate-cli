@@ -60,12 +60,13 @@ type payOptions struct {
 	interval    time.Duration
 
 	// paygate link
-	send    string
-	email   string
-	phone   string
-	name    string
-	expires string
-	partial bool
+	send     string
+	email    string
+	phone    string
+	name     string
+	template string
+	expires  string
+	partial  bool
 }
 
 func newPayCmd(app *App) *cobra.Command {
@@ -318,7 +319,7 @@ func (o *payOptions) input() core.PaymentInput {
 		Amount: o.amount, Currency: o.currency, Description: o.description,
 		TransID: o.transID, RefNr: o.refNr, Capture: o.capture, Language: o.language,
 		Channel: o.channel, Skip3DS: o.skip3DS, Simulate: o.simulate, IP: o.ip,
-		Send: o.send, Email: o.email, Phone: o.phone, Name: o.name, Expires: o.expires, Partial: o.partial,
+		Send: o.send, Email: o.email, Phone: o.phone, Name: o.name, Template: o.template, Expires: o.expires, Partial: o.partial,
 	}
 }
 

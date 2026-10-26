@@ -322,13 +322,15 @@ when you stop waiting, and also after a failed attempt.
 ```bash
 paygate link --amount 49 --methods card,paypal --expires 24h
 paygate link --amount 49 --send email --email customer@example.com --name "Max Muster"
-paygate link --amount 49 --send sms --phone "+49 170 1234567"
+paygate link --amount 49 --send sms --phone "+49 170 1234567" --template <your-sms-template>
 ```
 
 Without `--send`, you share the link yourself. With `--send email` or
-`--send sms`, Paygate sends it to the customer. `--expires` takes minutes,
-hours or days (`30m`, `24h`, `7d`); without it, the validity set for your
-merchant at Paygate applies.
+`--send sms`, Paygate sends it to the customer. E-mails use Nexi's standard
+template unless `--template` names your own; an SMS always needs the name of
+your SMS template at Paygate, which Nexi support sets up. `--expires` takes
+minutes, hours or days (`30m`, `24h`, `7d`); without it, the validity set for
+your merchant at Paygate applies.
 
 > [!WARNING]
 > **The simulation does not work for payment links.** In tests on Nexi,

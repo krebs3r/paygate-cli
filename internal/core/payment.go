@@ -58,14 +58,15 @@ type PaymentInput struct {
 	// of a running paygate listen.
 	WebhookURL string
 	// FlowLink: how the customer gets the link (link, email, sms), who the
-	// customer is and how long the link stays valid ("24h", "7d"; empty:
-	// Paygate's setting).
-	Send    string
-	Email   string
-	Phone   string
-	Name    string
-	Expires string
-	Partial bool
+	// customer is, the e-mail or SMS template at Paygate and how long the
+	// link stays valid ("24h", "7d"; empty: Paygate's setting).
+	Send     string
+	Email    string
+	Phone    string
+	Name     string
+	Template string
+	Expires  string
+	Partial  bool
 }
 
 var simCode = regexp.MustCompile(`^\d{4}$`)

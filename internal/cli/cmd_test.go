@@ -320,6 +320,14 @@ func TestPaymentLink(t *testing.T) {
 	if _, _, err := run(t, "link", "--send", "email"); err == nil || !strings.Contains(err.Error(), "e-mail address") {
 		t.Errorf("--send email without --email: %v", err)
 	}
+	before = m.Requests()
+	if _, _, err := run(t, "link", "--send", "sms", "--phone", "+49 170 1234567"); err == nil || !strings.Contains(err.Error(), "SMS template") || m.Requests() != before {
+		t.Errorf("--send sms without --template must fail before the request: %v", err)
+	}
+	curl, _, err = run(t, "link", "--send", "sms", "--phone", "+49 170 1234567", "--template", "shop_sms", "--curl")
+	if err != nil || !strings.Contains(curl, `"externalTemplate": "shop_sms"`) {
+		t.Errorf("--template: %v\n%s", err, curl)
+	}
 	if _, _, err := run(t, "link", "--expires", "soon"); err == nil || !strings.Contains(err.Error(), "24h") {
 		t.Errorf("bad --expires: %v", err)
 	}

@@ -121,10 +121,11 @@ type PaymentRequest struct {
 	AllowedPaymentMethods []string        `json:"allowedPaymentMethods,omitempty"`
 	PaymentMethods        *PaymentMethods `json:"paymentMethods,omitempty"`
 
-	CustomerInfo   *CustomerInfo `json:"customerInfo,omitempty"`
-	ServiceType    string        `json:"serviceType,omitempty"`    // LINK | EMAIL | SMS
-	ExpirationTime string        `json:"expirationTime,omitempty"` // RFC 3339, UTC
-	PartialPayment bool          `json:"partialPayment,omitempty"`
+	CustomerInfo     *CustomerInfo `json:"customerInfo,omitempty"`
+	ServiceType      string        `json:"serviceType,omitempty"`      // LINK | EMAIL | SMS
+	ExternalTemplate string        `json:"externalTemplate,omitempty"` // e-mail or SMS template at Paygate
+	ExpirationTime   string        `json:"expirationTime,omitempty"`   // RFC 3339, UTC
+	PartialPayment   bool          `json:"partialPayment,omitempty"`
 }
 
 // OperationRequest is the body of captures, refunds and reversals.

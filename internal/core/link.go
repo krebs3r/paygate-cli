@@ -57,6 +57,18 @@ func applyLink(req *paygate.PaymentRequest, in PaymentInput, now time.Time) erro
 	default:
 		return fmt.Errorf("unknown delivery %q (use link, email or sms)", in.Send)
 	}
+	// Paygate needs a template for an SMS; e-mails without one get Nexi's
+	// standard template.
+	switch tpl := strings.TrimSpace(in.Template); {
+	case len(tpl) > 32:
+		return fmt.Errorf("template name %q is longer than 32 characters", tpl)
+	case tpl != "" && req.ServiceType == "":
+		return errors.New("a template is for the e-mail or SMS: send the link by e-mail or SMS to use one")
+	case tpl == "" && req.ServiceType == "SMS":
+		return errors.New("sending the link by SMS needs the name of its SMS template at Paygate (ask Nexi support for it)")
+	default:
+		req.ExternalTemplate = tpl
+	}
 
 	validFor, err := ParseValidity(in.Expires)
 	if err != nil {
