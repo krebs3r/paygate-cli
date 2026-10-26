@@ -1,7 +1,9 @@
 // Package reqlog records the HTTP exchanges with Paygate for the Inspector.
 // Credentials never reach the log: authorization headers, client secrets and
 // access tokens are redacted, card numbers and security codes masked. The
-// newest MaxEntries exchanges are kept. PAYGATE_NO_HISTORY=1 disables it.
+// newest MaxEntries exchanges are kept; a status lookup that gets the same
+// answer as the one before it is folded into it. PAYGATE_NO_HISTORY=1
+// disables it.
 package reqlog
 
 import (
@@ -25,7 +27,7 @@ import (
 )
 
 // MaxEntries is how many exchanges are kept.
-const MaxEntries = 200
+const MaxEntries = 1000
 
 const maxBody = 64 << 10
 
@@ -43,6 +45,10 @@ type Entry struct {
 	ResponseHeaders map[string]string `json:"responseHeaders,omitempty"`
 	ResponseBody    string            `json:"responseBody,omitempty"`
 	Error           string            `json:"error,omitempty"`
+	// Repeat counts the earlier lookups with the same answer folded into
+	// this one; First is the time of the first of them.
+	Repeat int       `json:"repeat,omitempty"`
+	First  time.Time `json:"first,omitempty"`
 }
 
 // Path returns the log file.
@@ -208,11 +214,60 @@ func Append(e Entry) error {
 	if err != nil {
 		return err
 	}
+	if len(all) > 0 && sameLookup(all[0], e) {
+		// Waiting for a payment asks the same question every few seconds;
+		// only a changed answer gets an entry of its own.
+		e.Repeat, e.First = all[0].Repeat+1, all[0].First
+		if e.First.IsZero() {
+			e.First = all[0].Time
+		}
+		all = all[1:]
+	}
 	all = append([]Entry{e}, all...)
 	if len(all) > MaxEntries {
 		all = all[:MaxEntries]
 	}
 	return save(all)
+}
+
+// sameLookup reports a status lookup that repeats the one before it: the
+// same GET of the same profile, answered with the same HTTP status, pay ID,
+// payment status and response code. The pay ID tells a payment link's own
+// record from the customer's attempt, which both answer OK.
+func sameLookup(prev, e Entry) bool {
+	return e.Method == http.MethodGet && prev.Method == e.Method && prev.URL == e.URL && prev.Profile == e.Profile &&
+		prev.Status == e.Status && prev.Error == e.Error && answerOf(prev.ResponseBody) == answerOf(e.ResponseBody)
+}
+
+func answerOf(body string) string {
+	var a struct {
+		PayID        string          `json:"payId"`
+		Status       string          `json:"status"`
+		ResponseCode json.RawMessage `json:"responseCode"`
+	}
+	_ = json.Unmarshal([]byte(body), &a)
+	return a.PayID + "|" + a.Status + "|" + string(a.ResponseCode)
+}
+
+// ForPayment picks the exchanges of one payment from entries: those of the
+// profile whose URL, request or response names its trans ID or one of its
+// pay IDs. They come back oldest first.
+func ForPayment(entries []Entry, profile, transID string, payIDs ...string) []Entry {
+	var out []Entry
+	for _, e := range entries {
+		if e.Profile != profile {
+			continue
+		}
+		hit := transID != "" && (strings.Contains(e.URL, transID) || strings.Contains(e.RequestBody, transID) || strings.Contains(e.ResponseBody, transID))
+		for _, id := range payIDs {
+			hit = hit || id != "" && strings.Contains(e.URL, id)
+		}
+		if hit {
+			out = append(out, e)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Time.Before(out[j].Time) })
+	return out
 }
 
 // Clear removes all entries.

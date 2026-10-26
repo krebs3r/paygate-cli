@@ -158,8 +158,13 @@ func (s *webhooksScreen) QuitWarning(ctx *Context) string {
 	return ""
 }
 
-// Receive runs the webhook commands of the palette.
+// Receive runs the webhook commands of the palette and opens a webhook
+// another screen points to, e.g. one in a payment's timeline.
 func (s *webhooksScreen) Receive(ctx *Context, data any) tea.Cmd {
+	if e, ok := data.(listen.Event); ok {
+		s.openDetail(ctx, e)
+		return nil
+	}
 	switch data {
 	case "listen":
 		if ctx.Listen == nil && ctx.opening == nil {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -72,6 +71,15 @@ type paymentsScreen struct {
 	hookMod  time.Time
 	hookSize int64
 
+	// its API calls and webhooks, oldest first
+	calls      []callRow
+	callsGone  bool // some of its calls have left the request log
+	callSel    int
+	callOffset int
+	callOpen   bool // the selected call is shown with request and response
+	callResp   bool // the response is the active side
+	callScroll int
+
 	// embedded forms: filter, lookup, operation
 	form     *huh.Form
 	formKind string
@@ -108,6 +116,9 @@ func (s *paymentsScreen) Back(*Context) (bool, tea.Cmd) {
 	switch {
 	case s.form != nil:
 		s.form = nil
+		return true, nil
+	case s.callOpen:
+		s.callOpen = false
 		return true, nil
 	case s.mode == paysDetail:
 		s.mode, s.showJSON = paysList, false
@@ -154,8 +165,15 @@ func (s *paymentsScreen) Hints(ctx *Context) []Hint {
 	if s.form != nil {
 		return []Hint{{"enter", t("key.open")}, {"esc", t("key.cancel")}}
 	}
+	if s.mode == paysDetail && s.callOpen {
+		return []Hint{{"[ ]", t("key.prevnext")}, {"v", t("key.view")}, {"↑↓", t("key.scroll")},
+			{"c", t("key.curl")}, {"y", t("key.copybody")}, {"esc", t("key.back")}}
+	}
 	if s.mode == paysDetail {
 		var hints []Hint
+		if !s.showJSON && len(s.calls) > 0 {
+			hints = append(hints, Hint{"↑↓", t("key.select")}, Hint{"enter", t("key.view")})
+		}
 		if s.can(paygate.OpCapture) {
 			hints = append(hints, Hint{"c", t("key.capture")})
 		}
@@ -208,6 +226,7 @@ func (s *paymentsScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 				s.rec = r
 			}
 		}
+		s.loadCalls() // the lookup itself is a call too
 		s.reload(ctx)
 		return nil
 	case lookupDoneMsg:
@@ -277,6 +296,9 @@ func (s *paymentsScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 }
 
 func (s *paymentsScreen) detailKeys(ctx *Context, k string) tea.Cmd {
+	if handled, cmd := s.callKeys(ctx, k); handled {
+		return cmd
+	}
 	switch k {
 	case "r":
 		return s.refresh(ctx)
@@ -309,6 +331,7 @@ func (s *paymentsScreen) detailKeys(ctx *Context, k string) tea.Cmd {
 
 func (s *paymentsScreen) openDetail(ctx *Context, r history.Record) tea.Cmd {
 	s.mode, s.rec, s.payment, s.raw, s.loadErr, s.showJSON, s.message = paysDetail, r, nil, nil, nil, false, ""
+	s.calls, s.callSel, s.callOffset, s.callOpen = nil, 0, 0, false
 	s.loadHooks(true)
 	return s.refresh(ctx)
 }
@@ -321,6 +344,7 @@ func (s *paymentsScreen) loadHooks(force bool) {
 	}
 	s.hookMod, s.hookSize = mod, size
 	s.hooks = paymentHooks(s.rec)
+	s.loadCalls()
 }
 
 func (s *paymentsScreen) refresh(ctx *Context) tea.Cmd {
@@ -623,6 +647,9 @@ func (s *paymentsScreen) messageLine(w int) string {
 }
 
 func (s *paymentsScreen) detailView(ctx *Context, w, h int) string {
+	if s.callOpen && s.form == nil {
+		return s.callView(w, h)
+	}
 	out := ui.Muted.Render("← "+t("pays.title")+" / ") + ui.Label.Render(s.rec.TransID) + "\n\n"
 	if s.form != nil {
 		return out + s.form.View()
@@ -667,36 +694,8 @@ func (s *paymentsScreen) detailView(ctx *Context, w, h int) string {
 		}
 		return out + "\n" + strings.Join(lines, "\n")
 	}
-	if rows := s.timeline(); len(rows) > 0 {
-		out += "\n" + section(t("pays.timeline")) + "\n"
-		for _, r := range rows {
-			out += " " + r + "\n"
-		}
-	}
-	return out
-}
-
-// timeline merges the payment's API events and its webhooks by time and
-// keeps the last eight.
-func (s *paymentsScreen) timeline() []string {
-	type entry struct {
-		at   time.Time
-		line string
-	}
-	var all []entry
-	for _, ev := range s.rec.Events {
-		all = append(all, entry{ev.Time, timelineRow(ev, s.rec.Currency)})
-	}
-	for _, e := range s.hooks {
-		all = append(all, entry{e.Time, hookTimelineRow(e)})
-	}
-	sort.SliceStable(all, func(i, j int) bool { return all[i].at.Before(all[j].at) })
-	if len(all) > 8 {
-		all = all[len(all)-8:]
-	}
-	out := make([]string, len(all))
-	for i, e := range all {
-		out[i] = e.line
+	if len(s.calls) > 0 {
+		out += "\n" + s.callsView(ctx, w, h-lipgloss.Height(out)-1)
 	}
 	return out
 }

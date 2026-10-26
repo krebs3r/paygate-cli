@@ -214,9 +214,9 @@ test card number. On first start it walks you through adding your merchant.
 | --- | --- |
 | Home | Active profile, credential check, today's numbers, latest payments |
 | New payment | Form, review (request JSON, copy as curl), send, receipt; QR code, live status and test cards for hosted pages |
-| Payments | Local history with filter (`/`), lookup by ID (`g`), details with capture, refund, reversal, refresh and the payment's webhooks |
+| Payments | Local history with filter (`/`), lookup by ID (`g`), details with capture, refund, reversal and refresh; the timeline lists every API call of the payment and its webhooks, and <kbd>Enter</kbd> shows a call's request and response side by side (`[` `]` step through them) |
 | Webhooks | Listen with <kbd>space</kbd> through a cloudflared tunnel (against the mock server without one); received webhooks with all checks, headers and body; send one again to your handler (`r`), open its payment (`g`) |
-| Inspector | The last 200 requests to Paygate from the app and the command line: request and response with headers and JSON, timing, correlation ID; copy body or curl |
+| Inspector | The last 1000 requests to Paygate from the app and the command line: request and response with headers and JSON, timing, correlation ID; copy body or curl. A status lookup that gets the same answer as the one before is counted (`×14`) instead of listed again |
 | Profiles | Add (with credential check), switch, verify, delete |
 | Settings | Language, colour theme (Blue or Blurple), start screen, currency, payment page language, callback URLs, webhook HMAC key, customer IP, delete all data |
 

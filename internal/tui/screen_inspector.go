@@ -3,16 +3,13 @@ package tui
 import (
 	"fmt"
 	"net/url"
-	"sort"
 	"strings"
 	"time"
 
-	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/krebs3r/paygate-cli/internal/export"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
 	"github.com/krebs3r/paygate-cli/internal/reqlog"
 	"github.com/krebs3r/paygate-cli/internal/ui"
@@ -110,17 +107,9 @@ func (s *inspectorScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 	case "r":
 		s.reload()
 	case "y":
-		e := s.entries[s.sel]
-		body := e.RequestBody
-		if s.response {
-			body = e.ResponseBody
-		}
-		if err := clipboard.WriteAll(ui.PrettyJSON([]byte(body))); err != nil {
-			return toast(err.Error(), ui.ToneDanger)
-		}
-		return toast(t("copied.body"), ui.ToneSuccess)
+		return copyExchangeBody(s.entries[s.sel], s.response)
 	case "c":
-		return s.copyCurl(ctx)
+		return copyExchangeCurl(ctx, s.entries[s.sel])
 	case "x":
 		s.confirm = false
 		s.form = newForm(s.width, huh.NewGroup(huh.NewConfirm().
@@ -129,27 +118,6 @@ func (s *inspectorScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 		return s.form.Init()
 	}
 	return nil
-}
-
-// copyCurl rebuilds the selected request as curl. The key is referenced as
-// $PAYGATE_API_KEY; masked card data stays masked.
-func (s *inspectorScreen) copyCurl(ctx *Context) tea.Cmd {
-	e := s.entries[s.sel]
-	p := &paygate.Prepared{Method: e.Method, URL: e.URL, IdempotencyKey: e.RequestHeaders["Idempotency-Key"]}
-	if e.RequestBody != "" && !strings.Contains(e.URL, "/oauth/token") {
-		p.Body = []byte(ui.PrettyJSON([]byte(e.RequestBody)))
-	}
-	client := paygate.New(originOf(e.URL), "", "", paygate.AuthBasic)
-	if ctx.Session != nil {
-		client.MerchantID, client.Auth = ctx.Session.Profile.MerchantID, ctx.Session.Client.Auth
-	}
-	if err := clipboard.WriteAll(export.Curl(p, client, false)); err != nil {
-		return toast(err.Error(), ui.ToneDanger)
-	}
-	if strings.Contains(e.RequestBody, "••") {
-		return toast(t("insp.masked"), ui.ToneWarning)
-	}
-	return toast(t("copied.curl"), ui.ToneSuccess)
 }
 
 func originOf(raw string) string {
@@ -205,7 +173,11 @@ func (s *inspectorScreen) listView(ctx *Context, w, h int) string {
 	var lines []string
 	for i := s.offset; i < len(s.entries) && i < s.offset+h; i++ {
 		e := s.entries[i]
-		path := truncate(shortPath(e.URL), max(w-30, 8))
+		path := shortPath(e.URL)
+		if e.Repeat > 0 {
+			path = fmt.Sprintf("%s ×%d", path, e.Repeat+1)
+		}
+		path = truncate(path, max(w-30, 8))
 		row := ui.Muted.Render(e.Time.Local().Format("15:04:05")) + " " +
 			lipgloss.NewStyle().Foreground(ui.ColAccent).Render(fmt.Sprintf("%-5s", e.Method)) + " " +
 			padCells(path, max(w-30, 8)) + " " + statusText(e) + " " +
@@ -234,52 +206,8 @@ func (s *inspectorScreen) detailView(w, h int) string {
 	if !s.response {
 		tabs = ui.Badge(t("insp.request"), ui.ToneAccent) + " " + ui.Badge(t("insp.response"), ui.ToneNeutral)
 	}
-	head := []string{
-		tabs + "  " + ui.Muted.Render("v"),
-		lipgloss.NewStyle().Foreground(ui.ColAccent).Render(e.Method) + " " + ui.Label.Render(truncate(e.URL, max(w-8, 10))),
-		statusText(e) + ui.Muted.Render(fmt.Sprintf(" · %s · %s", paygate.FormatDuration(msDuration(e.DurationMs)), e.Time.Local().Format("02.01. 15:04:05"))),
-	}
-	if e.CorrelationID != "" {
-		head = append(head, ui.Muted.Render("correlation "+e.CorrelationID))
-	}
-	if e.Profile != "" {
-		head = append(head, ui.Muted.Render("profile "+e.Profile))
-	}
-	headers, body := e.RequestHeaders, e.RequestBody
-	if s.response {
-		headers, body = e.ResponseHeaders, e.ResponseBody
-	}
-	var lines []string
-	lines = append(lines, "")
-	keys := make([]string, 0, len(headers))
-	for k := range headers {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		if !interestingHeader(k) {
-			continue
-		}
-		lines = append(lines, ui.Label.Render(k+": ")+truncate(headers[k], max(w-len(k)-2, 8)))
-	}
-	lines = append(lines, "")
-	switch {
-	case e.Error != "" && s.response:
-		lines = append(lines, ui.Danger.Render(t("insp.error")+": ")+ui.Label.Render(wrap(e.Error, w)))
-	case strings.TrimSpace(body) == "":
-		lines = append(lines, ui.Muted.Render(t("insp.nobody")))
-	default:
-		lines = append(lines, strings.Split(ui.HighlightJSON([]byte(body)), "\n")...)
-	}
-	room := max(h-len(head), 3)
-	maxScroll := max(len(lines)-room, 0)
-	if s.scroll > maxScroll {
-		s.scroll = maxScroll
-	}
-	visible := lines[s.scroll:min(len(lines), s.scroll+room)]
-	if s.scroll+room < len(lines) {
-		visible[len(visible)-1] = ui.Muted.Render(fmt.Sprintf("… %d more (pgdn)", len(lines)-s.scroll-room+1))
-	}
+	head := append([]string{tabs + "  " + ui.Muted.Render("v")}, exchangeHead(e, w)...)
+	visible := scrollWindow(exchangeLines(e, s.response, w), &s.scroll, h-len(head))
 	return fit(strings.Join(head, "\n")+"\n"+strings.Join(visible, "\n"), w, h)
 }
 

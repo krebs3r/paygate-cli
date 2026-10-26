@@ -26,6 +26,7 @@ import (
 	"github.com/krebs3r/paygate-cli/internal/listen"
 	"github.com/krebs3r/paygate-cli/internal/mockpaygate"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
+	"github.com/krebs3r/paygate-cli/internal/reqlog"
 	"github.com/krebs3r/paygate-cli/internal/ui"
 	"github.com/krebs3r/paygate-cli/internal/webhooks"
 )
@@ -1056,6 +1057,94 @@ func TestInspectorShowsRequests(t *testing.T) {
 	send(m, keys("x"), tea.KeyMsg{Type: tea.KeyLeft}, enter) // confirm "Yes"
 	if len(s.entries) != 0 {
 		t.Errorf("clear left %d entries", len(s.entries))
+	}
+}
+
+// The payment detail lists every API call of the payment; enter shows a
+// call with its request and response, [ and ] step through them.
+func TestPaymentDetailShowsCalls(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	createPayment(t, m, core.PaymentInput{Flow: core.FlowDirect, Card: "visa-ok", Capture: "manual", Amount: "20"})
+	send(m, keys("l"), enter)
+	s := m.current().(*paymentsScreen)
+	view := ansi.Strip(m.View())
+	for _, want := range []string{"TIMELINE", "2 API calls", "POST", "payment AUTHORIZED", "getByPayId"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("detail misses %q:\n%s", want, view)
+		}
+	}
+	if e := s.calls[s.callSel].entry; e == nil || !strings.Contains(e.URL, "getByPayId") {
+		t.Errorf("the newest call should be selected, got %+v", s.calls[s.callSel])
+	}
+	send(m, keys("c"), enter, enter) // capture 20.00
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "capture 20.00 EUR") {
+		t.Errorf("the capture should be a call of its own:\n%s", v)
+	}
+
+	for range s.callSel { // up to the first call; one more would wrap around
+		send(m, tea.KeyMsg{Type: tea.KeyUp})
+	}
+	send(m, enter)
+	view = ansi.Strip(m.View())
+	if !s.callOpen || !strings.Contains(view, "call 1 of 4") || !strings.Contains(view, "RESPONSE") || !strings.Contains(view, `"responseCode": "00000000"`) {
+		t.Fatalf("the creation should open with its response:\n%s", view)
+	}
+	if hints := s.Hints(m.ctx); hints[0].Key != "[ ]" {
+		t.Errorf("hints = %+v", hints)
+	}
+	send(m, keys("v"))
+	if view = ansi.Strip(m.View()); !strings.Contains(view, `"transId"`) {
+		t.Errorf("v should show the request:\n%s", view)
+	}
+	pgdn := tea.KeyMsg{Type: tea.KeyPgDown}
+	send(m, pgdn, pgdn)
+	if view = ansi.Strip(m.View()); !strings.Contains(view, "••••••1111") || strings.Contains(view, "4111111111111111") {
+		t.Errorf("further down, the card number shows masked:\n%s", view)
+	}
+	send(m, keys("]"))
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "call 2 of") || !strings.Contains(v, "getByPayId") {
+		t.Errorf("] should step to the lookup:\n%s", v)
+	}
+	send(m, esc)
+	if s.callOpen || s.mode != paysDetail {
+		t.Fatalf("esc should close the call: open %v mode %d", s.callOpen, s.mode)
+	}
+	send(m, esc)
+	if s.mode != paysList {
+		t.Error("a second esc should return to the list")
+	}
+}
+
+// Calls that left the request log still show from the payment's history.
+func TestPaymentDetailCallsLeftTheLog(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	createPayment(t, m, core.PaymentInput{Flow: core.FlowDirect, Card: "visa-ok"})
+	if err := reqlog.Clear(); err != nil {
+		t.Fatal(err)
+	}
+	send(m, keys("l"), enter)
+	s := m.current().(*paymentsScreen)
+	view := ansi.Strip(m.View())
+	if !strings.Contains(view, "not in the log") || !strings.Contains(view, "Older calls have left the request log") {
+		t.Fatalf("the creation should come from the history:\n%s", view)
+	}
+	s.callSel = 0
+	send(m, enter)
+	if s.callOpen || !strings.Contains(m.toast, "no longer in the request log") {
+		t.Errorf("a call that left the log cannot open: open %v toast %q", s.callOpen, m.toast)
+	}
+}
+
+// A webhook in a payment's timeline opens in the Webhooks screen.
+func TestWebhooksScreenOpensWebhookFromPayment(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	send(m, switchTo("webhooks", listen.Event{ID: 7, Profile: "shop-test", TransID: "TID1", Kind: "enhanced", Time: time.Now()})())
+	w, ok := m.current().(*webhooksScreen)
+	if !ok || w.mode != hooksDetail || w.cur.ID != 7 {
+		t.Fatalf("the webhook should open in its detail: %+v", m.current())
 	}
 }
 

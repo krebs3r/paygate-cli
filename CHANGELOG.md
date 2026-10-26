@@ -22,15 +22,26 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   answers payment links the same way.
 - In the app, New payment offers a payment link as its fourth flow, with
   the payment methods, the delivery (show it, e-mail or SMS), the customer,
-  the template of the e-mail or SMS and how long the link stays valid. The review names delivery and
-  validity, warns that the simulation does not apply to links and, on
-  production, that real money moves and the message reaches a real
-  person; the wait screen shows the link with its QR code. The command
+  the template of the e-mail or SMS and how long the link stays valid. The
+  review names delivery and validity, warns that the simulation does not
+  apply to links and, on production, that real money moves and the message
+  reaches a real person; the wait screen shows the link with its QR code. The command
   palette starts a new payment link, and the payments list names open
   links.
+- In the app, the timeline of a payment (Payments → Enter) lists every
+  API call of the payment from the request log, next to its webhooks: time,
+  method, path, HTTP status, duration and what the call did. Enter shows
+  the call with its request and response side by side (one above the other
+  in a narrow window, `v` switches), `[` and `]` step through the calls, `c`
+  copies one as curl and `y` copies a body. Calls that have left the log
+  still show from the payment's history.
 
 ### Changed
 
+- The request log keeps the last 1000 requests instead of 200. A status
+  lookup that gets the same answer as the one before it is counted on that
+  entry (`×14 since 15:08:45`) instead of stored again, so waiting for a
+  payment no longer pushes older requests out.
 - In the app, the request JSON of the review (`j`) scrolls with ↑↓ and
   pgup/pgdn, like a body in the Inspector. Its last line counts the lines
   still below; before, the JSON ended at the bottom of the window.
