@@ -809,9 +809,10 @@ func hooksCardValue(hooks []listen.Event) string {
 	return fmt.Sprintf("%d · %s · ", len(hooks), last.Kind) + signatureText(last.Signature)
 }
 
-// hookTimelineRow is a webhook in a payment's timeline.
-func hookTimelineRow(e listen.Event) string {
-	line := ui.Muted.Render(e.Time.Local().Format("02.01. 15:04:05")) + "  " + ui.Link.Render(fmt.Sprintf("%-11s", t("ev.webhook"))) +
+// hookTimelineRow is a webhook in a payment's timeline, its time in the
+// layout of the other rows.
+func hookTimelineRow(e listen.Event, stamp string) string {
+	line := ui.Muted.Render(e.Time.Local().Format(stamp)) + "  " + ui.Link.Render(fmt.Sprintf("%-11s", t("ev.webhook"))) +
 		" " + string(e.Kind) + " · " + signatureText(e.Signature)
 	if e.Status != "" {
 		line += "  " + statusBadgeShort(e.Status, "")

@@ -203,9 +203,9 @@ func callKind(e reqlog.Entry) string {
 func callLine(r callRow, flow, currency, stamp string, w int) string {
 	switch {
 	case r.hook != nil:
-		return ansi.Truncate(hookTimelineRow(*r.hook), w, "…")
+		return ansi.Truncate(hookTimelineRow(*r.hook, stamp), w, "…")
 	case r.event != nil:
-		return ansi.Truncate(timelineRow(*r.event, currency)+ui.Muted.Render("  · "+t("call.notinlog")), w, "…")
+		return ansi.Truncate(timelineRow(*r.event, currency, stamp)+ui.Muted.Render("  · "+t("call.notinlog")), w, "…")
 	}
 	e := *r.entry
 	method := lipgloss.NewStyle().Foreground(ui.ColAccent).Render(fmt.Sprintf("%-5s", e.Method))

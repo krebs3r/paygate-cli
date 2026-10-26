@@ -1137,6 +1137,23 @@ func TestPaymentDetailCallsLeftTheLog(t *testing.T) {
 	}
 }
 
+// Webhooks and history rows use the time layout of the calls, so the
+// columns of a payment's timeline line up.
+func TestTimelineRowsShareTheTimeLayout(t *testing.T) {
+	i18n.Set(i18n.EN)
+	at := time.Date(2026, 10, 26, 17, 46, 46, 0, time.Local)
+	entry := reqlog.Entry{Time: at, Method: "GET", URL: "https://x/api/v2/payments/getByPayId/ABC", Status: 200}
+	for _, r := range []callRow{
+		{entry: &entry},
+		{hook: &listen.Event{Time: at, Kind: "enhanced"}},
+		{event: &history.Event{Time: at, Kind: "create"}},
+	} {
+		if line := ansi.Strip(callLine(r, "", "EUR", "15:04:05", 120)); !strings.HasPrefix(line, "17:46:46  ") {
+			t.Errorf("row starts %q", line)
+		}
+	}
+}
+
 // A webhook in a payment's timeline opens in the Webhooks screen.
 func TestWebhooksScreenOpensWebhookFromPayment(t *testing.T) {
 	m := setup(t, twoProfiles(), "shop-test")

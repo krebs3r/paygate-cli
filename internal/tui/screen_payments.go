@@ -700,9 +700,9 @@ func (s *paymentsScreen) detailView(ctx *Context, w, h int) string {
 	return out
 }
 
-func timelineRow(ev history.Event, currency string) string {
+func timelineRow(ev history.Event, currency, stamp string) string {
 	kind := t("ev." + ev.Kind)
-	line := ui.Muted.Render(ev.Time.Local().Format("02.01. 15:04:05")) + "  " + fmt.Sprintf("%-11s", kind)
+	line := ui.Muted.Render(ev.Time.Local().Format(stamp)) + "  " + fmt.Sprintf("%-11s", kind)
 	if ev.Amount != 0 {
 		line += " " + money.Format(ev.Amount, currency)
 	}
