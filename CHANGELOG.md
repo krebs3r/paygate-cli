@@ -14,6 +14,13 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `--send email` or `--send sms` Paygate sends the link to the customer
   (`--email`, `--phone`, `--name`); on production paygate asks first, also
   for a simulated payment. The mock server answers payment links too.
+- In the app, New payment offers a payment link as its fourth flow, with
+  the payment methods, the delivery (show it, e-mail or SMS), the customer
+  and how long the link stays valid. The review names delivery and
+  validity and warns on production that the message reaches a real
+  person; the wait screen shows the link with its QR code. The command
+  palette starts a new payment link, and the payments list names open
+  links.
 
 ### Changed
 

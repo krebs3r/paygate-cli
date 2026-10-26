@@ -331,6 +331,9 @@ first, also for a simulated payment, because the message reaches a real
 person. `--expires` takes minutes, hours or days (`30m`, `24h`, `7d`);
 without it, the validity set for your merchant at Paygate applies.
 
+In the app, New payment → Payment link does the same; the command palette
+(`ctrl+k`) starts a new payment link directly.
+
 ## Test transactions on production
 
 Paygate treats a payment whose order description is `Test:0000` as a test

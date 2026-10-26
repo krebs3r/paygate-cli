@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/krebs3r/paygate-cli/internal/cards"
+	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/history"
 	"github.com/krebs3r/paygate-cli/internal/i18n"
 	"github.com/krebs3r/paygate-cli/internal/reqlog"
@@ -54,6 +55,7 @@ func (m *model) paletteCommands() []paletteCmd {
 		cmds = append(cmds, paletteCmd{label: label, keywords: keywords, run: run})
 	}
 	add(t("act.new"), "new payment pay card neue zahlung bezahlen karte", func(*model) tea.Cmd { return switchTo("new", nil) })
+	add(t("act.newlink"), "new payment link pay by link share e-mail sms neuer zahlungslink teilen", func(*model) tea.Cmd { return switchTo("new", core.FlowLink) })
 	add(t("pal.lookup"), "look up find search payid transid zahlung suchen finden", func(*model) tea.Cmd { return switchTo("payments", "lookup") })
 	add(t("pal.last"), "last payment refund capture reversal reverse cancel release letzte zahlung erstatten einziehen freigeben stornieren", func(*model) tea.Cmd {
 		r, ok := m.lastPayment()

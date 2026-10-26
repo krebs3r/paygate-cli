@@ -593,6 +593,116 @@ func TestNewPaymentHostedWaitsForCustomer(t *testing.T) {
 	}
 }
 
+// enterLinkForm opens a new payment link sent by e-mail and valid for 24
+// hours and fills it up to the review.
+func enterLinkForm(t *testing.T, m *model) *newPaymentScreen {
+	t.Helper()
+	send(m, keys("n"))
+	s := m.current().(*newPaymentScreen)
+	send(m, down, down, down)
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "/api/v2/payments/links") {
+		t.Errorf("the form should show where the link request goes:\n%s", v)
+	}
+	send(m, enter)                                                                 // payment link
+	send(m, enter)                                                                 // methods: all
+	send(m, down, enter)                                                           // delivery: e-mail
+	send(m, tea.KeyMsg{Type: tea.KeyRight}, tea.KeyMsg{Type: tea.KeyRight}, enter) // valid for 24 hours
+	send(m, keys("nope"), enter)
+	if s.stage != stageForm || !strings.Contains(ansi.Strip(m.View()), "enter an e-mail address") {
+		t.Fatalf("an invalid address must stay in the form:\n%s", m.View())
+	}
+	for range 4 {
+		send(m, tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	send(m, keys("kunde@example.com"), enter, keys("Max Muster"), enter)
+	send(m, enter, enter, enter, enter, enter) // amount, currency, description, simulation, capture
+	if s.stage != stageReview {
+		t.Fatalf("expected review, got stage %d:\n%s", s.stage, m.View())
+	}
+	return s
+}
+
+func TestNewPaymentLink(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	s := enterLinkForm(t, m)
+	view := ansi.Strip(m.View())
+	for _, want := range []string{"Payment link", "e-mail to Max Muster · kunde@example.com", "Valid until"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("review misses %q:\n%s", want, view)
+		}
+	}
+	if s.req.ServiceType != "EMAIL" || s.req.ExpirationTime == "" || s.req.CustomerInfo.LastName != "Muster" {
+		t.Errorf("link request = %+v %+v", s.req, s.req.CustomerInfo)
+	}
+	send(m, keys("j"))
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "POST") || !strings.Contains(v, "/payments/links") {
+		t.Errorf("the request JSON should go to the link endpoint:\n%s", v)
+	}
+
+	firstPoll = time.Hour // keep waiting until the loop below polls
+	defer func() { firstPoll = 500 * time.Millisecond }()
+	send(m, enter)
+	view = ansi.Strip(m.View())
+	for _, want := range []string{"Link on its way to kunde@example.com", "valid until", "Link  c copies", "c copy link"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("wait screen misses %q:\n%s", want, view)
+		}
+	}
+	for i := 0; i < 20 && s.stage == stageWaiting; i++ {
+		send(m, run(s.poll(m.ctx, time.Millisecond)))
+	}
+	if s.stage != stageResult || s.result == nil || s.result.Status != "OK" {
+		t.Fatalf("link payment did not complete: stage %d %+v", s.stage, s.result)
+	}
+
+	// Stopped waiting, the link stays valid and the list shows it as a link.
+	send(m, keys("r"), enter)
+	if s.stage != stageWaiting {
+		t.Fatalf("expected waiting, got stage %d", s.stage)
+	}
+	send(m, esc)
+	if !strings.Contains(s.note, "link stays valid") {
+		t.Errorf("note = %q", s.note)
+	}
+	recs, _ := history.Load()
+	if len(recs) != 2 || recs[0].Flow != "link" || recs[1].Flow != "link" {
+		t.Fatalf("history = %+v", recs)
+	}
+	send(m, keys("l"))
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "Payment link") {
+		t.Errorf("the payments list should name the open link:\n%s", v)
+	}
+}
+
+// On production the review warns that the e-mail reaches a real person, also
+// for a simulated payment.
+func TestNewPaymentLinkOnProduction(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-prod")
+	i18n.Set(i18n.EN)
+	enterLinkForm(t, m)
+	view := ansi.Strip(m.View())
+	for _, want := range []string{"simulated with Test:0000", "Paygate sends a real message to kunde@example.com"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("production review misses %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestPaletteStartsPaymentLink(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	send(m, tea.KeyMsg{Type: tea.KeyCtrlK}, keys("payment link"))
+	if len(m.pal.matches) == 0 || m.pal.matches[0].label != "New payment link" {
+		t.Fatalf("matches = %+v", m.pal.matches)
+	}
+	send(m, enter)
+	s, ok := m.current().(*newPaymentScreen)
+	if !ok || s.flow != "link" || s.stage != stageForm || s.form == nil {
+		t.Fatalf("the palette should open the form for a payment link: %+v", m.current())
+	}
+}
+
 // A click on the checkout URL opens it in the browser, in the wide and the
 // narrow layout; a click elsewhere does not.
 func TestClickOpensCheckoutURL(t *testing.T) {

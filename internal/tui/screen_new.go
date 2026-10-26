@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/mail"
 	"regexp"
 	"strings"
 	"time"
@@ -79,6 +80,7 @@ type newPaymentScreen struct {
 	flow, cardChoice, single, cardNumber, expiry, cvc, threeDS string
 	methods                                                    []string
 	amount, currency, description, simulate, capture           string
+	delivery, email, phone, name, expires                      string // payment link
 	initialized                                                bool
 
 	// prepared request
@@ -139,6 +141,22 @@ func (s *newPaymentScreen) QuitWarning(*Context) string {
 	return ""
 }
 
+// Receive starts the form in the given flow, e.g. a payment link from the
+// command palette. A payment that is being sent or awaited is left alone.
+func (s *newPaymentScreen) Receive(ctx *Context, data any) tea.Cmd {
+	flow, ok := data.(core.Flow)
+	if !ok || ctx.Session == nil {
+		return nil
+	}
+	switch s.stage {
+	case stageSending, stageWaiting, stageOperating:
+		return nil
+	}
+	s.defaults(ctx)
+	s.flow = string(flow)
+	return s.startForm(ctx)
+}
+
 func (s *newPaymentScreen) Back(ctx *Context) (bool, tea.Cmd) {
 	switch s.stage {
 	case stageReview:
@@ -176,7 +194,7 @@ func (s *newPaymentScreen) Hints(ctx *Context) []Hint {
 		}
 		return append(hints, Hint{"c", t("key.curl")}, Hint{"esc", t("key.edit")})
 	case stageWaiting:
-		return []Hint{{"z", t("key.qrzoom")}, {"o", t("key.openbrowser")}, {"c", t("key.copyurl")}, {"esc", t("key.stop")}}
+		return []Hint{{"z", t("key.qrzoom")}, {"o", t("key.openbrowser")}, {"c", t(s.copyKey())}, {"esc", t("key.stop")}}
 	case stageResult:
 		hints := []Hint{{"r", t("key.again")}, {"n", t("key.new")}}
 		if s.result != nil {
@@ -212,6 +230,7 @@ func (s *newPaymentScreen) defaults(ctx *Context) {
 	s.flow, s.cardChoice, s.single, s.threeDS = string(core.FlowDirect), "visa-ok", "paypal", "skip"
 	s.currency, s.description = p.DefaultCurrency(), core.DefaultDescription
 	s.amount, s.simulate, s.capture = core.DefaultAmount, "off", "auto"
+	s.delivery, s.expires = core.SendLink, ""
 	if p.IsProd() {
 		s.amount, s.simulate, s.capture = core.ProdDefaultAmount, "ok", "manual"
 	}
@@ -256,10 +275,33 @@ func (s *newPaymentScreen) startForm(ctx *Context) tea.Cmd {
 			huh.NewOption(t("flow.direct"), string(core.FlowDirect)),
 			huh.NewOption(t("flow.hosted"), string(core.FlowHosted)),
 			huh.NewOption(t("flow.method"), string(core.FlowMethod)),
+			huh.NewOption(t("flow.link"), string(core.FlowLink)),
 		).Value(&s.flow), ui.LiveNote(func() string { return s.endpoint(ctx) })),
 		huh.NewGroup(huh.NewMultiSelect[string]().Title(t("new.methods")).Description(t("new.methods.desc")).
 			Options(multi...).Value(&s.methods)).
-			WithHideFunc(func() bool { return s.flow != string(core.FlowHosted) }),
+			WithHideFunc(func() bool { return s.flow != string(core.FlowHosted) && s.flow != string(core.FlowLink) }),
+		huh.NewGroup(
+			huh.NewSelect[string]().Title(t("link.send")).Description(t("link.send.desc")).Options(
+				huh.NewOption(t("link.send.link"), core.SendLink),
+				huh.NewOption(t("link.send.email"), core.SendEmail),
+				huh.NewOption(t("link.send.sms"), core.SendSMS),
+			).Value(&s.delivery),
+			huh.NewSelect[string]().Title(t("link.valid")).Options(
+				huh.NewOption(t("link.valid.none"), ""),
+				huh.NewOption(t("link.valid.1h"), "1h"),
+				huh.NewOption(t("link.valid.24h"), "24h"),
+				huh.NewOption(t("link.valid.7d"), "7d"),
+			).Inline(true).Value(&s.expires),
+		).WithHideFunc(func() bool { return s.flow != string(core.FlowLink) }),
+		huh.NewGroup(
+			huh.NewInput().Title(t("link.email")).Placeholder("customer@example.com").Value(&s.email).Validate(validEmail),
+			huh.NewInput().Title(t("link.name")).Placeholder("Max Muster").Value(&s.name),
+		).WithHideFunc(func() bool { return s.flow != string(core.FlowLink) || s.delivery != core.SendEmail }),
+		huh.NewGroup(
+			huh.NewInput().Title(t("link.phone")).Description(t("link.phone.desc")).Placeholder("+49 170 1234567").
+				Value(&s.phone).Validate(validPhone),
+			huh.NewInput().Title(t("link.name")).Placeholder("Max Muster").Value(&s.name),
+		).WithHideFunc(func() bool { return s.flow != string(core.FlowLink) || s.delivery != core.SendSMS }),
 		huh.NewGroup(huh.NewSelect[string]().Title(t("new.method")).Options(single...).Value(&s.single)).
 			WithHideFunc(func() bool { return s.flow != string(core.FlowMethod) }),
 		huh.NewGroup(huh.NewSelect[string]().Title(t("new.card")).Description(t("new.card.desc")).
@@ -313,6 +355,14 @@ func (s *newPaymentScreen) input() core.PaymentInput {
 		in.Methods = s.methods
 	case core.FlowMethod:
 		in.Method = s.single
+	case core.FlowLink:
+		in.Methods, in.Send, in.Expires = s.methods, s.delivery, s.expires
+		switch s.delivery {
+		case core.SendEmail:
+			in.Email, in.Name = s.email, s.name
+		case core.SendSMS:
+			in.Phone, in.Name = s.phone, s.name
+		}
 	case core.FlowDirect:
 		if s.cardChoice == manualCardChoice {
 			in.CardNumber, in.Expiry, in.CVC = s.cardNumber, s.expiry, s.cvc
@@ -462,7 +512,11 @@ func (s *newPaymentScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 			if err := clipboard.WriteAll(s.checkout); err != nil {
 				return toast(err.Error(), ui.ToneDanger)
 			}
-			return toast(t("copied.url"), ui.ToneSuccess)
+			copied := "copied.url"
+			if core.Flow(s.flow) == core.FlowLink {
+				copied = "copied.link"
+			}
+			return toast(t(copied), ui.ToneSuccess)
 		}
 	case stageResult:
 		switch km.String() {
@@ -567,6 +621,9 @@ func (s *newPaymentScreen) onPoll(ctx *Context, msg pollResultMsg) tea.Cmd {
 func (s *newPaymentScreen) stopWaiting() {
 	s.seq++ // ignore polls still in flight
 	s.stage, s.note = stageResult, t("res.stopped")
+	if core.Flow(s.flow) == core.FlowLink {
+		s.note = t("res.stopped.link")
+	}
 	s.waited = time.Since(s.waitStart)
 }
 
@@ -699,7 +756,11 @@ func (s *newPaymentScreen) View(ctx *Context, w, h int) string {
 	case stageReview:
 		return out + s.reviewView(ctx, w, h-2)
 	case stageSending:
-		return out + spinView(s.spin) + " " + ui.Label.Render(fmt.Sprintf(t("new.sending"), ctx.Session.Host()))
+		sending := "new.sending"
+		if core.Flow(s.flow) == core.FlowLink {
+			sending = "new.sending.link"
+		}
+		return out + spinView(s.spin) + " " + ui.Label.Render(fmt.Sprintf(t(sending), ctx.Session.Host()))
 	case stageWaiting:
 		return out + s.waitView(ctx, w, h-2)
 	case stageOperating:
@@ -738,7 +799,7 @@ func (s *newPaymentScreen) reviewView(ctx *Context, w, h int) string {
 	req := s.req
 	rows := [][2]string{{t("rev.flow"), flowLabel(s.flow)}}
 	switch core.Flow(s.flow) {
-	case core.FlowHosted:
+	case core.FlowHosted, core.FlowLink:
 		methods := t("rev.methods.all")
 		if len(req.AllowedPaymentMethods) > 0 {
 			var names []string
@@ -748,6 +809,9 @@ func (s *newPaymentScreen) reviewView(ctx *Context, w, h int) string {
 			methods = strings.Join(names, ", ")
 		}
 		rows = append(rows, [2]string{t("rev.methods"), methods})
+		if core.Flow(s.flow) == core.FlowLink {
+			rows = append(rows, s.linkRows()...)
+		}
 	default:
 		rows = append(rows, [2]string{t("rev.method"), s.label})
 	}
@@ -785,6 +849,10 @@ func (s *newPaymentScreen) reviewView(ctx *Context, w, h int) string {
 				out += ui.Label.Render("  "+t("rev.prod.manual")) + "\n"
 			}
 		}
+		// Simulated or not, an e-mail or SMS reaches a real person.
+		if to := core.LinkRecipient(req); to != "" {
+			out += ui.Warning.Render("! ") + ui.Label.Render(fmt.Sprintf(t("rev.prod.send"), to)) + "\n"
+		}
 	}
 	if s.showJSON {
 		lines := strings.Split(ui.HighlightJSON(maskCard(s.prepared.Body)), "\n")
@@ -803,7 +871,8 @@ func (s *newPaymentScreen) reviewView(ctx *Context, w, h int) string {
 // cardHint lists test cards for the payment page. Only on the test system:
 // production declines test cards.
 func (s *newPaymentScreen) cardHint(ctx *Context) string {
-	offersCard := core.Flow(s.flow) == core.FlowHosted && (len(s.methods) == 0 || containsFold(s.methods, "card")) ||
+	pageWithMethods := core.Flow(s.flow) == core.FlowHosted || core.Flow(s.flow) == core.FlowLink
+	offersCard := pageWithMethods && (len(s.methods) == 0 || containsFold(s.methods, "card")) ||
 		core.Flow(s.flow) == core.FlowMethod && s.single == "card"
 	if !offersCard || ctx.IsProd() {
 		return ""
@@ -816,9 +885,19 @@ func (s *newPaymentScreen) cardHint(ctx *Context) string {
 }
 
 func (s *newPaymentScreen) waitText(ctx *Context) string {
-	heading, hint := t("wait.title"), t("wait.scan")
-	if core.Flow(s.flow) == core.FlowDirect {
+	heading, hint, valid := t("wait.title"), t("wait.scan"), ""
+	switch core.Flow(s.flow) {
+	case core.FlowDirect:
 		heading, hint = t("wait.3ds.title"), t("wait.3ds")
+	case core.FlowLink:
+		heading, hint = t("wait.link.title"), t("wait.link.share")
+		if to := core.LinkRecipient(s.req); to != "" {
+			heading, hint = fmt.Sprintf(t("wait.link.sent"), to), t("wait.link.scan")
+		}
+		valid = "\n" + ui.Label.Render(t("wait.link.setting"))
+		if ts, err := time.Parse(time.RFC3339, s.req.ExpirationTime); err == nil {
+			valid = "\n" + ui.Label.Render(fmt.Sprintf(t("wait.link.valid"), ts.Local().Format("02.01. 15:04")))
+		}
 	}
 	status := s.lastStatus
 	if status == "" {
@@ -826,7 +905,7 @@ func (s *newPaymentScreen) waitText(ctx *Context) string {
 	}
 	el := time.Since(s.waitStart).Round(time.Second)
 	out := ui.Bold.Render(heading) + "\n" +
-		ui.Label.Render(money.Format(s.req.Amount.Value, s.req.Amount.Currency)+" · "+s.req.TransID) + "\n\n" +
+		ui.Label.Render(money.Format(s.req.Amount.Value, s.req.Amount.Currency)+" · "+s.req.TransID) + valid + "\n\n" +
 		ui.Muted.Render(hint) + "\n\n" +
 		spinView(s.spin) + " " + ui.Label.Render(fmt.Sprintf(t("wait.status"), status, fmt.Sprintf("%d:%02d", int(el.Minutes()), int(el.Seconds())%60)))
 	if c := s.cardHint(ctx); c != "" {
@@ -862,7 +941,19 @@ func (s *newPaymentScreen) waitView(ctx *Context, w, h int) string {
 // urlLabel heads the checkout URL and says how to use it: the terminal
 // cannot select or open it while the app owns the mouse.
 func (s *newPaymentScreen) urlLabel() string {
-	return ui.Label.Render("URL") + "  " + ui.Muted.Render(t("wait.urlkeys"))
+	label := "URL"
+	if core.Flow(s.flow) == core.FlowLink {
+		label = t("wait.link.label")
+	}
+	return ui.Label.Render(label) + "  " + ui.Muted.Render(t("wait.urlkeys"))
+}
+
+// copyKey names what c copies while waiting: the checkout URL or the link.
+func (s *newPaymentScreen) copyKey() string {
+	if core.Flow(s.flow) == core.FlowLink {
+		return "key.copylink"
+	}
+	return "key.copyurl"
 }
 
 // viewTop is the number of lines above the stage content: the header with
@@ -883,7 +974,7 @@ func (s *newPaymentScreen) FullScreen(ctx *Context, w, h int) (string, bool) {
 	}
 	qr := ui.QR(s.checkout)
 	qrH := lipgloss.Height(qr)
-	keys := ui.Muted.Render("esc " + t("key.back") + "  ·  o " + t("key.openbrowser") + "  ·  c " + t("key.copyurl"))
+	keys := ui.Muted.Render("esc " + t("key.back") + "  ·  o " + t("key.openbrowser") + "  ·  c " + t(s.copyKey()))
 	var block string
 	switch {
 	case h >= qrH+4:
@@ -993,8 +1084,45 @@ func flowLabel(f string) string {
 		return t("flow.hosted.short")
 	case core.FlowMethod:
 		return t("flow.method.short")
+	case core.FlowLink:
+		return t("flow.link.short")
 	}
 	return t("flow.direct.short")
+}
+
+// linkRows say how the customer gets a payment link and until when it is
+// valid.
+func (s *newPaymentScreen) linkRows() [][2]string {
+	delivery := t("rev.link.shown")
+	if to := core.LinkRecipient(s.req); to != "" {
+		if s.name != "" {
+			to = s.name + " · " + to
+		}
+		via := "rev.link.email"
+		if s.req.ServiceType == "SMS" {
+			via = "rev.link.sms"
+		}
+		delivery = fmt.Sprintf(t(via), to)
+	}
+	valid := ui.Muted.Render(t("rev.link.default"))
+	if ts, err := time.Parse(time.RFC3339, s.req.ExpirationTime); err == nil {
+		valid = ts.Local().Format("02.01.2006 15:04")
+	}
+	return [][2]string{{t("rev.link.send"), delivery}, {t("rev.link.valid"), valid}}
+}
+
+func validEmail(v string) error {
+	if a, err := mail.ParseAddress(v); err != nil || a.Address != v {
+		return errors.New(t("link.email.bad"))
+	}
+	return nil
+}
+
+func validPhone(v string) error {
+	if _, err := core.ParsePhone(v); err != nil {
+		return errors.New(t("link.phone.bad"))
+	}
+	return nil
 }
 
 func containsFold(list []string, v string) bool {

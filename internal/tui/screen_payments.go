@@ -578,7 +578,11 @@ func listRow(r history.Record, w int) string {
 	}
 	amount := money.Format(r.Amount, r.Currency)
 	method := r.Method
-	if method == "" {
+	switch {
+	case method != "":
+	case core.Flow(r.Flow) == core.FlowLink:
+		method = t("flow.link.short")
+	default:
 		method = core.MethodName(strings.ToUpper(r.Flow))
 	}
 	rest := truncate(method+"  "+r.TransID, max(w-46, 10))
