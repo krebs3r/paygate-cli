@@ -5,6 +5,8 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.0]
+
 ### Added
 
 - `paygate link` creates a payment link (Pay by Link) and shows it with a QR
@@ -25,9 +27,9 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the template of the e-mail or SMS and how long the link stays valid. The
   review names delivery and validity, warns that the simulation does not
   apply to links and, on production, that real money moves and the message
-  reaches a real person; the wait screen shows the link with its QR code. The command
-  palette starts a new payment link, and the payments list names open
-  links.
+  reaches a real person; the wait screen shows the link with its QR code.
+  The command palette starts a new payment link, and the payments list
+  names open links.
 - In the app, the timeline of a payment (Payments → Enter) lists every
   API call of the payment from the request log, next to its webhooks: time,
   method, path, HTTP status, duration and what the call did. Enter shows
