@@ -5,6 +5,12 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- In the app, the request JSON of the review (`j`) scrolls with ↑↓ and
+  pgup/pgdn, like a body in the Inspector. Its last line counts the lines
+  still below; before, the JSON ended at the bottom of the window.
+
 ## [0.6.1]
 
 ### Fixed

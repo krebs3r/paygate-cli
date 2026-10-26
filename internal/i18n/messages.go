@@ -218,7 +218,7 @@ var messages = map[string]msg{
 	"rev.prod.real":     {"PRODUCTION · real money will move.", "PRODUKTION · es wird echtes Geld bewegt."},
 	"rev.prod.sim":      {"PRODUCTION · simulated with %s, no money moves.", "PRODUKTION · simuliert mit %s, es fließt kein Geld."},
 	"rev.prod.manual":   {"Capture is manual: a reversal can cancel the authorization right after.", "Capture ist manuell: Ein Reversal kann die Autorisierung direkt danach stornieren."},
-	"rev.json.more":     {"… press c to copy the complete request as curl", "… c kopiert den vollständigen Request als curl"},
+	"rev.json.more":     {"… %d more lines (pgdn) · c copies it as curl", "… %d weitere Zeilen (pgdn) · c kopiert als curl"},
 	"key.send":          {"send", "senden"},
 	"key.edit":          {"edit", "bearbeiten"},
 	"key.json":          {"request JSON", "Request-JSON"},

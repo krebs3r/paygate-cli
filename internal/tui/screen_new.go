@@ -82,10 +82,11 @@ type newPaymentScreen struct {
 	initialized                                                bool
 
 	// prepared request
-	req      *paygate.PaymentRequest
-	label    string
-	prepared *paygate.Prepared
-	showJSON bool
+	req        *paygate.PaymentRequest
+	label      string
+	prepared   *paygate.Prepared
+	showJSON   bool
+	jsonScroll int // first visible line of the request JSON
 
 	// waiting
 	checkout   string
@@ -169,7 +170,11 @@ func (s *newPaymentScreen) Hints(ctx *Context) []Hint {
 	case stageForm:
 		return []Hint{{"enter", t("key.next")}, {"shift+tab", t("key.back")}, {"esc", t("key.cancel")}}
 	case stageReview:
-		return []Hint{{"enter", t("key.send")}, {"j", t("key.json")}, {"c", t("key.curl")}, {"esc", t("key.edit")}}
+		hints := []Hint{{"enter", t("key.send")}, {"j", t("key.json")}}
+		if s.showJSON {
+			hints = append(hints, Hint{"↑↓", t("key.scroll")})
+		}
+		return append(hints, Hint{"c", t("key.curl")}, Hint{"esc", t("key.edit")})
 	case stageWaiting:
 		return []Hint{{"z", t("key.qrzoom")}, {"o", t("key.openbrowser")}, {"c", t("key.copyurl")}, {"esc", t("key.stop")}}
 	case stageResult:
@@ -336,7 +341,7 @@ func (s *newPaymentScreen) review(ctx *Context) tea.Cmd {
 		return s.formWithError(ctx, err)
 	}
 	s.req, s.label, s.prepared = req, label, prepared
-	s.stage, s.form, s.showJSON = stageReview, nil, false
+	s.stage, s.form, s.showJSON, s.jsonScroll = stageReview, nil, false, 0
 	return nil
 }
 
@@ -432,7 +437,15 @@ func (s *newPaymentScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 		case "e", "shift+tab":
 			return s.startForm(ctx)
 		case "j":
-			s.showJSON = !s.showJSON
+			s.showJSON, s.jsonScroll = !s.showJSON, 0
+		case "down":
+			s.jsonScroll++ // the view stops at the end of the JSON
+		case "up":
+			s.jsonScroll = max(0, s.jsonScroll-1)
+		case "pgdown", " ", "ctrl+d":
+			s.jsonScroll += 10
+		case "pgup", "ctrl+u":
+			s.jsonScroll = max(0, s.jsonScroll-10)
 		case "c":
 			if err := clipboard.WriteAll(export.Curl(s.prepared, ctx.Session.Client, false)); err != nil {
 				return toast(err.Error(), ui.ToneDanger)
@@ -775,14 +788,13 @@ func (s *newPaymentScreen) reviewView(ctx *Context, w, h int) string {
 	}
 	if s.showJSON {
 		lines := strings.Split(ui.HighlightJSON(maskCard(s.prepared.Body)), "\n")
-		limit := h - lipgloss.Height(out) - 3
-		if limit < 4 {
-			limit = 4
+		room := max(h-lipgloss.Height(out)-2, 5)
+		s.jsonScroll = min(s.jsonScroll, max(len(lines)-room, 0))
+		visible := lines[s.jsonScroll:min(len(lines), s.jsonScroll+room)]
+		if rest := len(lines) - s.jsonScroll - room; rest > 0 {
+			visible[len(visible)-1] = ui.Muted.Render(fmt.Sprintf(t("rev.json.more"), rest+1))
 		}
-		if len(lines) > limit {
-			lines = append(lines[:limit], ui.Muted.Render(t("rev.json.more")))
-		}
-		out += "\n" + ui.Muted.Render(s.prepared.Method+" "+s.prepared.URL) + "\n" + strings.Join(lines, "\n")
+		out += "\n" + ui.Muted.Render(s.prepared.Method+" "+s.prepared.URL) + "\n" + strings.Join(visible, "\n")
 	}
 	return out
 }

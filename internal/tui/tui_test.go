@@ -919,6 +919,54 @@ func TestInspectorShowsRequests(t *testing.T) {
 	}
 }
 
+// The request JSON in the review scrolls like a body in the Inspector and
+// stops at its end.
+func TestReviewJSONScrolls(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	send(m, keys("n"))
+	// flow (direct), card (visa-ok), amount, currency, description, simulation, capture
+	send(m, enter, enter, enter, enter, enter, enter, enter)
+	s := m.current().(*newPaymentScreen)
+	if s.stage != stageReview {
+		t.Fatalf("expected review, got stage %d", s.stage)
+	}
+	if strings.Contains(ansi.Strip(m.View()), "↑↓ scroll") {
+		t.Error("the scroll hint belongs to the open JSON")
+	}
+	send(m, keys("j"))
+	view := ansi.Strip(m.View())
+	if !strings.Contains(view, `"transId"`) || !strings.Contains(view, "more lines (pgdn)") || !strings.Contains(view, "↑↓ scroll") {
+		t.Fatalf("the JSON should start at the top and count the hidden lines:\n%s", view)
+	}
+	send(m, tea.KeyMsg{Type: tea.KeyPgDown})
+	if s.jsonScroll != 10 || strings.Contains(ansi.Strip(m.View()), `"transId"`) {
+		t.Errorf("pgdn should scroll 10 lines, at line %d", s.jsonScroll)
+	}
+	for i := 0; i < 10; i++ {
+		send(m, tea.KeyMsg{Type: tea.KeyPgDown})
+	}
+	if view := ansi.Strip(m.View()); strings.Contains(view, "more lines") {
+		t.Errorf("the end of the JSON should be visible:\n%s", view)
+	}
+	end := s.jsonScroll
+	send(m, down)
+	_ = m.View()
+	if s.jsonScroll != end {
+		t.Errorf("scrolling should stop at the end (line %d), got %d", end, s.jsonScroll)
+	}
+	send(m, tea.KeyMsg{Type: tea.KeyUp})
+	if s.jsonScroll != end-1 {
+		t.Errorf("up should scroll one line back, at line %d", s.jsonScroll)
+	}
+	for i := 0; i < 10; i++ {
+		send(m, tea.KeyMsg{Type: tea.KeyPgUp})
+	}
+	if s.jsonScroll != 0 || !strings.Contains(ansi.Strip(m.View()), `"transId"`) {
+		t.Errorf("pgup should return to the top, at line %d", s.jsonScroll)
+	}
+}
+
 // The QR code must survive every window width: no line may be wider than the
 // content area, otherwise the frame wraps it and splits the code.
 func TestWaitViewKeepsQRIntact(t *testing.T) {
