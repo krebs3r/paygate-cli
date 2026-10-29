@@ -156,6 +156,38 @@ func TestPaymentLink(t *testing.T) {
 	}
 }
 
+func TestExternalIntegrationID(t *testing.T) {
+	c := paygate.New("https://paygate.example", "demo-shop", "demo-key", paygate.AuthBasic)
+	c.IntegrationID = "paygate-cli/1.2.3"
+	req := cardRequest("4111111111111111")
+	builders := map[string]func(*paygate.PaymentRequest) (*paygate.Prepared, error){
+		"payment": c.CreatePaymentRequest,
+		"session": c.CreateSessionRequest,
+		"link":    c.CreateLinkRequest,
+	}
+	for name, build := range builders {
+		p, err := build(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(p.Body, []byte(`"externalIntegrationId": "paygate-cli/1.2.3"`)) {
+			t.Errorf("%s request lacks the integration ID:\n%s", name, p.Body)
+		}
+	}
+	if req.ExternalIntegrationID != "" {
+		t.Errorf("the caller's request was changed: %q", req.ExternalIntegrationID)
+	}
+
+	// Captures, refunds and reversals have no such field.
+	p, err := c.OperationRequest(paygate.OpCapture, "PAY1", &paygate.OperationRequest{TransID: "TID1"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(p.Body, []byte("externalIntegrationId")) {
+		t.Errorf("capture request has an integration ID:\n%s", p.Body)
+	}
+}
+
 func TestValidationProblem(t *testing.T) {
 	_, url := newMock(t)
 	c := paygate.New(url, "demo-shop", "demo-key", paygate.AuthBasic)

@@ -120,6 +120,7 @@ type PaymentRequest struct {
 	BrowserInfo           *BrowserInfo    `json:"browserInfo,omitempty"`
 	AllowedPaymentMethods []string        `json:"allowedPaymentMethods,omitempty"`
 	PaymentMethods        *PaymentMethods `json:"paymentMethods,omitempty"`
+	ExternalIntegrationID string          `json:"externalIntegrationId,omitempty"` // set by the client
 
 	CustomerInfo     *CustomerInfo `json:"customerInfo,omitempty"`
 	ServiceType      string        `json:"serviceType,omitempty"`      // LINK | EMAIL | SMS

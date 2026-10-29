@@ -5,6 +5,13 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Payments, checkout sessions and payment links carry
+  `externalIntegrationId` with the CLI's name and version
+  (`paygate-cli/0.7.0`, like the User-Agent), so Paygate can tell they come
+  from paygate. Captures, refunds and reversals have no such field.
+
 ## [0.7.0]
 
 ### Added

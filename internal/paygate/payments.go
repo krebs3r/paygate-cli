@@ -31,15 +31,27 @@ func (c *Client) exec(ctx context.Context, p *Prepared) (*Result, error) {
 // Request builders. They are exported so --curl can render them unsent.
 
 func (c *Client) CreateSessionRequest(r *PaymentRequest) (*Prepared, error) {
-	return c.Prepare(http.MethodPost, "/payments/sessions", r, r.TransID)
+	return c.Prepare(http.MethodPost, "/payments/sessions", c.identify(r), r.TransID)
 }
 
 func (c *Client) CreatePaymentRequest(r *PaymentRequest) (*Prepared, error) {
-	return c.Prepare(http.MethodPost, "/payments", r, r.TransID)
+	return c.Prepare(http.MethodPost, "/payments", c.identify(r), r.TransID)
 }
 
 func (c *Client) CreateLinkRequest(r *PaymentRequest) (*Prepared, error) {
-	return c.Prepare(http.MethodPost, "/payments/links", r, r.TransID)
+	return c.Prepare(http.MethodPost, "/payments/links", c.identify(r), r.TransID)
+}
+
+// identify returns a copy of the request with the client's integration ID,
+// unless the request names one of its own. Captures, refunds and reversals
+// have no such field.
+func (c *Client) identify(r *PaymentRequest) *PaymentRequest {
+	if r.ExternalIntegrationID != "" || c.IntegrationID == "" {
+		return r
+	}
+	cp := *r
+	cp.ExternalIntegrationID = c.IntegrationID
+	return &cp
 }
 
 func (c *Client) GetByPayIDRequest(payID string) (*Prepared, error) {

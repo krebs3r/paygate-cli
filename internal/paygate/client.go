@@ -31,6 +31,9 @@ type Client struct {
 	Auth       AuthMode
 	HTTP       *http.Client
 	UserAgent  string
+	// IntegrationID is sent as externalIntegrationId with every new
+	// payment, session and link, so Paygate can tell they come from here.
+	IntegrationID string
 
 	mu       sync.Mutex
 	token    string
@@ -43,12 +46,13 @@ func New(origin, merchantID, apiKey string, auth AuthMode) *Client {
 		auth = AuthBasic
 	}
 	return &Client{
-		Origin:     strings.TrimRight(origin, "/"),
-		MerchantID: merchantID,
-		APIKey:     apiKey,
-		Auth:       auth,
-		HTTP:       &http.Client{Timeout: 60 * time.Second},
-		UserAgent:  "paygate-cli",
+		Origin:        strings.TrimRight(origin, "/"),
+		MerchantID:    merchantID,
+		APIKey:        apiKey,
+		Auth:          auth,
+		HTTP:          &http.Client{Timeout: 60 * time.Second},
+		UserAgent:     "paygate-cli",
+		IntegrationID: "paygate-cli",
 	}
 }
 

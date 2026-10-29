@@ -67,6 +67,7 @@ func NewClient(p *config.Profile, apiKey string, opts ClientOptions) (*paygate.C
 	c := paygate.New(origin, p.MerchantID, apiKey, paygate.AuthMode(p.Auth))
 	if opts.Version != "" {
 		c.UserAgent = "paygate-cli/" + opts.Version
+		c.IntegrationID = c.UserAgent
 	}
 	c.HTTP.Transport = &reqlog.Transport{Base: opts.Transport, Profile: opts.Profile}
 	return c, nil
