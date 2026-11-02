@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/krebs3r/paygate-cli/internal/config"
+	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
 	"github.com/krebs3r/paygate-cli/internal/ui"
 )
@@ -50,6 +51,18 @@ func newProfileCmd(app *App) *cobra.Command {
 				}
 				return profileShow(app)
 			},
+		},
+		&cobra.Command{
+			Use:   "rename <name> <new-name>",
+			Short: "Rename a profile; its keys, payments, webhooks and API calls move along",
+			Args:  cobra.ExactArgs(2),
+			ValidArgsFunction: func(cmd *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+				if len(args) > 0 {
+					return nil, cobra.ShellCompDirectiveNoFileComp
+				}
+				return profileNames(app), cobra.ShellCompDirectiveNoFileComp
+			},
+			RunE: func(cmd *cobra.Command, args []string) error { return profileRename(app, args[0], args[1]) },
 		},
 		&cobra.Command{
 			Use:   "delete <name>",
@@ -109,11 +122,12 @@ func profileList(app *App) error {
 			Env        string `json:"env"`
 			MerchantID string `json:"merchantId"`
 			Auth       string `json:"auth"`
+			HMACKeySet bool   `json:"hmacKeySet"`
 		}
 		out := []row{}
 		for _, n := range cfg.Names() {
 			p := cfg.Profiles[n]
-			out = append(out, row{n, n == cfg.ActiveProfile, p.Brand, p.Env, p.MerchantID, p.Auth})
+			out = append(out, row{n, n == cfg.ActiveProfile, p.Brand, p.Env, p.MerchantID, p.Auth, p.HMACStore != ""})
 		}
 		b, _ := json.MarshalIndent(out, "", "  ")
 		ui.Println(string(b))
@@ -133,10 +147,14 @@ func profileList(app *App) error {
 		if p.IsProd() {
 			env = "PROD"
 		}
-		rows = append(rows, []string{mark, n, p.Brand, env, p.MerchantID, authLabel(p.Auth)})
+		hmac := "–"
+		if p.HMACStore != "" {
+			hmac = "set"
+		}
+		rows = append(rows, []string{mark, n, p.Brand, env, p.MerchantID, authLabel(p.Auth), hmac})
 	}
 	ui.Println()
-	ui.Println(ui.Table([]string{"", "Profile", "Platform", "Env", "Merchant ID", "Auth"}, rows))
+	ui.Println(ui.Table([]string{"", "Profile", "Platform", "Env", "Merchant ID", "Auth", "HMAC"}, rows))
 	ui.Println()
 	ui.Println(ui.Next("paygate profile use <name>", "paygate init"))
 	ui.Println()
@@ -273,6 +291,28 @@ func profileDelete(app *App, name string) error {
 	if cfg.ActiveProfile != "" {
 		ui.Println(ui.Info("Active profile: " + cfg.ActiveProfile))
 	}
+	return nil
+}
+
+func profileRename(app *App, from, to string) error {
+	cfg, err := app.Config()
+	if err != nil {
+		return err
+	}
+	res, err := core.RenameProfile(cfg, from, to)
+	if err != nil {
+		return err
+	}
+	if app.JSON() {
+		b, _ := json.MarshalIndent(map[string]any{
+			"from": from, "to": to, "active": cfg.ActiveProfile == to,
+			"payments": res.Payments, "webhooks": res.Webhooks, "apiCalls": res.Calls,
+		}, "", "  ")
+		ui.Println(string(b))
+		return nil
+	}
+	ui.Println(ui.OK("Renamed " + from + " to " + ui.Bold.Render(to)))
+	ui.Println(ui.Info(fmt.Sprintf("Moved along: keys, %d payments, %d webhooks, %d API calls", res.Payments, res.Webhooks, res.Calls)))
 	return nil
 }
 

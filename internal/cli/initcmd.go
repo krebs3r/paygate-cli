@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -18,8 +17,6 @@ import (
 	"github.com/krebs3r/paygate-cli/internal/reqlog"
 	"github.com/krebs3r/paygate-cli/internal/ui"
 )
-
-var profileNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$`)
 
 type initOptions struct {
 	name        string
@@ -97,7 +94,7 @@ func runInit(app *App, o *initOptions) error {
 		o.merchantID = cleaned
 		ui.Println(ui.Info("Removed spaces or invisible characters around the merchant ID."))
 	}
-	if !profileNameRe.MatchString(o.name) {
+	if !config.ValidName(o.name) {
 		return fmt.Errorf("invalid profile name %q (letters, digits, . _ -)", o.name)
 	}
 	if o.auth != string(paygate.AuthBasic) && o.auth != string(paygate.AuthOAuth2) {
@@ -298,7 +295,7 @@ func initWizard(o *initOptions, cfg *config.Config) error {
 				Title("Connect your Paygate merchant").
 				Description("You find merchant ID and REST API key in the Paygate Merchant Portal\nunder Key management. The key is stored in your system keychain."),
 			huh.NewInput().Title("Profile name").Placeholder("shop-test").Value(&o.name).Validate(func(s string) error {
-				if !profileNameRe.MatchString(s) {
+				if !config.ValidName(s) {
 					return errors.New("letters, digits, . _ - (max. 40)")
 				}
 				return nil

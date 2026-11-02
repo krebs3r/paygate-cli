@@ -183,6 +183,28 @@ func merge(old, upd Record) Record {
 	return out
 }
 
+// RenameProfile moves the records of a profile to its new name and returns
+// how many there were.
+func RenameProfile(from, to string) (int, error) {
+	mu.Lock()
+	defer mu.Unlock()
+	all, err := load()
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for i := range all {
+		if all[i].Profile == from {
+			all[i].Profile = to
+			n++
+		}
+	}
+	if n == 0 {
+		return 0, nil
+	}
+	return n, save(all)
+}
+
 func save(all []Record) error {
 	p, err := Path()
 	if err != nil {

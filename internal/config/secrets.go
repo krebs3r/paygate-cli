@@ -73,6 +73,39 @@ func DeleteAPIKey(profileName string) {
 	_ = keyring.Delete(keyringService, profileName)
 }
 
+// CopySecrets copies the keys of a profile in the keychain to a new profile
+// name, for a rename; keys in the config file move with the profile. The
+// keys under the old name stay until DeleteAPIKey and DeleteHMACKey.
+func CopySecrets(from, to string, p *Profile) error {
+	apiInKeychain := p.SecretStore != StoreFile && p.APIKey == ""
+	hmacInKeychain := p.HMACStore == StoreKeychain
+	if !apiInKeychain && !hmacInKeychain {
+		return nil
+	}
+	if os.Getenv("PAYGATE_NO_KEYCHAIN") != "" {
+		return errors.New("the keys of this profile are in the keychain, which PAYGATE_NO_KEYCHAIN turns off")
+	}
+	for _, s := range []struct {
+		service, what string
+		in            bool
+	}{{keyringService, "API key", apiInKeychain}, {hmacService, "HMAC key", hmacInKeychain}} {
+		if !s.in {
+			continue
+		}
+		v, err := keyring.Get(s.service, from)
+		if errors.Is(err, keyring.ErrNotFound) {
+			continue // missing already; the new name is no worse off
+		}
+		if err != nil {
+			return fmt.Errorf("read %s from keychain: %w", s.what, err)
+		}
+		if err := keyring.Set(s.service, to, v); err != nil {
+			return fmt.Errorf("store %s in keychain: %w", s.what, err)
+		}
+	}
+	return nil
+}
+
 // hmacService keeps the webhook HMAC keys apart from the API keys.
 const hmacService = keyringService + ".hmac"
 

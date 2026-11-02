@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -83,6 +84,12 @@ type Config struct {
 
 	path string
 }
+
+var nameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$`)
+
+// ValidName reports whether name can name a profile: letters, digits, dot,
+// underscore and dash, starting with a letter or digit, at most 40.
+func ValidName(name string) bool { return nameRe.MatchString(name) }
 
 // ErrNoProfile means no profile has been set up yet.
 var ErrNoProfile = errors.New("no profile configured — run `paygate init` first")

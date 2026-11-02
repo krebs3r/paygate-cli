@@ -272,6 +272,75 @@ func TestProfileFormShowsWhereCallsGo(t *testing.T) {
 	expect("Token from https://www.computop-paygate.com/authorization/oauth/token")
 }
 
+func TestProfilesTable(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	send(m, tea.WindowSizeMsg{Width: 120, Height: 34}, keys("p"))
+	v := ansi.Strip(m.View())
+	for _, want := range []string{"2 saved", "NAME", "MERCHANT ID", "HMAC", "API     ", "0 payments · 0 webhooks"} {
+		if !strings.Contains(v, want) {
+			t.Fatalf("expected %q:\n%s", want, v)
+		}
+	}
+	var head, prod, test string
+	for _, l := range strings.Split(v, "\n") {
+		switch {
+		case strings.Contains(l, "MERCHANT ID"):
+			head = l
+		case strings.Contains(l, "shop-prod"):
+			prod = l
+		case strings.Contains(l, "shop-test"):
+			test = l
+		}
+	}
+	col := func(l, s string) int { return len([]rune(l[:strings.Index(l, s)])) }
+	if col(head, "NAME") != col(prod, "shop-prod") || col(head, "ENV")+1 != col(prod, "PROD") || col(head, "MERCHANT ID") != col(test, "demo-shop") {
+		t.Errorf("columns do not line up:\n%s\n%s\n%s", head, prod, test)
+	}
+	if !strings.Contains(test, "● shop-test") || strings.Contains(prod, "●") {
+		t.Errorf("only the active profile has the dot:\n%s\n%s", prod, test)
+	}
+}
+
+func TestEditProfileRenames(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	if err := history.Upsert(history.Record{Profile: "shop-test", TransID: "TRENAME"}); err != nil {
+		t.Fatal(err)
+	}
+	send(m, keys("p"), keys("e"))
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "Edit shop-test") || !strings.Contains(v, "shop-test") {
+		t.Fatalf("expected the edit form:\n%s", v)
+	}
+	send(m, tea.KeyMsg{Type: tea.KeyCtrlU}, keys("nexi-test"), enter, enter, enter) // name, platform, environment
+	send(m, enter, enter, enter)                                                    // merchant, key kept, auth
+	if m.ctx.Session == nil || m.ctx.Session.Name != "nexi-test" || m.ctx.Cfg.Profiles["shop-test"] != nil {
+		t.Fatalf("profile not renamed: session %+v, profiles %v\n%s", m.ctx.Session, m.ctx.Cfg.Names(), m.View())
+	}
+	if !strings.Contains(m.View(), "shop-test renamed to nexi-test · 1 payments") {
+		t.Errorf("expected the rename toast:\n%s", m.View())
+	}
+	if key, err := config.APIKey("nexi-test", m.ctx.Session.Profile); err != nil || key != "demo-key" {
+		t.Errorf("key after rename = %q, %v", key, err)
+	}
+	if _, ok := history.Find("nexi-test", "TRENAME"); !ok {
+		t.Error("the payment did not move along")
+	}
+}
+
+func TestEditProfileChecksNewKey(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	send(m, keys("p"), keys("e"), enter, enter, enter) // name, platform, environment unchanged
+	send(m, enter, keys("wrong-key"), enter, enter)    // merchant, a new key, auth
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "Paygate rejected the credentials") || !strings.Contains(v, "Edit shop-test") {
+		t.Fatalf("a rejected key belongs back in the form:\n%s", v)
+	}
+	if key, _ := config.APIKey("shop-test", m.ctx.Cfg.Profiles["shop-test"]); key != "demo-key" {
+		t.Errorf("a rejected key must not be stored, got %q", key)
+	}
+}
+
 func TestPaymentFormShowsEndpoint(t *testing.T) {
 	m := setup(t, twoProfiles(), "shop-test")
 	i18n.Set(i18n.EN)

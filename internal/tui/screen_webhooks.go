@@ -568,40 +568,19 @@ func (s *webhooksScreen) messageLine(w int) string {
 	return style.Render(wrap(s.message, min(w, 76)))
 }
 
-// hookCols are the widths of the list columns time, type, signature,
-// status and amount: the longest value of the received webhooks or the
-// heading, plus a gap. The trans or pay ID takes the rest of the line.
-type hookCols [5]int
-
-func hookColumns(events []listen.Event) hookCols {
-	var c hookCols
-	for i, k := range []string{"hooks.col.time", "hooks.col.type", "hooks.col.sig", "hooks.col.status", "hooks.col.amount"} {
-		c[i] = lipgloss.Width(t(k))
+// hookColumns sizes the list columns time, type, signature, status and
+// amount to the received webhooks. The trans or pay ID takes the rest of
+// the line.
+func hookColumns(events []listen.Event) columns {
+	rows := make([][]string, len(events))
+	for i, e := range events {
+		rows[i] = hookCells(e)
 	}
-	for _, e := range events {
-		for i, v := range hookCells(e) {
-			c[i] = max(c[i], lipgloss.Width(v))
-		}
-	}
-	for i := range c {
-		c[i] += 2
-	}
-	return c
+	return newColumns([]string{t("hooks.col.time"), t("hooks.col.type"), t("hooks.col.sig"), t("hooks.col.status"), t("hooks.col.amount")}, rows)
 }
-
-// row pads the cells, styled or not, to the column widths.
-func (c hookCols) row(cells ...string) string {
-	out := ""
-	for i, v := range cells {
-		out += padCells(v, c[i])
-	}
-	return out
-}
-
-func (c hookCols) width() int { return c[0] + c[1] + c[2] + c[3] + c[4] }
 
 // hookCells are the unstyled values of a webhook's list columns.
-func hookCells(e listen.Event) [5]string {
+func hookCells(e listen.Event) []string {
 	at, now := e.Time.Local(), time.Now()
 	ts := at.Format("15:04:05")
 	if at.YearDay() != now.YearDay() || at.Year() != now.Year() {
@@ -614,10 +593,10 @@ func hookCells(e listen.Event) [5]string {
 	if e.Amount != nil {
 		amount = money.Format(e.Amount.Value, e.Amount.Currency)
 	}
-	return [5]string{ts, string(e.Kind), signatureWord(e.Signature), status, amount}
+	return []string{ts, string(e.Kind), signatureWord(e.Signature), status, amount}
 }
 
-func hookRow(e listen.Event, c hookCols, w int) string {
+func hookRow(e listen.Event, c columns, w int) string {
 	v := hookCells(e)
 	id := e.TransID
 	if id == "" {

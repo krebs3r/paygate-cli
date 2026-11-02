@@ -4,21 +4,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/krebs3r/paygate-cli/internal/config"
 	"github.com/krebs3r/paygate-cli/internal/core"
+	"github.com/krebs3r/paygate-cli/internal/history"
+	"github.com/krebs3r/paygate-cli/internal/listen"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
 	"github.com/krebs3r/paygate-cli/internal/reqlog"
 	"github.com/krebs3r/paygate-cli/internal/ui"
 )
-
-var profileNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$`)
 
 type profileMode int
 
@@ -30,16 +31,27 @@ const (
 	modeDelete
 )
 
+// verifyPurpose is why the profiles screen checks credentials.
+type verifyPurpose int
+
+const (
+	verifyCheck verifyPurpose = iota // v on a saved profile
+	verifyAdd                        // before a new profile is saved
+	verifyEdit                       // before changed credentials are saved
+)
+
 // verifyResultMsg reports a credential check started by the profiles screen.
 type verifyResultMsg struct {
-	adding bool
-	name   string
-	err    error
-	match  *config.Profile
+	purpose verifyPurpose
+	name    string
+	err     error
+	match   *config.Profile
 }
 
 type profilesScreen struct {
 	sel     int
+	offset  int
+	counts  map[string]profileCounts
 	mode    profileMode
 	form    *huh.Form
 	spin    spinner.Model
@@ -48,7 +60,9 @@ type profilesScreen struct {
 	msgTone ui.Tone
 	width   int
 
-	// add form values
+	// add and edit form values; editing is the name of the profile being
+	// edited, empty while adding
+	editing                                string
 	fName, fBrand, fEnv, fMID, fKey, fAuth string
 	fWantHMAC                              bool
 	fHMAC                                  string
@@ -76,19 +90,52 @@ func (s *profilesScreen) Activate(ctx *Context) tea.Cmd {
 			s.sel = i
 		}
 	}
+	s.counts = countLocal()
 	return nil
 }
 
+// profileCounts is what is stored on this computer for a profile.
+type profileCounts struct{ payments, webhooks, calls int }
+
+// countLocal counts the stored payments, webhooks and API calls per profile.
+func countLocal() map[string]profileCounts {
+	out := map[string]profileCounts{}
+	add := func(profile string, f func(*profileCounts)) {
+		c := out[profile]
+		f(&c)
+		out[profile] = c
+	}
+	records, _ := history.Load()
+	for _, r := range records {
+		add(r.Profile, func(c *profileCounts) { c.payments++ })
+	}
+	events, _ := listen.Load()
+	for _, e := range events {
+		add(e.Profile, func(c *profileCounts) { c.webhooks++ })
+	}
+	entries, _ := reqlog.Load()
+	for _, e := range entries {
+		add(e.Profile, func(c *profileCounts) { c.calls++ })
+	}
+	return out
+}
+
 func (s *profilesScreen) Receive(ctx *Context, data any) tea.Cmd {
-	if data == "add" {
+	switch data {
+	case "add":
+		s.editing = ""
 		return s.startForm(ctx, "")
+	case "edit":
+		if ctx.Session != nil {
+			return s.startEdit(ctx, ctx.Session.Name)
+		}
 	}
 	return nil
 }
 
 func (s *profilesScreen) Back(*Context) (bool, tea.Cmd) {
 	if s.mode != modeList && s.mode != modeBusy {
-		s.mode, s.form = modeList, nil
+		s.mode, s.form, s.editing = modeList, nil, ""
 		return true, nil
 	}
 	return false, nil
@@ -106,6 +153,7 @@ func (s *profilesScreen) Hints(ctx *Context) []Hint {
 	hints := []Hint{{"a", t("prof.add")}}
 	if len(ctx.Cfg.Profiles) > 0 {
 		hints = append([]Hint{{"↑↓", t("key.select")}, {"enter", t("prof.switch")}}, hints...)
+		hints = append([]Hint{hints[0], hints[1], {"e", t("prof.edit")}}, hints[2:]...)
 		hints = append(hints, Hint{"v", t("prof.verify")}, Hint{"d", t("prof.delete")})
 	}
 	return hints
@@ -148,9 +196,15 @@ func (s *profilesScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 	case "down", "j":
 		s.sel = clamp(s.sel+1, len(ctx.Cfg.Profiles))
 	case "a":
+		s.editing = ""
 		return s.startForm(ctx, "")
+	case "e":
+		if prof != nil {
+			return s.startEdit(ctx, name)
+		}
 	case "enter":
 		if prof == nil {
+			s.editing = ""
 			return s.startForm(ctx, "")
 		}
 		ctx.Cfg.ActiveProfile = name
@@ -168,7 +222,7 @@ func (s *profilesScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 			s.message, s.msgTone = err.Error(), ui.ToneDanger
 			return nil
 		}
-		return s.verify(ctx, name, prof, key, false)
+		return s.verify(ctx, name, prof, key, verifyCheck)
 	case "d":
 		if prof == nil {
 			return nil
@@ -184,8 +238,25 @@ func (s *profilesScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 	return nil
 }
 
+// startEdit opens the form with a saved profile's name and connection.
+func (s *profilesScreen) startEdit(ctx *Context, name string) tea.Cmd {
+	p, ok := ctx.Cfg.Profiles[name]
+	if !ok {
+		return nil
+	}
+	s.editing = name
+	s.fName, s.fBrand, s.fEnv, s.fMID, s.fKey, s.fAuth = name, p.Brand, p.Env, p.MerchantID, "", p.Auth
+	s.fWantHMAC, s.fHMAC = false, ""
+	if s.fAuth == "" {
+		s.fAuth = string(paygate.AuthBasic)
+	}
+	return s.startForm(ctx, "")
+}
+
+// startForm opens the form to add a profile or, after startEdit, to edit
+// one. errText is shown above it when the form comes back after a check.
 func (s *profilesScreen) startForm(ctx *Context, errText string) tea.Cmd {
-	if errText == "" {
+	if errText == "" && s.editing == "" {
 		s.fName, s.fBrand, s.fEnv, s.fMID, s.fKey, s.fAuth = "", "nexi", "test", "", "", "basic"
 		s.fWantHMAC, s.fHMAC = false, ""
 		if len(ctx.Cfg.Profiles) == 0 {
@@ -198,14 +269,21 @@ func (s *profilesScreen) startForm(ctx *Context, errText string) tea.Cmd {
 	}
 	s.message, s.msgTone = errText, ui.ToneDanger
 	s.mode = modeForm
+	note, key := t("prof.form.note"), huh.NewInput().Title("REST "+t("f.key")).EchoMode(huh.EchoModePassword).Value(&s.fKey)
+	if s.editing != "" {
+		note = t("prof.edit.note")
+		key = key.Description(t("prof.edit.key"))
+	} else {
+		key = key.Validate(required)
+	}
 	s.form = newForm(s.width,
 		huh.NewGroup(
-			huh.NewNote().Description(t("prof.form.note")),
+			huh.NewNote().Description(note),
 			huh.NewInput().Title(t("prof.form.name")).Placeholder("shop-test").Value(&s.fName).Validate(func(v string) error {
-				if !profileNameRe.MatchString(v) {
+				if !config.ValidName(v) {
 					return errors.New(t("prof.form.name.err"))
 				}
-				if _, exists := ctx.Cfg.Profiles[v]; exists {
+				if _, exists := ctx.Cfg.Profiles[v]; exists && v != s.editing {
 					return errors.New(t("prof.form.exists"))
 				}
 				return nil
@@ -222,7 +300,7 @@ func (s *profilesScreen) startForm(ctx *Context, errText string) tea.Cmd {
 		),
 		huh.NewGroup(
 			huh.NewInput().Title(t("f.merchant")).Value(&s.fMID).Validate(required),
-			huh.NewInput().Title("REST "+t("f.key")).EchoMode(huh.EchoModePassword).Value(&s.fKey).Validate(required),
+			key,
 			huh.NewSelect[string]().Title(t("f.auth")).Options(
 				huh.NewOption(t("auth.basic"), "basic"),
 				huh.NewOption(t("auth.oauth2"), "oauth2"),
@@ -232,10 +310,10 @@ func (s *profilesScreen) startForm(ctx *Context, errText string) tea.Cmd {
 		huh.NewGroup(
 			huh.NewConfirm().Title(t("prof.form.hmac.ask")).Description(t("prof.form.hmac.desc")).
 				Affirmative(t("yes")).Negative(t("prof.form.hmac.later")).Value(&s.fWantHMAC),
-		),
+		).WithHideFunc(func() bool { return s.editing != "" }),
 		huh.NewGroup(
 			huh.NewInput().Title(t("prof.form.hmac")).EchoMode(huh.EchoModePassword).Value(&s.fHMAC).Validate(required),
-		).WithHideFunc(func() bool { return !s.fWantHMAC }),
+		).WithHideFunc(func() bool { return s.editing != "" || !s.fWantHMAC }),
 	)
 	return s.form.Init()
 }
@@ -280,12 +358,18 @@ func (s *profilesScreen) updateForm(ctx *Context, msg tea.Msg) tea.Cmd {
 		s.mode, s.form = modeList, nil
 		switch mode {
 		case modeForm:
+			if s.editing != "" {
+				return s.submitEdit(ctx)
+			}
 			p := &config.Profile{Brand: s.fBrand, Env: s.fEnv, MerchantID: config.CleanSecret(s.fMID), Auth: s.fAuth}
 			s.pending = p
-			return s.verify(ctx, s.fName, p, config.CleanSecret(s.fKey), true)
+			return s.verify(ctx, s.fName, p, config.CleanSecret(s.fKey), verifyAdd)
 		case modeMatch:
 			if s.confirm && s.match != nil {
 				s.pending.Brand, s.pending.Env, s.pending.Auth = s.match.Brand, s.match.Env, s.match.Auth
+				if s.editing != "" {
+					return s.applyEdit(ctx)
+				}
 				return s.save(ctx)
 			}
 			return s.startForm(ctx, t("prof.nomatch"))
@@ -299,7 +383,77 @@ func (s *profilesScreen) updateForm(ctx *Context, msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-func (s *profilesScreen) verify(ctx *Context, name string, p *config.Profile, key string, adding bool) tea.Cmd {
+// submitEdit saves an edited profile. Changed credentials are checked with
+// Paygate first; a new name alone needs no check.
+func (s *profilesScreen) submitEdit(ctx *Context) tea.Cmd {
+	old := ctx.Cfg.Profiles[s.editing]
+	if old == nil {
+		s.editing = ""
+		return nil
+	}
+	mid, key := config.CleanSecret(s.fMID), config.CleanSecret(s.fKey)
+	if key == "" && old.Brand == s.fBrand && old.Env == s.fEnv && old.MerchantID == mid && old.Auth == s.fAuth {
+		s.pending = nil
+		return s.applyEdit(ctx)
+	}
+	if key == "" {
+		var err error
+		if key, err = config.APIKey(s.editing, old); err != nil {
+			return s.startForm(ctx, err.Error())
+		}
+	}
+	p := *old
+	p.Brand, p.Env, p.MerchantID, p.Auth = s.fBrand, s.fEnv, mid, s.fAuth
+	s.pending = &p
+	return s.verify(ctx, s.fName, &p, key, verifyEdit)
+}
+
+// applyEdit renames the edited profile and takes over checked credentials.
+func (s *profilesScreen) applyEdit(ctx *Context) tea.Cmd {
+	from, to := s.editing, s.fName
+	var moved core.RenameResult
+	if to != from {
+		res, err := core.RenameProfile(ctx.Cfg, from, to)
+		if err != nil && ctx.Cfg.Profiles[to] == nil {
+			return s.startForm(ctx, err.Error()) // nothing changed
+		}
+		if err != nil {
+			s.editing = ""
+			return tea.Batch(sessionChanged(), toast(err.Error(), ui.ToneDanger))
+		}
+		moved = res
+	}
+	p := ctx.Cfg.Profiles[to]
+	if s.pending != nil {
+		p.Brand, p.Env, p.MerchantID, p.Auth = s.pending.Brand, s.pending.Env, s.pending.MerchantID, s.pending.Auth
+		if key := config.CleanSecret(s.fKey); key != "" {
+			if _, err := config.StoreAPIKey(to, p, key); err != nil {
+				return toast(err.Error(), ui.ToneDanger)
+			}
+		}
+		if err := ctx.Cfg.Save(); err != nil {
+			return toast(err.Error(), ui.ToneDanger)
+		}
+	}
+	s.editing, s.fKey, s.pending, s.match, s.message = "", "", nil, nil, ""
+	s.counts = countLocal()
+	for i, n := range ctx.Cfg.Names() {
+		if n == to {
+			s.sel = i
+		}
+	}
+	text := fmt.Sprintf(t("prof.updated"), to)
+	if to != from {
+		text = fmt.Sprintf(t("prof.renamed"), from, to, moved.Payments, moved.Webhooks)
+	}
+	cmds := []tea.Cmd{toast(text, ui.ToneSuccess)}
+	if ctx.Session != nil && (ctx.Session.Name == from || ctx.Cfg.ActiveProfile == to) {
+		cmds = append(cmds, sessionChanged())
+	}
+	return tea.Batch(cmds...)
+}
+
+func (s *profilesScreen) verify(ctx *Context, name string, p *config.Profile, key string, purpose verifyPurpose) tea.Cmd {
 	origin, _ := core.Origin(p)
 	s.mode = modeBusy
 	s.busy = fmt.Sprintf(t("prof.verifying"), strings.TrimPrefix(origin, "https://"))
@@ -310,16 +464,16 @@ func (s *profilesScreen) verify(ctx *Context, name string, p *config.Profile, ke
 		}
 		c, err := factory(p)
 		if err != nil {
-			return verifyResultMsg{adding: adding, name: name, err: err}
+			return verifyResultMsg{purpose: purpose, name: name, err: err}
 		}
 		vctx, cancel := context.WithTimeout(reqlog.WithoutLog(context.Background()), core.ProbeTimeout)
 		defer cancel()
 		err = c.Verify(vctx)
 		if err == nil || !errors.Is(err, paygate.ErrUnauthorized) {
-			return verifyResultMsg{adding: adding, name: name, err: err}
+			return verifyResultMsg{purpose: purpose, name: name, err: err}
 		}
 		match, _ := core.FindWorkingSettings(context.Background(), p, factory)
-		return verifyResultMsg{adding: adding, name: name, err: err, match: match}
+		return verifyResultMsg{purpose: purpose, name: name, err: err, match: match}
 	}
 	return tea.Batch(s.spin.Tick, check)
 }
@@ -327,15 +481,18 @@ func (s *profilesScreen) verify(ctx *Context, name string, p *config.Profile, ke
 func (s *profilesScreen) onVerified(ctx *Context, msg verifyResultMsg) tea.Cmd {
 	s.mode = modeList
 	if msg.err == nil {
-		if msg.adding {
+		switch msg.purpose {
+		case verifyAdd:
 			return s.save(ctx)
+		case verifyEdit:
+			return s.applyEdit(ctx)
 		}
 		_, p := s.selected(ctx)
 		origin, _ := core.Origin(p)
 		s.message, s.msgTone = fmt.Sprintf(t("prof.verified"), strings.TrimPrefix(origin, "https://")), ui.ToneSuccess
 		return nil
 	}
-	if msg.match != nil && msg.adding {
+	if msg.match != nil && msg.purpose != verifyCheck {
 		s.match, s.confirm, s.mode = msg.match, true, modeMatch
 		what := paygate.BrandLabel(paygate.Brand(msg.match.Brand)) + " · " + envLabel(msg.match.Env) + " · " + authName(msg.match.Auth)
 		desc := ""
@@ -353,7 +510,7 @@ func (s *profilesScreen) onVerified(ctx *Context, msg verifyResultMsg) tea.Cmd {
 	if errors.Is(msg.err, paygate.ErrUnauthorized) {
 		text = t("prof.rejected") + " " + t("prof.nomatch")
 	}
-	if msg.adding {
+	if msg.purpose != verifyCheck {
 		return s.startForm(ctx, text)
 	}
 	s.message, s.msgTone = text, ui.ToneDanger
@@ -377,6 +534,7 @@ func (s *profilesScreen) save(ctx *Context) tea.Cmd {
 	}
 	s.fKey, s.fHMAC, s.pending, s.match = "", "", nil, nil
 	s.message = ""
+	s.counts = countLocal()
 	for i, n := range ctx.Cfg.Names() {
 		if n == s.fName {
 			s.sel = i
@@ -406,7 +564,11 @@ func (s *profilesScreen) View(ctx *Context, w, h int) string {
 	s.width = w
 	out := title(t("prof.title")) + "\n\n"
 	if s.mode == modeForm {
-		out = title(t("prof.title")) + ui.Muted.Render("  ·  ") + ui.Label.Render(t("prof.form.title")) + "\n\n"
+		what := t("prof.form.title")
+		if s.editing != "" {
+			what = fmt.Sprintf(t("prof.edit.title"), s.editing)
+		}
+		out = title(t("prof.title")) + ui.Muted.Render("  ·  ") + ui.Label.Render(what) + "\n\n"
 	}
 	switch s.mode {
 	case modeForm, modeMatch, modeDelete:
@@ -422,24 +584,74 @@ func (s *profilesScreen) View(ctx *Context, w, h int) string {
 	if len(names) == 0 {
 		return out + ui.Label.Render(wrap(t("prof.empty"), min(w, 72)))
 	}
+	out = title(t("prof.title")) + ui.Muted.Render("  · "+fmt.Sprintf(t("prof.count"), len(names))) + "\n\n"
+	rows := make([][]string, len(names))
 	for i, n := range names {
-		p := ctx.Cfg.Profiles[n]
-		mark := "  "
-		if ctx.Session != nil && n == ctx.Session.Name {
-			mark = ui.Success.Render("● ")
-		}
-		row := mark + fmt.Sprintf("%-16s ", truncate(n, 16)) + ui.EnvBadge(p.IsProd()) + "  " +
-			ui.Label.Render(fmt.Sprintf("%-9s", p.Brand)) + " " + p.MerchantID + ui.Muted.Render("  · "+authName(p.Auth))
-		out += selectable(ctx, row, i == s.sel, w) + "\n"
+		rows[i] = profileCells(n, ctx.Cfg.Profiles[n])
 	}
+	headings := []string{t("prof.col.name"), t("prof.col.env"), t("prof.col.platform"), t("prof.col.merchant"), t("prof.col.auth")}
+	cols := newColumns(headings, rows)
+	out += ui.Muted.Render("    "+cols.row(headings...)+t("prof.col.hmac")) + "\n"
+
+	// The detail of the selected profile and a message stay below the list.
+	message := ""
 	if s.message != "" {
 		style := ui.Success
 		if s.msgTone == ui.ToneDanger {
 			style = ui.Danger
 		}
-		out += "\n" + style.Render(wrap(s.message, min(w, 74)))
+		message = "\n" + style.Render(wrap(s.message, min(w, 74)))
 	}
-	return out
+	room := max(h-lipgloss.Height(out)-3-lipgloss.Height(message), 3)
+	s.sel = clamp(s.sel, len(names))
+	if s.sel < s.offset {
+		s.offset = s.sel
+	}
+	if s.sel >= s.offset+room {
+		s.offset = s.sel - room + 1
+	}
+	for i := s.offset; i < len(names) && i < s.offset+room; i++ {
+		n, p, c := names[i], ctx.Cfg.Profiles[names[i]], rows[i]
+		mark := "  "
+		if ctx.Session != nil && n == ctx.Session.Name {
+			mark = ui.Success.Render("● ")
+		}
+		hmac := ui.Muted.Render("–")
+		if p.HMACStore != "" {
+			hmac = ui.Success.Render(t("prof.hmac.set"))
+		}
+		row := mark + cols.row(c[0], c[1], ui.Label.Render(c[2]), c[3], ui.Label.Render(c[4])) + hmac
+		out += selectable(ctx, ansi.Truncate(row, max(w-2, 10), "…"), i == s.sel, w) + "\n"
+	}
+	if rest := len(names) - s.offset - room; rest > 0 {
+		out += ui.Muted.Render("    "+fmt.Sprintf(t("prof.more"), rest)) + "\n"
+	}
+	return out + "\n" + s.detail(ctx, names[s.sel], w) + message
+}
+
+// profileCells are the values of a profile's list columns but the last.
+func profileCells(name string, p *config.Profile) []string {
+	return []string{truncate(name, 24), ui.EnvBadge(p.IsProd()), platformName(p.Brand), truncate(p.MerchantID, 28), authName(p.Auth)}
+}
+
+// detail tells where the selected profile's calls go, where its key is and
+// what is stored for it on this computer.
+func (s *profilesScreen) detail(ctx *Context, name string, w int) string {
+	p := ctx.Cfg.Profiles[name]
+	label := func(k string) string { return "  " + ui.Label.Render(padCells(t(k), 8)) }
+	key := t("prof.key.keychain")
+	if p.SecretStore == config.StoreFile {
+		key = t("prof.key.file")
+	}
+	origin, _ := core.Origin(p)
+	out := label("prof.api") + strings.TrimPrefix(origin, "https://") + ui.Muted.Render(" · "+key)
+	c := s.counts[name]
+	return ansi.Truncate(out, w, "…") + "\n" + label("prof.local") + fmt.Sprintf(t("prof.local.counts"), c.payments, c.webhooks, c.calls)
+}
+
+// platformName is the short platform name for lists.
+func platformName(brand string) string {
+	return strings.TrimSuffix(paygate.BrandLabel(paygate.Brand(brand)), " Paygate")
 }
 
 func envLabel(env string) string {

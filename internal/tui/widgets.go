@@ -58,6 +58,45 @@ func selectable(ctx *Context, row string, selected bool, w int) string {
 	return ui.Selected(row, w)
 }
 
+// columns are the widths of a list's columns: the longest value of each, or
+// its heading, plus a gap. The last column of a list is not part of it and
+// takes the rest of the line.
+type columns []int
+
+// newColumns measures the headings and the cells of all rows, styled or not.
+func newColumns(headings []string, rows [][]string) columns {
+	c := make(columns, len(headings))
+	for i, h := range headings {
+		c[i] = lipgloss.Width(h)
+	}
+	for _, r := range rows {
+		for i, v := range r[:min(len(r), len(c))] {
+			c[i] = max(c[i], lipgloss.Width(v))
+		}
+	}
+	for i := range c {
+		c[i] += 2
+	}
+	return c
+}
+
+// row pads the cells, styled or not, to the column widths.
+func (c columns) row(cells ...string) string {
+	out := ""
+	for i, v := range cells {
+		out += padCells(v, c[i])
+	}
+	return out
+}
+
+func (c columns) width() int {
+	w := 0
+	for _, n := range c {
+		w += n
+	}
+	return w
+}
+
 // wrap word-wraps text to width w.
 func wrap(s string, w int) string {
 	return lipgloss.NewStyle().Width(w).Render(s)

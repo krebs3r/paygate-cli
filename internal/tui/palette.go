@@ -79,6 +79,9 @@ func (m *model) paletteCommands() []paletteCmd {
 		add(fmt.Sprintf(t("pal.go"), s.Title()), "go open screen gehe öffnen "+id, func(*model) tea.Cmd { return switchTo(id, nil) })
 	}
 	add(t("pal.addprofile"), "add profile merchant credentials profil hinzufügen händler zugangsdaten", func(*model) tea.Cmd { return switchTo("profiles", "add") })
+	if m.ctx.Session != nil {
+		add(t("pal.editprofile"), "edit rename profile merchant credentials profil bearbeiten umbenennen zugangsdaten", func(*model) tea.Cmd { return switchTo("profiles", "edit") })
+	}
 	add(t("pal.reset"), "factory reset delete all data wipe werksreset zurücksetzen alle daten löschen", func(*model) tea.Cmd { return switchTo("settings", "reset") })
 	if m.ctx.Cfg != nil {
 		for _, name := range m.ctx.Cfg.Names() {
