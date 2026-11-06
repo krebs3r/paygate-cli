@@ -5,6 +5,8 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.0]
+
 ### Added
 
 - eDCC (preview), not yet verified against a merchant account with eDCC
@@ -17,9 +19,27 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   offer; after an accepted offer it shows the charged amount and the rate from
   the payment's details. With `--hosted` or `--method card`, `--dcc on|off`
   switches the payment page's offer on or off. In the app, the eDCC menu
-  (`u`) does the same. `paygate testcards` lists one eDCC test card per
-  currency, and the mock server answers with eDCC or, with `-dcc-off`,
-  without it.
+  (`u`) does the same. On production, paygate refuses a direct payment with
+  an eDCC test card, also one typed in by number, unless it is simulated
+  (`--simulate ok`); for the payment page, where paygate cannot see the card,
+  the review in the app warns instead. `paygate testcards` lists one eDCC
+  test card per currency, and the mock server answers with eDCC or, with
+  `-dcc-off`, without it.
+- `e` edits a profile in the app, also from the command palette: a new name
+  alone is saved at once, changed credentials are checked with Paygate
+  first, and an empty API key keeps the stored one. `paygate profile rename
+  <name> <new-name>` renames from the command line. The keys, the active
+  profile and the stored payments, webhooks and API calls move to the new
+  name; a profile with a running listener keeps its name until the listener
+  stops.
+
+### Changed
+
+- The profile list in the app is a table like the webhook list: name,
+  environment, platform, merchant ID, auth and whether an HMAC key is set,
+  each column sized to its content. Below it stand the host of the selected
+  profile, where its key is kept and how many payments, webhooks and API
+  calls are stored for it. `paygate profile list` shows the HMAC column too.
 
 ### Fixed
 

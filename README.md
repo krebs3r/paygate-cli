@@ -2,7 +2,7 @@
 
 Send real Nexi / Computop Paygate payments from your terminal.
 
-![Version](https://img.shields.io/badge/version-0.7.1-3d7eff)
+![Version](https://img.shields.io/badge/version-0.8.0-3d7eff)
 ![Go](https://img.shields.io/badge/go-1.27-00add8)
 ![Status](https://img.shields.io/badge/status-MVP-f59e0b)
 ![License](https://img.shields.io/badge/license-Apache--2.0-22c55e)
@@ -126,7 +126,7 @@ updated `PATH`.
 paygate --version
 ```
 
-You should see `paygate 0.7.1`. Continue with the [Quickstart](#quickstart).
+You should see `paygate 0.8.0`. Continue with the [Quickstart](#quickstart).
 
 </details>
 
@@ -171,7 +171,7 @@ that folder to your `PATH`. It ends with `Done. Next steps`.
 paygate --version
 ```
 
-You should see `paygate 0.7.1`. Continue with the [Quickstart](#quickstart).
+You should see `paygate 0.8.0`. Continue with the [Quickstart](#quickstart).
 
 </details>
 
@@ -217,10 +217,11 @@ test card number. On first start it walks you through adding your merchant.
 | --- | --- |
 | Home | Active profile, credential check, today's numbers, latest payments |
 | New payment | Form, review (request JSON, copy as curl), send, receipt; QR code, live status and test cards for hosted pages |
+| eDCC (preview) | eDCC check for all 28 test cards or one card; a card payment with the offer here in the terminal or on the payment page |
 | Payments | Local history with filter (`/`), lookup by ID (`g`), details with capture, refund, reversal and refresh; the timeline lists every API call of the payment and its webhooks, and <kbd>Enter</kbd> shows a call's request and response side by side (`[` `]` step through them) |
 | Webhooks | Listen with <kbd>space</kbd> through a cloudflared tunnel (against the mock server without one); received webhooks with all checks, headers and body; send one again to your handler (`r`), open its payment (`g`) |
 | Inspector | The last 1000 requests to Paygate from the app and the command line: request and response with headers and JSON, timing, correlation ID; copy body or curl. A status lookup that gets the same answer as the one before is counted (`×14`) instead of listed again |
-| Profiles | Add (with credential check), switch, verify, delete |
+| Profiles | Table of all profiles with host, key storage and stored data of the selected one; add (with credential check), switch, verify, edit and rename (`e`), delete |
 | Settings | Language, colour theme (Blue or Blurple), start screen, currency, payment page language, callback URLs, webhook HMAC key, customer IP, delete all data |
 
 Everything in the app also works as a single command, for scripts and CI.
@@ -267,7 +268,7 @@ Single commands work without the app, for example in scripts:
 | `paygate listen` | Receive Paygate's webhooks on this computer (cloudflared tunnel) | `paygate listen --forward-to http://localhost:3000/webhook` |
 | `paygate webhooks list` | List received webhooks; `show`, `resend`, `clear` work with them | `paygate webhooks show 12` |
 | `paygate testcards` | List test cards and aliases | `paygate testcards` |
-| `paygate profile` | List, switch, show, edit, delete profiles | `paygate profile use shop-prod` |
+| `paygate profile` | List, switch, show, rename, edit, delete profiles | `paygate profile use shop-prod` |
 | `paygate reset` | Delete all profiles, API keys, history and settings (also in the app under Settings) | `paygate reset` |
 | `paygate about` | Version, license and credits | `paygate about` |
 
@@ -287,7 +288,9 @@ Global flags work with every command:
 - **Profiles** live in `~/.config/paygate-cli/config.toml` on macOS and Linux and
   in `%APPDATA%\paygate-cli\config.toml` on Windows (readable only by you).
   Each profile stores platform (Nexi or Computop), environment, merchant ID and
-  auth mode (Basic Auth or OAuth2).
+  auth mode (Basic Auth or OAuth2). `paygate profile rename <name> <new-name>`
+  or `e` in the app renames one; its keys, payments, webhooks and API calls
+  move along.
 - **API keys** and webhook **HMAC keys** are kept in the macOS Keychain, Windows
   Credential Manager or the Linux Secret Service. Without a keychain, paygate
   falls back to the config file and says so.

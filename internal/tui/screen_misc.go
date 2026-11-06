@@ -34,10 +34,7 @@ func formatPAN(n string) string {
 
 // ---- About ----------------------------------------------------------------
 
-const (
-	mollieCLIURL = "https://github.com/fjbender/mollie-cli"
-	paytestURL   = "https://paygate.paytest.dev"
-)
+const paytestURL = "https://paygate.paytest.dev"
 
 type aboutScreen struct {
 	links []link // where the links are drawn, relative to the view
@@ -77,9 +74,7 @@ func (s *aboutScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 func (s *aboutScreen) View(ctx *Context, w, h int) string {
 	s.links = s.links[:0]
 	out := ui.Accent.Render("◆ ") + title("paygate · Paygate CLI") + " " + ui.Muted.Render(ctx.Version) + commitTag(ctx) + "\n\n" +
-		ui.Label.Render(t("about.made")) + "\n" +
-		ui.Label.Render(wrap(t("about.inspired"), w)) + "\n"
-	out = s.link(out, mollieCLIURL, w) + "\n\n" +
+		ui.Label.Render(t("about.made")) + "\n\n" +
 		ui.Label.Render(t("about.sister")) + "\n"
 	return s.link(out, paytestURL, w) + "\n\n" +
 		ui.Muted.Render(wrap(t("about.license"), w)) + "\n" +

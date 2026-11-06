@@ -1362,7 +1362,7 @@ func TestClickOpensAboutLinks(t *testing.T) {
 				send(m, tea.MouseMsg{X: x, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
 			}
 			lines := strings.Split(ansi.Strip(m.View()), "\n")
-			for _, url := range []string{mollieCLIURL, paytestURL} {
+			for _, url := range []string{paytestURL} {
 				for y, l := range lines {
 					if i := strings.Index(l, url); i >= 0 {
 						x := len([]rune(l[:i]))
@@ -1372,7 +1372,7 @@ func TestClickOpensAboutLinks(t *testing.T) {
 					}
 				}
 			}
-			if len(opened) != 2 || opened[0] != mollieCLIURL || opened[1] != paytestURL {
+			if len(opened) != 1 || opened[0] != paytestURL {
 				t.Fatalf("clicks on the links opened %v\n%s", opened, m.View())
 			}
 		})

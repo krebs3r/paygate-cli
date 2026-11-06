@@ -21,8 +21,6 @@ func newAboutCmd(app *App) *cobra.Command {
 				{Label: "Built", Value: ui.Muted.Render(b.Date)},
 				{Label: "Author", Value: "Martin Krebs"},
 				{Label: "License", Value: "Apache-2.0 · keep the NOTICE file when you redistribute"},
-				{Label: "Inspired by", Value: "mollie-cli by Florian Bender and Hannes Reinberger"},
-				{Label: "", Value: ui.Link.Render("https://github.com/fjbender/mollie-cli")},
 			}
 			ui.Println()
 			if ui.IsTTY(os.Stdout) && ui.Width() >= ui.BigLogoWidth+4 {

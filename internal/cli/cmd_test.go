@@ -250,7 +250,7 @@ func TestAboutCredits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Martin Krebs", "Florian Bender", "Hannes Reinberger", "github.com/fjbender/mollie-cli"} {
+	for _, want := range []string{"Martin Krebs", "Apache-2.0"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("about misses %q", want)
 		}
