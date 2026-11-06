@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/history"
@@ -571,7 +572,8 @@ func (s *paymentsScreen) View(ctx *Context, w, h int) string {
 		}
 		return out + ui.Label.Render(wrap(text, min(w, 72)))
 	}
-	out += ui.Muted.Render(fmt.Sprintf("  %-12s %-14s %-14s   %s", t("pays.col.time"), t("pays.col.status"), t("pays.col.amount"), t("pays.col.method"))) + "\n"
+	cols := paymentColumns(rows, w-4)
+	out += ui.Muted.Render("  "+cols.row(t("pays.col.time"), t("pays.col.status"), t("pays.col.amount"), "", t("pays.col.method"))+t("pays.col.transid")) + "\n"
 
 	room := h - lipgloss.Height(out) - 1
 	if room < 3 {
@@ -585,12 +587,32 @@ func (s *paymentsScreen) View(ctx *Context, w, h int) string {
 		s.offset = s.sel - room + 1
 	}
 	for i := s.offset; i < len(rows) && i < s.offset+room; i++ {
-		out += selectable(ctx, listRow(rows[i], w-4), i == s.sel, w) + "\n"
+		out += selectable(ctx, listRow(rows[i], cols, w-4), i == s.sel, w) + "\n"
 	}
 	return out
 }
 
-func listRow(r history.Record, w int) string {
+// transIDWidth is the length of the trans IDs paygate makes; the list
+// keeps them whole when it can.
+const transIDWidth = 17
+
+// paymentColumns sizes the list columns time, status, amount, simulation
+// mark and method to the payments shown. The trans ID takes the rest of the
+// line, w; where that is too little, the method gives way first.
+func paymentColumns(rs []history.Record, w int) columns {
+	rows := make([][]string, len(rs))
+	for i, r := range rs {
+		rows[i] = paymentCells(r)
+	}
+	cols := newColumns([]string{t("pays.col.time"), t("pays.col.status"), t("pays.col.amount"), "", t("pays.col.method")}, rows)
+	if over := cols.width() + transIDWidth - w; over > 0 {
+		cols[4] = max(cols[4]-over, 10)
+	}
+	return cols
+}
+
+// paymentCells are the values of a payment's list columns but the trans ID.
+func paymentCells(r history.Record) []string {
 	when := r.Time.Local()
 	ts := when.Format("15:04")
 	if when.YearDay() != time.Now().YearDay() || when.Year() != time.Now().Year() {
@@ -600,7 +622,6 @@ func listRow(r history.Record, w int) string {
 	if r.Simulation != "" {
 		sim = ui.Warning.Render("◆")
 	}
-	amount := money.Format(r.Amount, r.Currency)
 	method := r.Method
 	switch {
 	case method != "":
@@ -609,9 +630,14 @@ func listRow(r history.Record, w int) string {
 	default:
 		method = core.MethodName(strings.ToUpper(r.Flow))
 	}
-	rest := truncate(method+"  "+r.TransID, max(w-46, 10))
-	return fmt.Sprintf("%-12s ", ts) + padCells(statusBadgeShort(r.Status, r.Code), 14) + " " +
-		padCells(ui.Bold.Render(amount), 14) + " " + sim + " " + ui.Label.Render(rest)
+	return []string{ts, statusBadgeShort(r.Status, r.Code), ui.Bold.Render(money.Format(r.Amount, r.Currency)), sim, ui.Label.Render(method)}
+}
+
+func listRow(r history.Record, cols columns, w int) string {
+	cells := paymentCells(r)
+	cells[4] = ansi.Truncate(cells[4], cols[4]-2, "…")
+	row := cols.row(cells...) + ui.Label.Render(truncate(r.TransID, max(w-cols.width(), 8)))
+	return ansi.Truncate(row, w, "…")
 }
 
 func statusBadgeShort(status, code string) string {

@@ -5,6 +5,12 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The payments list has separate METHOD and TRANS ID columns, and the TRANS ID
+  heading lines up with its column. In narrow windows the method column
+  shrinks first.
+
 ## [0.7.1]
 
 ### Added

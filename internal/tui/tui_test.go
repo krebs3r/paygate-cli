@@ -272,6 +272,52 @@ func TestProfileFormShowsWhereCallsGo(t *testing.T) {
 	expect("Token from https://www.computop-paygate.com/authorization/oauth/token")
 }
 
+// Every heading of the payments list stands over its column, also when
+// the methods differ in length and a payment is simulated.
+func TestPaymentsListColumnsLineUp(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.DE)
+	defer i18n.Set(i18n.EN)
+	for _, r := range []history.Record{
+		{Profile: "shop-test", TransID: "TIDCARDMW3HAK9RYS", Amount: 1, Currency: "EUR", Method: "MASTERCARD •••• 4444", Status: "OK", Simulation: "Test:0000"},
+		{Profile: "shop-test", TransID: "TIDPAYPALW3H95B4L", Amount: 4990, Currency: "EUR", Method: "PayPal", Status: "REDIRECT"},
+	} {
+		if err := history.Upsert(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send(m, keys("l"))
+	// Wide and narrow: in the narrow window the method gives way first,
+	// and nothing wraps.
+	for _, width := range []int{140, 100} {
+		send(m, tea.WindowSizeMsg{Width: width, Height: 34})
+		var head string
+		rows := map[string]string{}
+		for _, l := range strings.Split(ansi.Strip(m.View()), "\n") {
+			switch {
+			case strings.Contains(l, "ZAHLART"):
+				head = l
+			case strings.Contains(l, "TIDCARDMW3"):
+				rows["card"] = l
+			case strings.Contains(l, "TIDPAYPALW3"):
+				rows["paypal"] = l
+			}
+		}
+		col := func(l, s string) int { return len([]rune(l[:strings.Index(l, s)])) }
+		if len(rows) != 2 {
+			t.Fatalf("width %d: rows wrap or are missing:\n%s", width, m.View())
+		}
+		if width == 140 && !strings.Contains(rows["card"], "TIDCARDMW3HAK9RYS") {
+			t.Errorf("a wide window shows the whole trans ID:\n%s", rows["card"])
+		}
+		for name, r := range rows {
+			if col(head, "TRANS ID") != col(r, "TID") || col(head, "ZAHLART") != col(r, map[string]string{"card": "MASTERC", "paypal": "PayPal"}[name]) {
+				t.Errorf("width %d: %s does not line up with the headings:\n%s\n%s", width, name, head, r)
+			}
+		}
+	}
+}
+
 func TestProfilesTable(t *testing.T) {
 	m := setup(t, twoProfiles(), "shop-test")
 	i18n.Set(i18n.EN)

@@ -137,11 +137,10 @@ func recentPayments(ctx *Context, w int) string {
 	}
 	out := "\n" + section(t("home.today")) + "  " + ui.Label.Render(fmt.Sprintf(t("home.today.line"), today, ok, failed, open)) + "\n"
 	out += "\n" + section(t("home.recent")) + "  " + ui.Muted.Render("l") + "\n"
-	for i, r := range mine {
-		if i == 3 {
-			break
-		}
-		out += "  " + listRow(r, w-4) + "\n"
+	recent := mine[:min(len(mine), 3)]
+	cols := paymentColumns(recent, w-4)
+	for _, r := range recent {
+		out += "  " + listRow(r, cols, w-4) + "\n"
 	}
 	return out
 }
