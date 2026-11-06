@@ -549,6 +549,442 @@ func TestNewPaymentDirectCard(t *testing.T) {
 	}
 }
 
+// The eDCC screen: card, Paygate's offer with the shop's currency
+// preselected, review, payment and a receipt with the eDCC outcome.
+func TestDCCScreenOffer(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	send(m, tea.WindowSizeMsg{Width: 120, Height: 44}, keys("u"))
+	s, ok := m.current().(*newPaymentScreen)
+	if !ok || m.current().ID() != "dcc" || !s.dcc {
+		t.Fatalf("u should open the eDCC screen, got %s", m.current().ID())
+	}
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "eDCC  PREVIEW    ● eDCC check") || !strings.Contains(v, "What do you want to do?") {
+		t.Fatalf("expected the eDCC form, starting with the check:\n%s", v)
+	}
+	send(m, down) // here, direct
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "eDCC  PREVIEW    ● Card ─ ○ Offer ─ ○ Review ─ ○ Result") {
+		t.Fatalf("expected the steps of a direct payment:\n%s", v)
+	}
+	send(m, enter)
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "Visa        4176 6622 8061 3305  eDCC · USD card") || !strings.Contains(v, "eDCC · EUR card") || strings.Contains(v, "4111 1111 1111 1111") {
+		t.Fatalf("expected the eDCC test cards only:\n%s", v)
+	}
+	send(m, enter)                             // dcc-usd
+	send(m, enter, enter, enter, enter, enter) // amount, currency, description, simulation, capture
+	v := ansi.Strip(m.View())
+	if s.stage != stageDCC || s.dccChoice != core.DCCDecline || !strings.Contains(v, "✓ Card ─ ● Offer") {
+		t.Fatalf("expected the offer with the shop's currency preselected, stage %d choice %q:\n%s", s.stage, s.dccChoice, v)
+	}
+	for _, want := range []string{"12.99 EUR   in the shop's currency", "14.52 USD   in the card's currency", "1 EUR = 1.1179 USD", "3.5 % markup", "Nets", "card country USA"} {
+		if !strings.Contains(v, want) {
+			t.Fatalf("the offer misses %q:\n%s", want, v)
+		}
+	}
+	send(m, down, enter) // the card's currency
+	if s.stage != stageReview || !strings.Contains(string(s.prepared.Body), `"selected": true`) || !strings.Contains(ansi.Strip(m.View()), "14.52 USD · 1 EUR = 1.1179 USD") {
+		t.Fatalf("review after accepting:\n%s\n%s", m.View(), s.prepared.Body)
+	}
+	send(m, enter)
+	v = ansi.Strip(m.View())
+	if s.result == nil || s.result.Status != "OK" || !strings.Contains(v, "14.52 USD") || !strings.Contains(v, "SHOP AMOUNT") || !strings.Contains(v, "12.99 EUR") {
+		t.Fatalf("receipt after eDCC:\n%s", v)
+	}
+	send(m, keys("d"))
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "currency conversion applied") || !strings.Contains(v, "Nets") || !strings.Contains(v, "u new") {
+		t.Errorf("details after eDCC:\n%s", v)
+	}
+	send(m, keys("r")) // again: a new offer, as a quote pays once
+	if s.stage != stageDCC {
+		t.Errorf("r should ask for a new offer, stage %d", s.stage)
+	}
+	send(m, esc)
+	if s.stage != stageForm || m.current().ID() != "dcc" {
+		t.Errorf("esc on the offer goes back to the eDCC form, stage %d on %s", s.stage, m.current().ID())
+	}
+}
+
+// On the payment page Paygate makes the offer: the eDCC screen sends a card
+// payment page with dccEnabled.
+func TestDCCScreenPaymentPage(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	send(m, keys("u"), down, down, enter) // payment page
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "eDCC on the payment page") || !strings.Contains(v, "Force the check") {
+		t.Fatalf("expected the payment page switch:\n%s", v)
+	}
+	send(m, enter)                             // force the check
+	send(m, enter, enter, enter, enter, enter) // amount, currency, description, simulation, capture
+	s := m.current().(*newPaymentScreen)
+	body := string(s.prepared.Body)
+	if s.stage != stageReview || !strings.Contains(body, `"dccEnabled": true`) || !strings.Contains(body, `"type": "CARD"`) ||
+		!strings.Contains(ansi.Strip(m.View()), "payment page · check forced") {
+		t.Fatalf("review of the payment page:\n%s\n%s", m.View(), body)
+	}
+	if strings.Contains(ansi.Strip(m.View()), "3-D Secure") {
+		t.Errorf("the payment page runs 3-D Secure in the browser; the review must not warn:\n%s", m.View())
+	}
+}
+
+// screenByID finds a screen of the app.
+func screenByID(m *model, id string) *newPaymentScreen {
+	for _, s := range m.screens {
+		if s.ID() == id {
+			return s.(*newPaymentScreen)
+		}
+	}
+	return nil
+}
+
+// New payment and eDCC are two instances of one screen, and the app hands
+// every answer to every screen: each must take only its own.
+func TestPaymentScreensKeepTheirOwnAnswers(t *testing.T) {
+	firstPoll, pollInterval = 5*time.Millisecond, 5*time.Millisecond
+	defer func() { firstPoll, pollInterval = 500*time.Millisecond, 2*time.Second }()
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	newPay, dcc := screenByID(m, "new"), screenByID(m, "dcc")
+
+	// An offer on the eDCC screen, left without a payment ...
+	send(m, keys("u"), down, enter, enter, enter, enter, enter, enter, enter)
+	if dcc.stage != stageDCC {
+		t.Fatalf("expected the offer, stage %d", dcc.stage)
+	}
+	send(m, esc, esc)
+	// ... then a payment on New payment: only New payment takes it.
+	send(m, keys("n"), enter, enter, enter, enter, enter, enter, enter, enter)
+	if newPay.result == nil || newPay.result.Status != "OK" || dcc.stage != stageForm || dcc.result != nil {
+		t.Fatalf("new payment %+v, eDCC stage %d result %+v", newPay.result, dcc.stage, dcc.result)
+	}
+	paid := newPay.req.TransID
+
+	// A payment page on the eDCC screen does not touch New payment's result.
+	send(m, esc, keys("u"), down, enter, enter, enter, enter, enter, enter, enter)
+	firstPoll = time.Hour // the loop below polls
+	send(m, enter)
+	for i := 0; i < 20 && dcc.stage == stageWaiting; i++ {
+		send(m, run(dcc.poll(m.ctx, time.Millisecond)))
+	}
+	if dcc.result == nil || dcc.result.TransID != dcc.req.TransID || dcc.req.TransID == paid {
+		t.Fatalf("eDCC result %+v for request %s", dcc.result, dcc.req.TransID)
+	}
+	if newPay.stage != stageResult || newPay.result.TransID != paid {
+		t.Errorf("New payment changed: stage %d trans ID %s, want %s", newPay.stage, newPay.result.TransID, paid)
+	}
+	if rec, ok := history.Find("shop-test", paid); !ok || rec.Status != "OK" {
+		t.Errorf("the first payment's record changed: %+v", rec)
+	}
+}
+
+// An answer that arrives after the profile changed belongs to the old
+// profile: the screen drops it.
+func TestProfileSwitchDropsPendingAnswer(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	send(m, keys("n"), enter, enter, enter, enter, enter, enter, enter) // to the review
+	s := screenByID(m, "new")
+	var paid payResultMsg
+	for _, c := range run(s.send(m.ctx)).(tea.BatchMsg) {
+		if r, ok := run(c).(payResultMsg); ok {
+			paid = r
+		}
+	}
+	transID := s.req.TransID
+	m.ctx.Cfg.ActiveProfile = "shop-prod"
+	send(m, sessionChangedMsg{}, paid)
+	if s.result != nil || s.stage != stageForm {
+		t.Errorf("the old profile's answer was taken: stage %d result %+v", s.stage, s.result)
+	}
+	if _, ok := history.Find("shop-prod", transID); ok {
+		t.Error("the old profile's payment must not be recorded for the new one")
+	}
+}
+
+func TestQuitNamesEachReasonOnce(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	screenByID(m, "new").stage, screenByID(m, "dcc").stage = stageWaiting, stageWaiting
+	send(m, keys("q"))
+	if len(m.quitAsk) != 1 {
+		t.Errorf("quit reasons = %q", m.quitAsk)
+	}
+}
+
+func TestPaletteCopiesDCCCards(t *testing.T) {
+	has := func(m *model) bool {
+		for _, c := range m.paletteCommands() {
+			if strings.Contains(c.label, "4176 6622 8061 3305") {
+				return true
+			}
+		}
+		return false
+	}
+	for _, profile := range []string{"shop-test", "shop-prod"} {
+		if m := setup(t, twoProfiles(), profile); !has(m) {
+			t.Errorf("the palette should copy the eDCC test cards on %s", profile)
+		}
+	}
+}
+
+// The eDCC outcome comes with the payment details. When they arrive while a
+// refund is asked for, they still replace the answer to the payment.
+func TestDCCDetailsArriveDuringRefundQuestion(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	send(m, keys("u"), down)
+	s := m.current().(*newPaymentScreen)
+	send(m, enter, enter, enter, enter, enter, enter, enter) // direct, dcc-usd, amount, currency, description, simulation, capture
+	send(m, down, enter)                                     // the card's currency
+	// Send, but leave out the command that loads the details; they come
+	// later, while the refund is asked for.
+	var paid payResultMsg
+	for _, c := range run(s.send(m.ctx)).(tea.BatchMsg) {
+		if r, ok := run(c).(payResultMsg); ok {
+			paid = r
+		}
+	}
+	s.onPaid(m.ctx, paid)
+	if s.stage != stageResult || strings.Contains(ansi.Strip(m.View()), "14.52 USD") {
+		t.Fatalf("before the details the answer shows the shop's amount, stage %d:\n%s", s.stage, m.View())
+	}
+	send(m, keys("f"))
+	if s.stage != stageConfirmOp {
+		t.Fatalf("expected the refund question, stage %d", s.stage)
+	}
+	res, err := m.ctx.Session.Client.GetByTransID(context.Background(), s.req.TransID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	send(m, dccDetailsMsg{seq: s.seq, res: res}, esc)
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "14.52 USD") || !strings.Contains(v, "eDCC applied") {
+		t.Errorf("the details must not be lost:\n%s", v)
+	}
+}
+
+// flatText is the text of a view in one line, without the frame, so that
+// a wrapped sentence is found whole.
+func flatText(view string) string {
+	return strings.Join(strings.Fields(strings.ReplaceAll(ansi.Strip(view), "│", " ")), " ")
+}
+
+// Production: the eDCC test cards are there, the check runs and says that
+// no offer is no proof there; New payment knows nothing of eDCC.
+func TestDCCScreenOnProduction(t *testing.T) {
+	m, mock := setupMock(t, twoProfiles(), "shop-prod")
+	mock.DCCOff = true
+	i18n.Set(i18n.EN)
+	send(m, tea.WindowSizeMsg{Width: 120, Height: 50}, keys("u"))
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "only simulated") {
+		t.Errorf("the eDCC form says how the test cards pay on production:\n%s", v)
+	}
+	send(m, enter, enter, enter, enter) // check, all, amount, currency
+	v := flatText(m.View())
+	for _, want := range []string{"no offer is no proof", "Paygate refuses the BIN check for all 28 cards: 20500077 NO VALID PAYMETHOD FOUND", "422 · 20500077"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("the check on production misses %q:\n%s", want, v)
+		}
+	}
+	send(m, esc, down, enter) // back to the form; here, direct
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "eDCC · USD card") {
+		t.Errorf("production offers the eDCC test cards too:\n%s", v)
+	}
+	send(m, esc, keys("n"), enter, enter) // leave the form; New payment: direct, visa-ok
+	if v := ansi.Strip(m.View()); strings.Contains(v, "Currency conversion") || !strings.Contains(v, "Amount") || m.current().ID() != "new" {
+		t.Errorf("New payment goes from the card to the amount, without eDCC:\n%s", v)
+	}
+}
+
+// The eDCC check asks all 28 test cards of the Nexi test guide and says
+// whether eDCC answers.
+func TestDCCCheckAll(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	send(m, tea.WindowSizeMsg{Width: 140, Height: 50}, keys("u"), enter, enter, enter, enter) // check, all, amount, currency
+	s := screenByID(m, "dcc")
+	if s.stage != stageCheck || s.checkRunning || len(s.probes) != 28 {
+		t.Fatalf("expected the finished check, stage %d running %v probes %d", s.stage, s.checkRunning, len(s.probes))
+	}
+	v := ansi.Strip(m.View())
+	for _, want := range []string{"BIN", "EXPECTED", "eDCC answers on this account", "25 offers · 28 as expected", "same currency"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("the check misses %q:\n%s", want, v)
+		}
+	}
+	send(m, keys("r"))
+	if s.stage != stageCheck || len(s.probes) != 28 {
+		t.Errorf("r runs the check again: %d probes", len(s.probes))
+	}
+	send(m, esc)
+	if s.stage != stageForm {
+		t.Errorf("esc goes back to the form, stage %d", s.stage)
+	}
+}
+
+// One test card, and a card that is no test card: only 6 digits of its BIN
+// show.
+func TestDCCCheckOneCard(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	send(m, tea.WindowSizeMsg{Width: 120, Height: 40}, keys("u"), enter, down, enter, enter, enter, enter) // check, one, USD card, amount, currency
+	s := screenByID(m, "dcc")
+	if v := ansi.Strip(m.View()); len(s.probes) != 1 || !strings.Contains(v, "4176662280") || !strings.Contains(v, "AVAILABLE · 14.52 USD") {
+		t.Fatalf("one test card:\n%s", v)
+	}
+	send(m, esc) // back to the form; another card
+	s.checkWhat, s.form = "own", nil
+	send(m, enter)                                                       // rebuilds the form
+	send(m, enter, enter, keys("4111111111111111"), enter, enter, enter) // check, own, digits, amount, currency
+	v := ansi.Strip(m.View())
+	if len(s.probes) != 1 || strings.Contains(v, "4111111111") || !strings.Contains(v, "411111••••") || !strings.Contains(v, "no offer") {
+		t.Errorf("a card that is no test card:\n%s", v)
+	}
+}
+
+// The review found these paths of the eDCC check broken; each stays fixed.
+func TestDCCCheckEdges(t *testing.T) {
+	t.Run("profile currency outside the common list", func(t *testing.T) {
+		profiles := twoProfiles()
+		profiles["shop-test"].Currency = "HUF"
+		m := setup(t, profiles, "shop-test")
+		send(m, keys("u"))
+		if s := screenByID(m, "dcc"); s.currency != "HUF" {
+			t.Errorf("the eDCC form changed the currency to %s", s.currency)
+		}
+	})
+	t.Run("digits checked at the start, shift+tab not trapped", func(t *testing.T) {
+		m := setup(t, twoProfiles(), "shop-test")
+		i18n.Set(i18n.EN)
+		send(m, keys("u"))
+		s := screenByID(m, "dcc")
+		s.checkWhat, s.form = "own", nil
+		send(m, enter)        // rebuilds the form
+		send(m, enter, enter) // check, own
+		send(m, shiftTab)     // back from the empty digits
+		if v := ansi.Strip(m.View()); !strings.Contains(v, "What to check?") {
+			t.Fatalf("shift+tab from the empty digits:\n%s", v)
+		}
+		send(m, enter, keys("12"), enter, enter, enter) // own, digits, amount, currency
+		if v := ansi.Strip(m.View()); s.stage != stageForm || !strings.Contains(v, "at least the first 10 digits") {
+			t.Errorf("too few digits belong back in the form, stage %d:\n%s", s.stage, v)
+		}
+	})
+	t.Run("stopped before the first answer", func(t *testing.T) {
+		m := setup(t, twoProfiles(), "shop-test")
+		i18n.Set(i18n.EN)
+		send(m, tea.WindowSizeMsg{Width: 140, Height: 50}, keys("u"))
+		s := screenByID(m, "dcc")
+		s.startCheck(m.ctx) // its first card is never answered
+		send(m, keys("x"))
+		if v := ansi.Strip(m.View()); !strings.Contains(v, "Stopped after 0 of 28") || strings.Contains(v, "No answer") || strings.Contains(v, "not active") {
+			t.Errorf("no verdict without an answer:\n%s", v)
+		}
+	})
+	t.Run("refused key stops the check", func(t *testing.T) {
+		m, mock := setupMock(t, twoProfiles(), "shop-test")
+		i18n.Set(i18n.EN)
+		mock.APIKey = "another-key"
+		send(m, tea.WindowSizeMsg{Width: 140, Height: 50}, keys("u"), enter, enter, enter, enter)
+		s := screenByID(m, "dcc")
+		if v := ansi.Strip(m.View()); len(s.probes) != 1 || !strings.Contains(v, "Stopped:") || strings.Contains(v, "not active") {
+			t.Errorf("a refused key, %d probes:\n%s", len(s.probes), v)
+		}
+	})
+	t.Run("one card in a low window", func(t *testing.T) {
+		m := setup(t, twoProfiles(), "shop-test")
+		i18n.Set(i18n.EN)
+		send(m, tea.WindowSizeMsg{Width: 100, Height: 24}, keys("u"), enter, down, enter) // check, one
+		s := screenByID(m, "dcc")
+		for i := 0; i < 40 && s.checkBIN != "6799998900"; i++ {
+			send(m, down)
+		}
+		if v := ansi.Strip(m.View()); s.checkBIN != "6799998900" || !strings.Contains(v, "6799998900") {
+			t.Errorf("the last card is out of view, chosen %s:\n%s", s.checkBIN, v)
+		}
+	})
+	t.Run("marks in the wide layout at 100 columns", func(t *testing.T) {
+		m, mock := setupMock(t, twoProfiles(), "shop-test")
+		i18n.Set(i18n.EN)
+		mock.DCCOff = true
+		send(m, tea.WindowSizeMsg{Width: 100, Height: 50}, keys("u"), enter, enter, enter, enter)
+		for _, l := range strings.Split(ansi.Strip(m.View()), "\n") {
+			if strings.Contains(l, "4055470554") && !strings.Contains(l, "✗") {
+				t.Errorf("the mark is cut off:\n%s", l)
+			}
+		}
+	})
+	t.Run("the choice stays in view in the smallest window", func(t *testing.T) {
+		m := setup(t, twoProfiles(), "shop-prod")
+		i18n.Set(i18n.EN)
+		send(m, tea.WindowSizeMsg{Width: 70, Height: 20}, keys("u"))
+		if v := ansi.Strip(m.View()); !strings.Contains(v, "PREVIEW") || !strings.Contains(v, "Pay · offer on Paygate's payment page") {
+			t.Errorf("the intro must give way to the choice:\n%s", v)
+		}
+		// Where the intro just fits, the key help stays in view as well.
+		m = setup(t, twoProfiles(), "shop-test")
+		send(m, tea.WindowSizeMsg{Width: 80, Height: 21}, keys("u"))
+		if v := ansi.Strip(m.View()); !strings.Contains(v, "Paygate's payment page") || !strings.Contains(v, "enter select") {
+			t.Errorf("the choice or its key help is cut off:\n%s", v)
+		}
+	})
+	t.Run("refused verdict stays whole in the smallest window", func(t *testing.T) {
+		for _, lang := range []i18n.Lang{i18n.EN, i18n.DE} {
+			m, mock := setupMock(t, twoProfiles(), "shop-prod")
+			i18n.Set(lang)
+			mock.DCCOff = true
+			send(m, tea.WindowSizeMsg{Width: 70, Height: 20}, keys("u"), enter, enter, enter, enter)
+			v := m.View()
+			wants := []string{"for all 28 cards: 20500077 NO VALID PAYMETHOD FOUND", "it is not the test BINs.", "0 offers · 28 BIN checks refused", "no offer is no proof"}
+			if lang == i18n.DE {
+				wants = []string{"bei allen 28 Karten ab: 20500077 NO VALID PAYMETHOD FOUND", "liegt es nicht an den Test-BINs.", "0 Angebote · 28 BIN-Checks abgelehnt", "kein Angebot ist hier also kein Beweis"}
+			}
+			for _, want := range wants {
+				if !strings.Contains(flatText(v), want) {
+					t.Errorf("%s: the check misses %q:\n%s", lang, want, ansi.Strip(v))
+				}
+			}
+		}
+		i18n.Set(i18n.EN)
+	})
+	t.Run("production rule before the quote", func(t *testing.T) {
+		m := setup(t, twoProfiles(), "shop-prod")
+		i18n.Set(i18n.EN)
+		send(m, keys("u"))
+		s := screenByID(m, "dcc")
+		s.flow, s.simulate, s.form = string(core.FlowDirect), "off", nil
+		send(m, enter)                                                  // rebuilds the form
+		send(m, enter, enter, enter, enter, enter, enter, enter, enter) // direct, dcc-usd, amount group
+		if v := ansi.Strip(m.View()); s.stage != stageForm || s.offer != nil || !strings.Contains(v, "only simulated") {
+			t.Errorf("refused before the quote, stage %d:\n%s", s.stage, v)
+		}
+	})
+	t.Run("payment page on production without simulation", func(t *testing.T) {
+		m := setup(t, twoProfiles(), "shop-prod")
+		i18n.Set(i18n.EN)
+		send(m, tea.WindowSizeMsg{Width: 120, Height: 50}, keys("u"))
+		s := screenByID(m, "dcc")
+		s.flow, s.simulate, s.form = string(core.FlowMethod), "off", nil
+		send(m, enter)                                           // rebuilds the form
+		send(m, enter, enter, enter, enter, enter, enter, enter) // page, switch, amount group
+		if v := ansi.Strip(m.View()); s.stage != stageReview || !strings.Contains(v, "pays for real") {
+			t.Errorf("the review warns, stage %d:\n%s", s.stage, v)
+		}
+	})
+}
+
+// The eDCC test cards fit a window of 24 rows, the typed-in card with them.
+func TestDCCScreenCardListFitsLowWindow(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	send(m, tea.WindowSizeMsg{Width: 100, Height: 24}, keys("u"), down, enter)
+	s := m.current().(*newPaymentScreen)
+	for i := 0; i < 30 && s.cardChoice != manualCardChoice; i++ {
+		send(m, down)
+	}
+	if v := ansi.Strip(m.View()); s.cardChoice != manualCardChoice || !strings.Contains(v, "Enter card details") || !strings.Contains(v, "eDCC · USD card") {
+		t.Errorf("all eDCC cards and the manual entry must be in view, choice %q:\n%s", s.cardChoice, v)
+	}
+}
+
 func TestNewPaymentSimulatedOnProduction(t *testing.T) {
 	m := setup(t, twoProfiles(), "shop-prod")
 	i18n.Set(i18n.EN)
@@ -557,7 +993,7 @@ func TestNewPaymentSimulatedOnProduction(t *testing.T) {
 	if s.amount != core.ProdDefaultAmount || s.simulate != "ok" || s.capture != "manual" {
 		t.Fatalf("production defaults: amount %s simulate %s capture %s", s.amount, s.simulate, s.capture)
 	}
-	send(m, enter, enter, enter, enter, enter, enter, enter)
+	send(m, enter, enter, enter, enter, enter, enter, enter) // flow, card, amount, currency, description, simulation, capture
 	if s.req.Order.Description != core.SimSuccess {
 		t.Fatalf("description = %q, want %s", s.req.Order.Description, core.SimSuccess)
 	}
@@ -598,6 +1034,21 @@ func TestNewPaymentCardListFitsOneLinePerCard(t *testing.T) {
 	}
 }
 
+// The card list fits a window of 24 rows.
+func TestNewPaymentCardListFitsLowWindow(t *testing.T) {
+	m := setup(t, twoProfiles(), "shop-test")
+	i18n.Set(i18n.EN)
+	send(m, tea.WindowSizeMsg{Width: 100, Height: 24})
+	send(m, keys("n"), enter) // flow: direct card
+	s := m.current().(*newPaymentScreen)
+	for i := 0; i < 30 && s.cardChoice != manualCardChoice; i++ {
+		send(m, down)
+	}
+	if v := ansi.Strip(m.View()); s.cardChoice != manualCardChoice || !strings.Contains(v, "Enter card details") || !strings.Contains(v, "4111 1111 1111 1111") {
+		t.Errorf("the manual entry must be in view with the cursor, choice %q:\n%s", s.cardChoice, v)
+	}
+}
+
 // Even when Paygate asks for 3-D Secure on every card, the test cards
 // without 3DS go through.
 func TestNewPaymentTestCardWithout3DS(t *testing.T) {
@@ -606,7 +1057,7 @@ func TestNewPaymentTestCardWithout3DS(t *testing.T) {
 	i18n.Set(i18n.EN)
 	send(m, keys("n"))
 	s := m.current().(*newPaymentScreen)
-	send(m, enter, enter, enter, enter, enter, enter, enter)
+	send(m, enter, enter, enter, enter, enter, enter, enter) // flow, card, amount, currency, description, simulation, capture
 	if s.stage != stageReview || s.req.PaymentMethods.Card.ThreeDsPolicy == nil {
 		t.Fatalf("visa-ok must skip 3-D Secure, stage %d:\n%s", s.stage, m.View())
 	}

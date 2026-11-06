@@ -27,11 +27,12 @@ func main() {
 	webhook := flag.String("webhook", "off", "webhook of completed hosted payments: off, basic or enhanced")
 	hmacKey := flag.String("hmac-key", "demo-hmac-key", "HMAC key that signs enhanced webhooks")
 	webhookTo := flag.String("webhook-to", "", "send webhooks here instead of urls.webhook, e.g. http://localhost:3000/webhook")
+	dccOff := flag.Bool("dcc-off", false, "answer like a merchant without eDCC: BIN check 422 20500077, no offers")
 	flag.Parse()
 
 	s := mockpaygate.New(*mid, *key)
 	s.BaseURL = "http://" + *addr
-	s.NotFoundPolls, s.PendingPolls = *notFound, *pending
+	s.NotFoundPolls, s.PendingPolls, s.DCCOff = *notFound, *pending, *dccOff
 	switch *webhook {
 	case "off", "basic", "enhanced":
 	default:

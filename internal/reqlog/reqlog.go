@@ -122,18 +122,22 @@ var (
 	mu        sync.Mutex
 	panRe     = regexp.MustCompile(`("number"\s*:\s*")(\d{6})\d{2,9}(\d{4})"`)
 	cvcRe     = regexp.MustCompile(`("securityCode"\s*:\s*")[^"]*"`)
+	binRe     = regexp.MustCompile(`("bin"\s*:\s*")(\d{6})\d+"`)
 	tokenRe   = regexp.MustCompile(`("access_token"\s*:\s*")[^"]+"`)
 	secretKey = []string{"authorization", "cookie", "set-cookie"}
 )
 
 // Mask hides card numbers (keeping BIN and last four), security codes and
-// access tokens, and truncates very large bodies.
+// access tokens, and truncates very large bodies. The 10-digit BIN that
+// eDCC asks for keeps 6 digits too: with the last four of the payment it
+// would give away 14 digits of a real card.
 func Mask(body []byte) string {
 	if len(body) > maxBody {
 		body = append(body[:maxBody:maxBody], []byte("…")...)
 	}
 	b := panRe.ReplaceAll(body, []byte(`${1}${2}••••••${3}"`))
 	b = cvcRe.ReplaceAll(b, []byte(`${1}•••"`))
+	b = binRe.ReplaceAll(b, []byte(`${1}${2}••••"`))
 	b = tokenRe.ReplaceAll(b, []byte(`${1}[REDACTED]"`))
 	return string(b)
 }
@@ -249,11 +253,15 @@ func answerOf(body string) string {
 	return a.PayID + "|" + a.Status + "|" + string(a.ResponseCode)
 }
 
+var dccIDRe = regexp.MustCompile(`"dccRequestId"\s*:\s*"([^"]+)"`)
+
 // ForPayment picks the exchanges of one payment from entries: those of the
 // profile whose URL, request or response names its trans ID or one of its
-// pay IDs. They come back oldest first.
+// pay IDs. An eDCC quote the payment answers belongs to it too, with the
+// BIN check just before. They come back oldest first.
 func ForPayment(entries []Entry, profile, transID string, payIDs ...string) []Entry {
 	var out []Entry
+	quotes := map[string]bool{}
 	for _, e := range entries {
 		if e.Profile != profile {
 			continue
@@ -264,6 +272,23 @@ func ForPayment(entries []Entry, profile, transID string, payIDs ...string) []En
 		}
 		if hit {
 			out = append(out, e)
+			if m := dccIDRe.FindStringSubmatch(e.RequestBody); m != nil {
+				quotes[m[1]] = true
+			}
+		}
+	}
+	for i, e := range entries {
+		m := dccIDRe.FindStringSubmatch(e.ResponseBody)
+		if e.Profile != profile || !strings.HasSuffix(e.URL, "/services/dcc/quote") || m == nil || !quotes[m[1]] {
+			continue
+		}
+		out = append(out, e)
+		// entries are newest first: the BIN check asked just before
+		if i+1 < len(entries) {
+			b := entries[i+1]
+			if b.Profile == profile && strings.HasSuffix(b.URL, "/services/dcc/bin-check") && e.Time.Sub(b.Time) < time.Minute {
+				out = append(out, b)
+			}
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Time.Before(out[j].Time) })

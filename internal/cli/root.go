@@ -214,6 +214,7 @@ func NewRootCmd(build BuildInfo) *cobra.Command {
 		newListenCmd(app),
 		newWebhooksCmd(app),
 		newTestcardsCmd(app),
+		newDCCCmd(app),
 	} {
 		c.GroupID = "payments"
 		root.AddCommand(c)

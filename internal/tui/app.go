@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -70,6 +71,7 @@ func newModel(ctx *Context) *model {
 		screens: []Screen{
 			newHomeScreen(),
 			newNewPaymentScreen(),
+			newDCCScreen(),
 			newPaymentsScreen(),
 			newWebhooksScreen(),
 			newProfilesScreen(),
@@ -309,7 +311,8 @@ func (m *model) quit() tea.Cmd {
 	var reasons []string
 	for _, s := range m.screens {
 		if q, ok := s.(Quitter); ok {
-			if r := q.QuitWarning(m.ctx); r != "" {
+			// New payment and eDCC give the same reason; once is enough.
+			if r := q.QuitWarning(m.ctx); r != "" && !slices.Contains(reasons, r) {
 				reasons = append(reasons, r)
 			}
 		}

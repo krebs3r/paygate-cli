@@ -16,6 +16,7 @@ import (
 	"github.com/krebs3r/paygate-cli/internal/cards"
 	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/export"
+	"github.com/krebs3r/paygate-cli/internal/i18n"
 	"github.com/krebs3r/paygate-cli/internal/listen"
 	"github.com/krebs3r/paygate-cli/internal/money"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
@@ -52,6 +53,7 @@ type payOptions struct {
 	skip3DS     bool
 	simulate    string
 	ip          string
+	dcc         string
 	open        bool
 	noWait      bool
 	noQR        bool
@@ -93,7 +95,8 @@ webhook and closes the tunnel again.`,
   paygate pay --hosted --amount 49 --listen       # receive its webhook too
   paygate pay --method paypal --amount 5 --currency EUR
   paygate pay --card visa-ok --curl
-  paygate pay --card visa-ok --simulate ok        # test transaction on production`,
+  paygate pay --card visa-ok --simulate ok        # test transaction on production
+  paygate pay --card dcc-usd --dcc ask            # eDCC: offer to pay in USD`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runPay(app, o, cmd)
@@ -111,6 +114,7 @@ webhook and closes the tunnel again.`,
 	f.StringVar(&o.channel, "channel", "ECOM", "channel for direct payments: ECOM or MOTO")
 	f.BoolVar(&o.skip3DS, "skip-3ds", false, "direct card payments: ask Paygate to skip 3-D Secure (test cards without 3DS always do)")
 	f.StringVar(&o.ip, "ip", "", "customer IP for direct card payments (default: profile setting or this computer)")
+	f.StringVar(&o.dcc, "dcc", "", "eDCC (preview): with --card, ask, accept or decline the offer to pay in the card's currency; with --hosted or --method card, on or off")
 	addPaymentFlags(cmd, o)
 	_ = cmd.RegisterFlagCompletionFunc("card", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return cards.Aliases(), cobra.ShellCompDirectiveNoFileComp
@@ -197,6 +201,35 @@ func runPay(app *App, o *payOptions, cmd *cobra.Command) error {
 	}
 
 	in := o.input()
+	if o.dcc != "" {
+		if err := o.dccInput(&in); err != nil {
+			return err
+		}
+	}
+	if in.DCC != "" {
+		// Before the quote: nobody should answer an offer for a payment
+		// that would be refused.
+		if err := core.CheckProdTestCard(in, prof); err != nil {
+			return err
+		}
+		if app.Curl {
+			return errors.New("--dcc asks Paygate for a quote first; leave out --curl (paygate dcc quote --curl exports the quote)")
+		}
+		if !headerShown {
+			app.PrintHeader(name, prof)
+			headerShown = true
+		}
+		if in.DCC, in.DCCRequestID, err = decideDCC(app, client, prof, in, in.DCC); err != nil {
+			return err
+		}
+	}
+	if in.DCCEnabled != "" && !app.JSON() && !app.Curl {
+		if !headerShown {
+			app.PrintHeader(name, prof)
+			headerShown = true
+		}
+		ui.Println(ui.Info(i18n.T("dcc.preview")))
+	}
 	var hook *payHook
 	listenNote := ""
 	switch {
@@ -289,7 +322,7 @@ func runPay(app *App, o *payOptions, cmd *cobra.Command) error {
 	} else {
 		ui.Println(ui.OK("Payment processed " + ui.Muted.Render("in "+paygate.FormatDuration(res.Response.Duration))))
 		ui.Println()
-		ui.Println(paymentCard(res.Payment, res.Response, cardOpts{Amount: amountStr}))
+		ui.Println(paymentCard(dccOutcome(client, req, res.Payment), res.Response, cardOpts{Amount: amountStr}))
 		ui.Println()
 	}
 	switch paygate.OutcomeOf(res.Payment) {
@@ -309,6 +342,27 @@ func runPay(app *App, o *payOptions, cmd *cobra.Command) error {
 		}
 		return nil
 	}
+}
+
+// dccInput checks --dcc against the flow: a direct payment answers a quote,
+// a payment page gets the switch for its own offer.
+func (o *payOptions) dccInput(in *core.PaymentInput) error {
+	v := strings.ToLower(o.dcc)
+	switch o.flow {
+	case flowDirect:
+		if v != dccAsk && v != core.DCCAccept && v != core.DCCDecline {
+			return errors.New("with --card, --dcc is ask, accept or decline")
+		}
+		in.DCC = v
+	case flowHosted, flowMethod:
+		if v != "on" && v != "off" {
+			return errors.New("with a payment page, --dcc is on or off; the page asks the customer itself")
+		}
+		in.DCCEnabled = v
+	default:
+		return errors.New("--dcc needs a card payment: --card, --hosted or --method card")
+	}
+	return nil
 }
 
 // input maps the flags to the shared payment input.

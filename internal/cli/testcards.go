@@ -18,15 +18,20 @@ func newTestcardsCmd(app *App) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if app.JSON() {
 				type card struct {
-					Alias    string `json:"alias"`
-					Brand    string `json:"brand"`
-					Number   string `json:"number"`
-					Scenario string `json:"scenario"`
-					Expect   string `json:"expect"`
+					Alias        string `json:"alias"`
+					Brand        string `json:"brand"`
+					Number       string `json:"number"`
+					Scenario     string `json:"scenario"`
+					Expect       string `json:"expect"`
+					CardCurrency string `json:"cardCurrency,omitempty"`
 				}
-				out := make([]card, len(cards.Cards))
-				for i, c := range cards.Cards {
-					out[i] = card{c.Alias, c.Brand, c.Number, c.Scenario, c.Expect}
+				out := make([]card, 0, len(cards.Cards)+len(cards.DCCCards))
+				for _, c := range cards.Cards {
+					out = append(out, card{c.Alias, c.Brand, c.Number, c.Scenario, c.Expect, ""})
+				}
+				for _, d := range cards.DCCCards {
+					c := d.Card()
+					out = append(out, card{c.Alias, c.Brand, c.Number, c.Scenario, c.Expect, d.Currency})
 				}
 				b, _ := json.MarshalIndent(out, "", "  ")
 				ui.Println(string(b))
@@ -49,7 +54,15 @@ func newTestcardsCmd(app *App) *cobra.Command {
 			}
 			ui.Println(ui.Info("Challenge OTPs: " + otp))
 			ui.Println()
-			ui.Println(ui.Next("paygate pay --card visa-ok", "paygate pay --card visa-decline"))
+			dcc := make([][]string, len(cards.DCCCards))
+			for i, c := range cards.DCCCards {
+				dcc[i] = []string{c.Alias, brandName(c.Brand), formatPAN(c.Number), c.Currency, c.Expect()}
+			}
+			ui.Println(ui.Table([]string{"eDCC alias", "Brand", "Number", "Card currency", "Expected"}, dcc))
+			ui.Println()
+			ui.Println(ui.Info("eDCC cards from the Nexi test guide: test system only, with eDCC enabled for the merchant."))
+			ui.Println()
+			ui.Println(ui.Next("paygate pay --card visa-ok", "paygate pay --card visa-decline", "paygate dcc quote dcc-usd"))
 			ui.Println()
 			return nil
 		},

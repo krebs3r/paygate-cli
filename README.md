@@ -34,6 +34,7 @@ every request can be inspected or exported as `curl`.
 - [Commands](#commands)
 - [Configuration and security](#configuration-and-security)
 - [Payment links](#payment-links)
+- [eDCC (preview)](#edcc-preview)
 - [Test transactions on production](#test-transactions-on-production)
 - [Test data](#test-data)
 - [Testing webhooks](#testing-webhooks)
@@ -49,6 +50,8 @@ every request can be inspected or exported as `curl`.
 - **All integration types**: hosted payment page, hosted single method (PayPal,
   iDEAL, SEPA, Klarna and more), direct card payments and payment links (Pay by
   Link).
+- **eDCC (preview)**: check whether eDCC answers on an account, and pay with
+  an offer in the card's currency, in the terminal or on the payment page.
 - **Safe on production**: simulation with `Test:0000` / `Test:0305`, 0.01 as
   default amount and manual capture with one-key release.
 - **Live status**: checkout URL with QR code; paygate waits until the payment is
@@ -252,6 +255,8 @@ Single commands work without the app, for example in scripts:
 | `paygate pay --hosted` | Hosted payment page with all or selected methods | `paygate pay --hosted --methods card,paypal --open` |
 | `paygate pay --method` | Hosted form for a single method | `paygate pay --method ideal --amount 5` |
 | `paygate link` | Payment link to share, or for Paygate to send by e-mail or SMS | `paygate link --amount 49 --expires 24h` |
+| `paygate dcc check` | eDCC (preview): check whether eDCC answers on the account | `paygate dcc check` |
+| `paygate dcc quote` | eDCC (preview): the offer to pay in a card's currency | `paygate dcc quote dcc-usd --amount 12.99` |
 | `paygate get` | Show a payment by payId or transId | `paygate get --trans-id TIDMVGGX4YZ9I9APE` |
 | `paygate history` | List payments created or looked up with paygate | `paygate history --limit 50` |
 | `paygate capture` | Capture an authorized payment | `paygate capture <payId>` |
@@ -342,6 +347,57 @@ your merchant at Paygate applies.
 
 In the app, New payment → Payment link does the same; the command palette
 (`ctrl+k`) starts a new payment link directly.
+
+## eDCC (preview)
+
+> [!NOTE]
+> **eDCC is a preview.** It follows the Paygate API documentation and is
+> covered by tests against the built-in mock server, but it has not yet been
+> verified against a merchant account with eDCC enabled. Behaviour and output
+> may still change once it has been.
+
+With eDCC (dynamic currency conversion), a customer with a foreign card pays
+in the card's currency. Paygate identifies the card's country from its first 10
+digits (BIN check) and quotes the amount in the card's currency (quote); the
+customer accepts or declines the offer. eDCC must be enabled for the merchant.
+
+`paygate dcc check` asks Paygate for the BIN check and a quote for the 28 eDCC
+test cards of the [Nexi test guide](https://docs.paygate.nexigroup.com/nexi-developer/test-edcc),
+or for one card, and says whether eDCC answers on the account. It makes no
+payment and moves no money. Only the first 10 digits of a card are sent, and
+the request log keeps 6 of them.
+
+```bash
+paygate dcc check                          # all 28 eDCC test cards
+paygate dcc check dcc-usd                  # one test card
+paygate dcc check 1234567890               # the first 10 digits of another card
+paygate dcc quote dcc-usd --amount 12.99   # the offer for one card
+paygate pay --card dcc-usd --dcc ask       # offer in the terminal, then pay
+paygate pay --hosted --dcc on              # the payment page makes the offer
+```
+
+The verdict says what the answers show: eDCC answers (at least one offer), it
+is probably not active (no offer where one could have come), Paygate refuses
+the BIN check (with Paygate's response code), no answer (the check failed for
+every card) or no verdict (only cards that get no offer anyway, or whose
+currency paygate does not know).
+
+The Nexi test guide lists the eDCC test cards for the test system only. On
+production, no offer for them is therefore no proof; check the first 10 digits
+of a real card as well. To pay with an eDCC test card on production, simulate
+the payment (`--simulate ok`): paygate insists on it for direct payments, but
+cannot see a card typed in on the payment page.
+
+After an accepted offer, paygate loads the payment's details: the amount
+charged in the card's currency, the rate, the markup and their source are only
+there, not in the answer to the payment. Payment links have no eDCC setting;
+their payment page follows the merchant's setting.
+
+In the app, the eDCC menu (`u`) runs the same check and both payments.
+`paygate testcards` lists one eDCC test card per currency, with aliases from
+`dcc-usd` to `dcc-eur`. The mock server answers like an account with eDCC for
+a shop in euros (`make mock`), or like one without eDCC
+(`go run ./tools/mockpaygate -dcc-off`).
 
 ## Test transactions on production
 

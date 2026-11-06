@@ -64,6 +64,10 @@ func Receipt(p *paygate.Payment, o ReceiptOpts) string {
 		amount = money.Format(p.Amount.Value, p.Amount.Currency)
 	}
 	mi := p.Method()
+	dcc := dccApplied(p)
+	if dcc != nil {
+		amount = DCCAmount(dcc.Amounts.Cardholder) // the card pays in its own currency
+	}
 	method := mi.Label()
 	if method == "" {
 		method = o.Method
@@ -88,6 +92,21 @@ func Receipt(p *paygate.Payment, o ReceiptOpts) string {
 	}
 	if mi.ProviderResponseCode != "" && paygate.OutcomeOf(p) == paygate.OutcomeFailed {
 		lines = append(lines, row(i18n.T("receipt.reason"), strings.TrimSpace(mi.ProviderResponseCode+" "+mi.ProviderResponseMessage)))
+	}
+	if dcc != nil {
+		lines = append(lines, row(i18n.T("dcc.conversion"), Success.Render(i18n.T("dcc.applied.short"))))
+		if a := dcc.Amounts.Merchant; a != nil {
+			lines = append(lines, row(i18n.T("dcc.shop"), money.Format(a.Value, a.Currency)))
+		}
+		if rate := DCCRate(dcc.Amounts, dcc.Rate); rate != "" {
+			lines = append(lines, row(i18n.T("dcc.rate"), rate))
+		}
+		if r := dcc.Rate; r != nil && r.MarkupPercentage != "" {
+			lines = append(lines, row(i18n.T("dcc.markup.label"), r.MarkupPercentage.String()+" %"))
+		}
+		if src := DCCSource(dcc.Provider, dcc.Rate); src != "" {
+			lines = append(lines, row(i18n.T("dcc.provider"), src))
+		}
 	}
 	lines = append(lines,
 		row(i18n.T("receipt.date"), when.Format("02.01.06 15:04")),

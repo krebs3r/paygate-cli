@@ -258,6 +258,11 @@ func callSummary(e reqlog.Entry, flow string) string {
 		what = t("call.reversal") + operationAmount(e)
 	case e.Method == http.MethodGet:
 		what = t("call.status")
+	case strings.HasSuffix(path, "/services/dcc/bin-check"), strings.HasSuffix(path, "/services/dcc/quote"):
+		if e.Error != "" {
+			return "eDCC " + ui.Danger.Render("ERR")
+		}
+		return dccCallSummary(e, path)
 	}
 	if e.Error != "" {
 		return what + " " + ui.Danger.Render("ERR")
@@ -284,6 +289,26 @@ func callSummary(e reqlog.Entry, flow string) string {
 		line += ui.Muted.Render(" · " + p.ResponseDescription)
 	}
 	return line
+}
+
+// dccCallSummary says what the eDCC BIN check or quote answered: the card's
+// country, or the offer.
+func dccCallSummary(e reqlog.Entry, path string) string {
+	if strings.HasSuffix(path, "/bin-check") {
+		var b paygate.BinLookup
+		if json.Unmarshal([]byte(e.ResponseBody), &b) != nil || b.Country() == "" {
+			return t("call.bincheck")
+		}
+		return t("call.bincheck") + ui.Muted.Render(" · "+b.Country())
+	}
+	var q paygate.DCCQuote
+	if json.Unmarshal([]byte(e.ResponseBody), &q) != nil || q.DCCInfo == nil {
+		return t("call.quote")
+	}
+	if !q.DCCInfo.Available() {
+		return t("call.quote") + " " + ui.Muted.Render(q.DCCInfo.Status)
+	}
+	return t("call.quote") + " " + ui.Success.Render(ui.DCCAmount(q.DCCInfo.Amounts.Cardholder))
 }
 
 // operationAmount is the amount a capture, refund or reversal asked for.

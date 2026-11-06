@@ -67,6 +67,12 @@ type PaymentInput struct {
 	Template string
 	Expires  string
 	Partial  bool
+	// eDCC. DCC is the customer's answer to the quote DCCRequestID in a
+	// direct card payment (accept, decline); DCCEnabled switches the offer
+	// on the payment page on or off (empty: the merchant's setting).
+	DCC          string
+	DCCRequestID string
+	DCCEnabled   string
 }
 
 var simCode = regexp.MustCompile(`^\d{4}$`)
@@ -153,6 +159,16 @@ func BuildPaymentRequest(in PaymentInput, prof *config.Profile) (*paygate.Paymen
 
 	switch in.Flow {
 	case FlowHosted, FlowLink:
+		if in.Flow == FlowLink && (in.DCCEnabled != "" || in.DCC != "") {
+			return nil, "", errors.New("payment links have no eDCC setting; the payment page follows the merchant's setting")
+		}
+		if in.Flow == FlowHosted && (in.DCCEnabled != "" || in.DCC != "") {
+			card := &paygate.Card{}
+			if err := applyDCC(card, in, false); err != nil {
+				return nil, "", err
+			}
+			req.PaymentMethods = &paygate.PaymentMethods{Card: card}
+		}
 		req.URLs = urls
 		for _, m := range in.Methods {
 			for _, part := range strings.Split(m, ",") {
@@ -183,6 +199,16 @@ func BuildPaymentRequest(in PaymentInput, prof *config.Profile) (*paygate.Paymen
 		if pm.Type == "IDEAL" {
 			req.PaymentMethods.Ideal = &paygate.SubTyped{SubType: "IDEAL"}
 		}
+		if in.DCCEnabled != "" || in.DCC != "" {
+			if pm.Type != "CARD" {
+				return nil, "", fmt.Errorf("eDCC is for card payments, not %s", pm.Name)
+			}
+			card := &paygate.Card{}
+			if err := applyDCC(card, in, false); err != nil {
+				return nil, "", err
+			}
+			req.PaymentMethods.Card = card
+		}
 		return req, pm.Name, nil
 
 	case FlowDirect:
@@ -201,6 +227,9 @@ func BuildPaymentRequest(in PaymentInput, prof *config.Profile) (*paygate.Paymen
 		if brand == "" {
 			brand = cards.DetectBrand(number)
 		}
+		if err := CheckProdTestCard(in, prof); err != nil {
+			return nil, "", err
+		}
 		expiry, cvc, holder := in.Expiry, in.CVC, in.Holder
 		if expiry == "" {
 			expiry = cards.DefaultExpiry()
@@ -216,6 +245,9 @@ func BuildPaymentRequest(in PaymentInput, prof *config.Profile) (*paygate.Paymen
 		// cannot run its browser steps.
 		if in.Skip3DS || (in.Card != "" && !threeDS) {
 			card.ThreeDsPolicy = &paygate.ThreeDsPolicy{Skip: "THIS_TRANSACTION"}
+		}
+		if err := applyDCC(card, in, true); err != nil {
+			return nil, "", err
 		}
 		channel := strings.ToUpper(in.Channel)
 		if channel == "" {

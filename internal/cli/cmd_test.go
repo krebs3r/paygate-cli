@@ -223,7 +223,7 @@ func TestTestcardsAndProfiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	var cards []map[string]string
-	if err := json.Unmarshal([]byte(out), &cards); err != nil || len(cards) != 12 {
+	if err := json.Unmarshal([]byte(out), &cards); err != nil || len(cards) != 23 || cards[22]["cardCurrency"] != "EUR" {
 		t.Fatalf("testcards json: %v (%d cards)", err, len(cards))
 	}
 
@@ -254,6 +254,159 @@ func TestAboutCredits(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("about misses %q", want)
 		}
+	}
+}
+
+func TestDCCQuoteAndPay(t *testing.T) {
+	setup(t)
+	mustInit(t)
+	out, _, err := run(t, "dcc", "quote", "dcc-usd", "--amount", "12.99")
+	for _, want := range []string{"eDCC is a preview", "card country USA", "eDCC available", "14.52 USD", "1 EUR = 1.1179 USD", "3.5 % markup", "Nets", "--dcc"} {
+		if err != nil || !strings.Contains(out, want) {
+			t.Fatalf("dcc quote misses %q (%v):\n%s", want, err, out)
+		}
+	}
+	if out, _, err := run(t, "dcc", "quote", "dcc-eur"); err != nil || !strings.Contains(out, "no eDCC offer") {
+		t.Errorf("a euro card: %v\n%s", err, out)
+	}
+	out, _, err = run(t, "dcc", "check", "4176662280613305", "-o", "json")
+	for _, want := range []string{`"country": "USA"`, `"outcome": "as-expected"`, `"expectedCurrency": "USD"`, `"active": true`} {
+		if err != nil || !strings.Contains(out, want) {
+			t.Errorf("dcc check -o json misses %s (%v):\n%s", want, err, out)
+		}
+	}
+	// All 28 test cards of the Nexi test guide; the mock offers the 25 not in
+	// euros and none for the three in euros, as expected.
+	out, _, err = run(t, "dcc", "check")
+	for _, want := range []string{"eDCC answers on this account", "25 offers · 28 as expected", "6799998900", "same currency"} {
+		if err != nil || !strings.Contains(out, want) {
+			t.Errorf("dcc check misses %q (%v):\n%s", want, err, out)
+		}
+	}
+	// A card that is no test card never comes back in full, nor the 10
+	// digits of its BIN.
+	out, _, err = run(t, "dcc", "check", "4111111111111111")
+	if err != nil || strings.Contains(out, "4111111111") || !strings.Contains(out, "411111••••") || !strings.Contains(out, "no offer") {
+		t.Errorf("dcc check with a card number: %v\n%s", err, out)
+	}
+	out, _, err = run(t, "pay", "--card-number", "4176662280613305", "--dcc", "accept")
+	if err != nil || strings.Contains(out, "4176662280") {
+		t.Errorf("pay with an offer shows the BIN in full: %v\n%s", err, out)
+	}
+
+	// The eDCC outcome is in the payment details, like Paygate's spec.
+	dccInfo := func(payment map[string]any) any {
+		t.Helper()
+		details := payJSON(t, "get", payment["payId"].(string))
+		return details["paymentMethods"].(map[string]any)["card"].(map[string]any)["dccInfo"]
+	}
+	accepted := payJSON(t, "pay", "--card", "dcc-usd", "--amount", "12.99", "--dcc", "accept")
+	if info, ok := dccInfo(accepted).(map[string]any); !ok || info["dccSelected"] != true {
+		t.Errorf("accepted payment: %v", info)
+	}
+	declined := payJSON(t, "pay", "--card", "dcc-chf", "--dcc", "decline")
+	if info, ok := dccInfo(declined).(map[string]any); !ok || info["dccSelected"] != false {
+		t.Errorf("declined payment: %v", info)
+	}
+	out, _, err = run(t, "pay", "--card", "dcc-usd", "--dcc", "accept")
+	for _, want := range []string{"14.52 USD", "currency conversion applied", "Shop amount", "12.99 EUR"} {
+		if err != nil || !strings.Contains(out, want) {
+			t.Errorf("payment card misses %q (%v):\n%s", want, err, out)
+		}
+	}
+	for _, bad := range [][]string{
+		{"pay", "--card", "dcc-usd", "--dcc", "ask"}, // asks, but no terminal
+		{"pay", "--card", "dcc-usd", "--dcc", "on"},  // on/off is for payment pages
+		{"pay", "--hosted", "--dcc", "accept"},       // and accept/decline for direct payments
+		{"pay", "--card", "dcc-usd", "--dcc", "accept", "--curl"},
+	} {
+		if _, _, err := run(t, bad...); err == nil {
+			t.Errorf("%v must fail", bad)
+		}
+	}
+	if out, _, err := run(t, "pay", "--hosted", "--dcc", "on", "--curl"); err != nil || !strings.Contains(out, `"dccEnabled": true`) {
+		t.Errorf("hosted with eDCC: %v\n%s", err, out)
+	}
+
+	if _, _, err := run(t, "init", "--name", "live", "--env", "prod", "--merchant-id", "demo-shop", "--api-key", "demo-key", "--no-verify"); err != nil {
+		t.Fatal(err)
+	}
+	// Production: BIN check and offer with the test cards, a payment only
+	// simulated.
+	if out, _, err := run(t, "dcc", "check", "-p", "live"); err != nil || !strings.Contains(out, "lists these cards for the test system only") || !strings.Contains(out, "eDCC is a preview") {
+		t.Errorf("dcc check on production: %v\n%s", err, out)
+	}
+	if out, _, err := run(t, "dcc", "quote", "dcc-usd", "-p", "live"); err != nil || !strings.Contains(out, "eDCC available") {
+		t.Errorf("dcc quote on production: %v\n%s", err, out)
+	}
+	if _, _, err := run(t, "pay", "--card", "dcc-usd", "--simulate", "off", "--yes", "-p", "live"); err == nil || !strings.Contains(err.Error(), "only simulated") {
+		t.Errorf("an unsimulated eDCC test card on production: %v", err)
+	}
+	if paid := payJSON(t, "pay", "--card", "dcc-usd", "--simulate", "ok", "--dcc", "accept", "--yes", "-p", "live"); paid["status"] != "OK" && paid["status"] != "AUTHORIZED" {
+		t.Errorf("simulated on production: %v", paid["status"])
+	}
+}
+
+// The eDCC check says only what its cards can show, refuses typos before
+// anything is sent and stops when the key is refused.
+func TestDCCCheckVerdicts(t *testing.T) {
+	m := setup(t)
+	mustInit(t)
+	for _, typo := range []string{"dcc-usx", "417666228", "foo"} {
+		out, _, err := run(t, "dcc", "check", typo)
+		if err == nil || !strings.Contains(err.Error(), "no test card alias") || strings.Contains(out, "BIN") {
+			t.Errorf("dcc check %s: %v\n%s", typo, err, out)
+		}
+	}
+	if out, _, err := run(t, "dcc", "check", "dcc-eur"); err != nil || !strings.Contains(out, "No verdict") || strings.Contains(out, "not active") {
+		t.Errorf("a card in the shop's currency gives no verdict: %v\n%s", err, out)
+	}
+	if out, _, err := run(t, "dcc", "check", "dcc-usd", "-o", "json"); err != nil || !strings.Contains(out, `"verdict": "active"`) {
+		t.Errorf("json verdict: %v\n%s", err, out)
+	}
+
+	// A merchant without eDCC: Paygate refuses every BIN check. The verdict
+	// says so in Paygate's words; no card is as expected.
+	m.DCCOff = true
+	out, _, err := run(t, "dcc", "check")
+	for _, want := range []string{"Paygate refuses the BIN check for all 28 cards: 20500077 NO VALID PAYMETHOD FOUND",
+		"0 offers · 28 BIN checks refused", "first 10 digits of a real card", "✗ BIN check refused"} {
+		if err != nil || !strings.Contains(out, want) {
+			t.Errorf("without eDCC the check misses %q (%v):\n%s", want, err, out)
+		}
+	}
+	if strings.Contains(out, "as expected") || strings.Contains(out, "same currency") || strings.Contains(out, "not active") {
+		t.Errorf("without eDCC no card is as expected:\n%s", out)
+	}
+	out, _, err = run(t, "dcc", "check", "5300000000", "-o", "json")
+	for _, want := range []string{`"verdict": "bin-check-refused"`, `"outcome": "bin-check-refused"`, `"otherCards": 1`,
+		`"code": "20500077"`, `"description": "NO VALID PAYMETHOD FOUND"`} {
+		if err != nil || !strings.Contains(out, want) {
+			t.Errorf("json without eDCC misses %s (%v):\n%s", want, err, out)
+		}
+	}
+	m.DCCOff = false
+
+	// A refused key stops the check after the first card, with an error.
+	if _, _, err := run(t, "init", "--name", "badkey", "--merchant-id", "demo-shop", "--api-key", "wrong", "--no-verify"); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err = run(t, "dcc", "check", "-p", "badkey")
+	if err == nil || !strings.Contains(out, "Stopped after 1 of 28") || strings.Contains(out, "not active") {
+		t.Errorf("a refused key: %v\n%s", err, out)
+	}
+
+	// Production: the hints add the simulation; a payment without one is
+	// refused before the quote.
+	if _, _, err := run(t, "init", "--name", "live", "--env", "prod", "--merchant-id", "demo-shop", "--api-key", "demo-key", "--no-verify"); err != nil {
+		t.Fatal(err)
+	}
+	if out, _, err := run(t, "dcc", "check", "dcc-usd", "--currency", "EUR", "-p", "live"); err != nil || !strings.Contains(out, "--dcc ask --simulate ok") {
+		t.Errorf("production hint: %v\n%s", err, out)
+	}
+	out, _, err = run(t, "pay", "--card", "dcc-usd", "--dcc", "accept", "--simulate", "off", "--yes", "-p", "live")
+	if err == nil || !strings.Contains(err.Error(), "only simulated") || strings.Contains(out, "Offer to pay") {
+		t.Errorf("refused before the quote: %v\n%s", err, out)
 	}
 }
 

@@ -84,6 +84,11 @@ func PaymentCard(p *paygate.Payment, resp *paygate.Response, o PaymentCardOpts) 
 	if mi.IssuerResponseCode != "" {
 		rows = append(rows, Row{Label: "Issuer", Value: strings.TrimSpace(mi.IssuerResponseCode + "  " + Muted.Render(mi.IssuerResponseMessage))})
 	}
+	dcc := dccApplied(p)
+	if dcc != nil {
+		rows = append(rows, Row{Label: "eDCC", Value: Success.Render(i18n.T("dcc.applied"))})
+		rows = append(rows, DCCRows(dcc.Provider, dcc.Rate, dcc.Amounts)...)
+	}
 	for _, r := range o.Extra {
 		if r.Label == "Method" || r.Label == i18n.T("card.method") {
 			if mi.Label() == "" {
@@ -102,6 +107,9 @@ func PaymentCard(p *paygate.Payment, resp *paygate.Response, o PaymentCardOpts) 
 	amount := o.Amount
 	if amount == "" && p.Amount != nil && p.Amount.Currency != "" {
 		amount = money.Format(p.Amount.Value, p.Amount.Currency)
+	}
+	if dcc != nil {
+		amount = DCCAmount(dcc.Amounts.Cardholder) // what the card is charged
 	}
 	title := o.Title
 	if title == "" {

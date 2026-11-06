@@ -41,11 +41,15 @@ type Server struct {
 	WebhookTo string
 	// OnWebhook, if set, learns the outcome of every webhook delivery.
 	OnWebhook func(url string, status int, err error)
+	// DCCOff answers like a merchant without eDCC: the BIN check fails with
+	// 20500077 and no card gets an offer.
+	DCCOff bool
 
 	mu       sync.Mutex
 	byTrans  map[string]*record
 	byPayID  map[string]*record
 	polls    map[string]int
+	quotes   map[string]*quote
 	requests int
 }
 
@@ -57,6 +61,8 @@ type record struct {
 	Brand, Last4                                                       string
 	WebhookURL                                                         string
 	Created                                                            time.Time
+	DCC                                                                *quote // the eDCC quote the customer answered
+	DCCSelected                                                        bool
 }
 
 // New returns a mock that accepts the given credentials.
@@ -70,6 +76,7 @@ func New(merchantID, apiKey string) *Server {
 		byTrans:       map[string]*record{},
 		byPayID:       map[string]*record{},
 		polls:         map[string]int{},
+		quotes:        map[string]*quote{},
 	}
 }
 
@@ -104,6 +111,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v2/payments/{id}/captures", s.auth(s.operation("capture")))
 	mux.HandleFunc("POST /api/v2/payments/{id}/refunds", s.auth(s.operation("refund")))
 	mux.HandleFunc("POST /api/v2/payments/{id}/reversals", s.auth(s.operation("reversal")))
+	mux.HandleFunc("POST /api/v2/services/dcc/bin-check", s.auth(s.binCheck))
+	mux.HandleFunc("POST /api/v2/services/dcc/quote", s.auth(s.dccQuote))
 	mux.HandleFunc("GET /checkout", s.checkoutPage)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Correlation-ID", randHex(8))
@@ -174,6 +183,11 @@ type paymentBody struct {
 			ThreeDsPolicy *struct {
 				Skip string `json:"skip"`
 			} `json:"threeDsPolicy"`
+			DCCEnabled *bool `json:"dccEnabled"`
+			DCC        *struct {
+				Selected     bool   `json:"selected"`
+				DCCRequestID string `json:"dccRequestId"`
+			} `json:"dcc"`
 		} `json:"card"`
 	} `json:"paymentMethods"`
 	ServiceType      string `json:"serviceType"`
@@ -296,8 +310,14 @@ func (s *Server) createPayment(w http.ResponseWriter, r *http.Request) {
 		problemTitle(w, "Validation failed", map[string][]string{"BrowserInfo.IpAddress": {"'Browser Info Ip Address' must not be empty."}})
 		return
 	}
+	q, errs := s.acceptQuote(b)
+	if errs != nil {
+		problem(w, errs)
+		return
+	}
 	rec := s.newRecord(b)
 	rec.Method, rec.Brand, rec.Last4 = "CARD", strings.ToUpper(card.Brand), card.Number[len(card.Number)-4:]
+	rec.DCC, rec.DCCSelected = q, card.DCC != nil && card.DCC.Selected
 	simDecline := rec.Sim != "" && rec.Sim != "0000"
 	simOK := rec.Sim == "0000"
 	switch {
@@ -388,6 +408,11 @@ func (s *Server) linkJSON(rec *record) map[string]any {
 
 func (s *Server) detailsJSON(rec *record) map[string]any {
 	out := s.paymentJSON(rec)
+	// Like the spec: the eDCC outcome is in the payment details only, not
+	// in the answer to the payment.
+	if rec.DCC != nil {
+		out["paymentMethods"].(map[string]any)["card"].(map[string]any)["dccInfo"] = rec.DCC.info(rec.DCCSelected, false)
+	}
 	out["amount"] = map[string]any{"value": rec.Amount, "currency": rec.Currency, "capturedValue": rec.Captured, "refundedValue": rec.Refunded}
 	out["captureMethod"] = map[string]any{"type": rec.Capture}
 	return out

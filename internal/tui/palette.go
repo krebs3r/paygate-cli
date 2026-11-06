@@ -56,6 +56,7 @@ func (m *model) paletteCommands() []paletteCmd {
 	}
 	add(t("act.new"), "new payment pay card neue zahlung bezahlen karte", func(*model) tea.Cmd { return switchTo("new", nil) })
 	add(t("act.newlink"), "new payment link pay by link share e-mail sms neuer zahlungslink teilen", func(*model) tea.Cmd { return switchTo("new", core.FlowLink) })
+	add(t("pal.dcc"), "edcc dcc currency conversion offer quote foreign card währungsumrechnung angebot ausländische karte", func(*model) tea.Cmd { return switchTo("dcc", nil) })
 	add(t("pal.lookup"), "look up find search payid transid zahlung suchen finden", func(*model) tea.Cmd { return switchTo("payments", "lookup") })
 	add(t("pal.last"), "last payment refund capture reversal reverse cancel release letzte zahlung erstatten einziehen freigeben stornieren", func(*model) tea.Cmd {
 		r, ok := m.lastPayment()
@@ -149,6 +150,22 @@ func (m *model) paletteCommands() []paletteCmd {
 			}
 			return toast(t("cards.copied"), ui.ToneSuccess)
 		})
+	}
+	// The eDCC test cards, for the payment page of the eDCC screen. On
+	// production a direct payment with them is refused unless simulated; on
+	// the payment page the review warns.
+	if m.ctx.Session != nil {
+		for _, c := range cards.DCCCards {
+			c := c
+			label := fmt.Sprintf(t("pal.card"), brandName(c.Brand), formatPAN(c.Number), fmt.Sprintf(t("new.card.dcc"), c.Currency))
+			keywords := "edcc dcc test card testkarte copy kopieren number nummer " + c.Alias + " " + c.Currency + " " + c.Number
+			add(label, keywords, func(*model) tea.Cmd {
+				if err := clipboard.WriteAll(c.Number); err != nil {
+					return toast(err.Error(), ui.ToneDanger)
+				}
+				return toast(t("cards.copied"), ui.ToneSuccess)
+			})
+		}
 	}
 	add(t("pal.quit"), "quit exit beenden", func(m *model) tea.Cmd { return m.quit() })
 	return cmds

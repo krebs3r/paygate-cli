@@ -17,6 +17,7 @@ type homeAction struct{ key, label, target string }
 
 var homeActions = []homeAction{
 	{"n", "act.new", "new"},
+	{"u", "act.dcc", "dcc"},
 	{"l", "act.lookup", "payments"},
 	{"p", "act.profile", "profiles"},
 	{"s", "act.settings", "settings"},

@@ -139,10 +139,32 @@ func TestForPayment(t *testing.T) {
 	}
 }
 
+func TestForPaymentTakesItsDCCQuote(t *testing.T) {
+	at := func(sec int) time.Time { return time.Date(2026, 10, 26, 15, 0, sec, 0, time.UTC) }
+	entries := []Entry{ // newest first, like Load
+		{Time: at(9), Profile: "shop", Method: "POST", URL: "https://x/api/v2/payments", RequestBody: `{"transId":"TID1","paymentMethods":{"card":{"dcc":{"selected":true,"dccRequestId":"q2"}}}}`},
+		{Time: at(8), Profile: "shop", Method: "POST", URL: "https://x/api/v2/services/dcc/quote", ResponseBody: `{"dccInfo":{"dccRequestId": "q2"}}`},
+		{Time: at(7), Profile: "shop", Method: "POST", URL: "https://x/api/v2/services/dcc/bin-check"},
+		{Time: at(3), Profile: "shop", Method: "POST", URL: "https://x/api/v2/services/dcc/quote", ResponseBody: `{"dccInfo":{"dccRequestId":"q1"}}`},
+		{Time: at(2), Profile: "shop", Method: "POST", URL: "https://x/api/v2/services/dcc/bin-check"},
+	}
+	got := ForPayment(entries, "shop", "TID1")
+	if len(got) != 3 || !got[0].Time.Equal(at(7)) || !got[1].Time.Equal(at(8)) || !got[2].Time.Equal(at(9)) {
+		t.Errorf("ForPayment = %+v", got)
+	}
+}
+
 func mapValues(m map[string]string) []string {
 	var out []string
 	for _, v := range m {
 		out = append(out, v)
 	}
 	return out
+}
+
+func TestMaskShortensBIN(t *testing.T) {
+	got := Mask([]byte(`{"bin": "4176662280", "card": {"bin":"41766622"}}`))
+	if strings.Contains(got, "4176662280") || strings.Contains(got, "41766622\"") || !strings.Contains(got, `"bin": "417666••••"`) {
+		t.Errorf("Mask = %s", got)
+	}
 }

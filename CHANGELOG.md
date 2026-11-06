@@ -5,6 +5,22 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- eDCC (preview), not yet verified against a merchant account with eDCC
+  enabled. `paygate dcc check` asks Paygate for the BIN check and a quote for
+  the 28 eDCC test cards of the Nexi test guide, or for one card, and says
+  whether eDCC answers on the account; when Paygate refuses the BIN check,
+  the verdict names Paygate's response code. `paygate dcc quote` shows the
+  offer for one card. Both send only the first 10 digits of a card.
+  `paygate pay --card … --dcc ask|accept|decline` pays with or without the
+  offer; after an accepted offer it shows the charged amount and the rate from
+  the payment's details. With `--hosted` or `--method card`, `--dcc on|off`
+  switches the payment page's offer on or off. In the app, the eDCC menu
+  (`u`) does the same. `paygate testcards` lists one eDCC test card per
+  currency, and the mock server answers with eDCC or, with `-dcc-off`,
+  without it.
+
 ### Fixed
 
 - The payments list has separate METHOD and TRANS ID columns, and the TRANS ID

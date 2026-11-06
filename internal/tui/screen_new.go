@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/pkg/browser"
 
 	"github.com/krebs3r/paygate-cli/internal/cards"
@@ -37,9 +38,27 @@ const (
 	stageResult
 	stageConfirmOp
 	stageOperating
+	stageQuoting // asking Paygate for an eDCC offer
+	stageDCC     // the customer chooses the currency
+	stageCheck   // the eDCC check asks one card after the other
 )
 
 const manualCardChoice = "__manual__"
+
+// dccCheckFlow is the eDCC check on the eDCC screen: BIN check and quote
+// for test cards, without paying.
+const dccCheckFlow = "check"
+
+// runSeq numbers the runs of both payment screens, New payment and eDCC.
+// The app hands answers to every screen, so a run number must not repeat
+// across them: else one screen would take the other's payment as its own.
+// Updates run one after the other, so it needs no lock.
+var runSeq int
+
+func nextRun() int {
+	runSeq++
+	return runSeq
+}
 
 // Polling timings; variables so tests can speed them up.
 var (
@@ -67,6 +86,23 @@ type (
 		res  *paygate.Result
 		err  error
 	}
+	dccQuoteMsg struct {
+		seq   int
+		offer *core.DCCOffer
+		err   error
+	}
+	// dccDetailsMsg brings the details of a payment that accepted an eDCC
+	// offer: only they carry the charged amount and the rate.
+	dccDetailsMsg struct {
+		seq int
+		res *paygate.Result
+		err error
+	}
+	// dccProbeMsg brings the eDCC check of one card.
+	dccProbeMsg struct {
+		seq   int
+		probe *core.DCCProbe
+	}
 )
 
 type newPaymentScreen struct {
@@ -81,7 +117,26 @@ type newPaymentScreen struct {
 	methods                                                    []string
 	amount, currency, description, simulate, capture           string
 	delivery, email, phone, name, template, expires            string // payment link
+	dccPage                                                    string // eDCC screen: the offer on the payment page (on, off, "")
 	initialized                                                bool
+
+	// dcc makes this the eDCC screen: card payments with Paygate's offer
+	// to pay in the card's currency, here or on the payment page.
+	dcc bool
+	// eDCC offer of a direct payment and the customer's answer
+	offer     *core.DCCOffer
+	quoted    paygate.Amount
+	dccChoice string
+
+	// eDCC check: what to check (all, one, own), the BIN or the digits typed
+	// in, the amount the quotes ask for, the cards and their probes
+	checkWhat, checkBIN, checkOwn, checkAmount string
+	checkNumbers                               []string
+	probes                                     []*core.DCCProbe
+	checkRunning                               bool
+	checkScroll                                int
+	checkFollow                                bool   // the table shows its end until the user scrolls
+	checkEnd                                   string // why the check ended early
 
 	// prepared request
 	req        *paygate.PaymentRequest
@@ -115,11 +170,34 @@ func newNewPaymentScreen() *newPaymentScreen {
 	return &newPaymentScreen{spin: newSpinner(), width: 70}
 }
 
-func (s *newPaymentScreen) ID() string       { return "new" }
-func (s *newPaymentScreen) Title() string    { return t("menu.new") }
-func (s *newPaymentScreen) Shortcut() string { return "n" }
+// newDCCScreen is the eDCC screen: the new payment screen for card
+// payments with an eDCC offer.
+func newDCCScreen() *newPaymentScreen {
+	return &newPaymentScreen{spin: newSpinner(), width: 70, dcc: true}
+}
+
+func (s *newPaymentScreen) ID() string {
+	if s.dcc {
+		return "dcc"
+	}
+	return "new"
+}
+
+func (s *newPaymentScreen) Title() string {
+	if s.dcc {
+		return t("menu.dcc")
+	}
+	return t("menu.new")
+}
+
+func (s *newPaymentScreen) Shortcut() string {
+	if s.dcc {
+		return "u"
+	}
+	return "n"
+}
 func (s *newPaymentScreen) Capturing() bool {
-	return s.stage == stageForm && s.form != nil || s.stage == stageConfirmOp
+	return s.stage == stageForm && s.form != nil || s.stage == stageConfirmOp || s.stage == stageDCC
 }
 
 func (s *newPaymentScreen) Activate(ctx *Context) tea.Cmd {
@@ -159,7 +237,10 @@ func (s *newPaymentScreen) Receive(ctx *Context, data any) tea.Cmd {
 
 func (s *newPaymentScreen) Back(ctx *Context) (bool, tea.Cmd) {
 	switch s.stage {
-	case stageReview:
+	case stageReview, stageDCC:
+		return true, s.startForm(ctx)
+	case stageQuoting, stageCheck:
+		s.seq = nextRun() // answers on their way are dropped
 		return true, s.startForm(ctx)
 	case stageWaiting:
 		if s.zoom {
@@ -175,7 +256,7 @@ func (s *newPaymentScreen) Back(ctx *Context) (bool, tea.Cmd) {
 		if s.succeeded() {
 			return false, nil
 		}
-		return true, s.review(ctx)
+		return true, s.again(ctx)
 	}
 	return false, nil
 }
@@ -196,7 +277,7 @@ func (s *newPaymentScreen) Hints(ctx *Context) []Hint {
 	case stageWaiting:
 		return []Hint{{"z", t("key.qrzoom")}, {"o", t("key.openbrowser")}, {"c", t(s.copyKey())}, {"esc", t("key.stop")}}
 	case stageResult:
-		hints := []Hint{{"r", t("key.again")}, {"n", t("key.new")}}
+		hints := []Hint{{"r", t("key.again")}, {s.Shortcut(), t("key.new")}}
 		if s.result != nil {
 			if s.details {
 				hints = append(hints, Hint{"d", t("key.receipt")})
@@ -216,6 +297,18 @@ func (s *newPaymentScreen) Hints(ctx *Context) []Hint {
 		return append(hints, Hint{"esc", t("key.back")})
 	case stageConfirmOp:
 		return []Hint{{"← →", t("key.select")}, {"enter", t("key.open")}, {"esc", t("key.cancel")}}
+	case stageQuoting:
+		return []Hint{{"esc", t("key.cancel")}}
+	case stageCheck:
+		hints := []Hint{{"↑↓", t("key.scroll")}}
+		if s.checkRunning {
+			hints = append(hints, Hint{"x", t("key.stop")})
+		} else {
+			hints = append(hints, Hint{"r", t("key.again")})
+		}
+		return append(hints, Hint{"i", "Inspector"}, Hint{"esc", t("key.back")})
+	case stageDCC:
+		return []Hint{{"↑↓", t("key.select")}, {"enter", t("key.next")}, {"esc", t("key.back")}}
 	}
 	return nil
 }
@@ -234,6 +327,12 @@ func (s *newPaymentScreen) defaults(ctx *Context) {
 	if p.IsProd() {
 		s.amount, s.simulate, s.capture = core.ProdDefaultAmount, "ok", "manual"
 	}
+	if s.dcc {
+		// The eDCC screen starts with the check. Its quotes move no money,
+		// so they ask for the usual amount also on production.
+		s.flow, s.cardChoice, s.single, s.dccPage = dccCheckFlow, "dcc-usd", "card", "on"
+		s.checkWhat, s.checkBIN, s.checkAmount = "all", cards.DCCTestCards[3].BIN, core.DefaultAmount
+	}
 	s.initialized = true
 }
 
@@ -243,6 +342,9 @@ func (s *newPaymentScreen) startForm(ctx *Context) tea.Cmd {
 		s.width = ctx.Width
 	}
 	s.stage, s.errText, s.errLines, s.note = stageForm, "", nil, ""
+	if s.dcc {
+		return s.startDCCForm(ctx)
+	}
 
 	// Only cards without 3-D Secure: a direct payment cannot run the 3DS
 	// browser steps in a terminal. 3DS cards work on the payment page.
@@ -264,10 +366,6 @@ func (s *newPaymentScreen) startForm(ctx *Context) tea.Cmd {
 	for _, a := range core.HostedSingleMethods {
 		pm, _ := core.ResolveMethod(a)
 		single = append(single, huh.NewOption(pm.Name, pm.Alias))
-	}
-	currencies := huh.NewOptions(money.Common...)
-	if !containsFold(money.Common, s.currency) {
-		currencies = append([]huh.Option[string]{huh.NewOption(s.currency, s.currency)}, currencies...)
 	}
 
 	s.form = newForm(s.width,
@@ -309,44 +407,206 @@ func (s *newPaymentScreen) startForm(ctx *Context) tea.Cmd {
 		huh.NewGroup(huh.NewSelect[string]().Title(t("new.card")).Description(t("new.card.desc")).
 			Options(cardOpts...).Value(&s.cardChoice)).
 			WithHideFunc(func() bool { return s.flow != string(core.FlowDirect) }),
-		huh.NewGroup(
-			huh.NewInput().Title(t("new.card.number")).Value(&s.cardNumber).Validate(func(v string) error {
-				if len(strings.ReplaceAll(v, " ", "")) < 12 {
-					return errors.New(t("new.card.short"))
-				}
-				return nil
-			}),
-			huh.NewInput().Title(t("new.card.expiry")).Placeholder(cards.DefaultExpiry()).Value(&s.expiry),
-			huh.NewInput().Title("CVC").Placeholder("123").Value(&s.cvc),
-			huh.NewSelect[string]().Title("3-D Secure").Options(
-				huh.NewOption(t("3ds.skip"), "skip"),
-				huh.NewOption(t("3ds.request"), "request"),
-			).Inline(true).Value(&s.threeDS),
-		).WithHideFunc(func() bool { return s.flow != string(core.FlowDirect) || s.cardChoice != manualCardChoice }),
-		huh.NewGroup(
-			huh.NewInput().Title(t("new.amount")).Value(&s.amount).Validate(func(v string) error {
-				_, err := money.Parse(v, s.currency)
-				return err
-			}),
-			huh.NewSelect[string]().Title(t("new.currency")).Options(currencies...).Inline(true).Value(&s.currency),
-			huh.NewInput().Title(t("new.desc")).Value(&s.description),
-			huh.NewSelect[string]().Title(t("new.sim")).DescriptionFunc(func() string {
-				if s.flow == string(core.FlowLink) {
-					return t("new.sim.link")
-				}
-				return t("new.sim.desc")
-			}, &s.flow).Options(
-				huh.NewOption(t("sim.off"), "off"),
-				huh.NewOption(t("sim.ok"), "ok"),
-				huh.NewOption(t("sim.decline"), "decline"),
-			).Value(&s.simulate),
-			huh.NewSelect[string]().Title(t("new.capture")).Options(
-				huh.NewOption(t("cap.auto"), "auto"),
-				huh.NewOption(t("cap.manual"), "manual"),
-			).Inline(true).Value(&s.capture),
-		),
+		s.manualCardGroup(),
+		s.amountGroup(),
 	)
 	return s.form.Init()
+}
+
+// startDCCForm opens the form of the eDCC screen: a card payment either
+// with the offer here in the terminal or on the payment page, where Paygate
+// makes it to the customer.
+func (s *newPaymentScreen) startDCCForm(ctx *Context) tea.Cmd {
+	intro := t("dcc.intro")
+	if ctx.Session.Profile.IsProd() {
+		// The test cards pay only simulated there; the check moves no money.
+		intro += " " + t("dcc.intro.prod")
+	}
+	intro += "\n\n" + t("dcc.preview")
+	var cardOpts []huh.Option[string]
+	for _, c := range cards.DCCCards {
+		label := fmt.Sprintf("%-10s  %-19s  %s", brandName(c.Brand), formatPAN(c.Number), fmt.Sprintf(t("new.card.dcc"), c.Currency))
+		cardOpts = append(cardOpts, huh.NewOption(label, c.Alias))
+	}
+	cardOpts = append(cardOpts, huh.NewOption(t("new.card.manual"), manualCardChoice))
+	var binOpts []huh.Option[string]
+	for _, c := range cards.DCCTestCards {
+		brand := brandName(c.Brand())
+		if brand == "" {
+			brand = "–"
+		}
+		binOpts = append(binOpts, huh.NewOption(fmt.Sprintf("%s  %-10s  %s", c.BIN, brand, c.Currency), c.BIN))
+	}
+	check := func() bool { return s.flow == dccCheckFlow }
+	what := []huh.Field{huh.NewSelect[string]().Title(t("dcc.flow")).Options(
+		huh.NewOption(t("dcc.flow.check"), dccCheckFlow),
+		huh.NewOption(t("dcc.flow.direct"), string(core.FlowDirect)),
+		huh.NewOption(t("dcc.flow.page"), string(core.FlowMethod)),
+	).Value(&s.flow)}
+	// In a low window the intro gives way, so the choice stays in view:
+	// below it, the title, three options and the key help need 9 lines,
+	// with the blank line the note brings.
+	if lipgloss.Height(wrap(intro, min(ctx.Width, 76)-4))+9 <= ctx.Height-2 {
+		what = append([]huh.Field{huh.NewNote().Description(intro)}, what...)
+	}
+	s.form = newForm(s.width,
+		huh.NewGroup(what...),
+		huh.NewGroup(huh.NewSelect[string]().Title(t("dcc.check.what")).Description(t("dcc.check.intro")).Options(
+			huh.NewOption(fmt.Sprintf(t("dcc.check.all"), len(cards.DCCTestCards)), "all"),
+			huh.NewOption(t("dcc.check.one"), "one"),
+			huh.NewOption(t("dcc.check.own"), "own"),
+		).Value(&s.checkWhat)).
+			WithHideFunc(func() bool { return !check() }),
+		// Value before Options: huh opens the list at the chosen card. The
+		// 28 cards scroll in a low window.
+		huh.NewGroup(huh.NewSelect[string]().Title(t("dcc.check.bin")).Description(t("new.dcccard.desc")).
+			Value(&s.checkBIN).Options(binOpts...).Height(listHeight(len(binOpts), ctx.Height))).
+			WithHideFunc(func() bool { return !check() || s.checkWhat != "one" }),
+		// The digits and the amount are checked when the check starts: a
+		// validator here would keep shift+tab from going back.
+		huh.NewGroup(huh.NewInput().Title(t("dcc.check.ownbin")).Description(t("dcc.check.owndesc")).Value(&s.checkOwn)).
+			WithHideFunc(func() bool { return !check() || s.checkWhat != "own" }),
+		huh.NewGroup(
+			huh.NewInput().Title(t("new.amount")).Description(t("dcc.check.amount")).Value(&s.checkAmount),
+			huh.NewSelect[string]().Title(t("new.currency")).Value(&s.currency).Options(currencyOptions(s.currency)...).Inline(true),
+		).WithHideFunc(func() bool { return !check() }),
+		huh.NewGroup(huh.NewSelect[string]().Title(t("new.dcccard")).Description(t("new.dcccard.desc")).
+			Options(cardOpts...).Value(&s.cardChoice)).
+			WithHideFunc(func() bool { return s.flow != string(core.FlowDirect) }),
+		s.manualCardGroup(),
+		// Value before Options: huh scrolls the list to the value it holds
+		// when the options come.
+		huh.NewGroup(huh.NewSelect[string]().Title(t("new.dccpage")).Description(t("new.dccpage.desc")).Value(&s.dccPage).Options(
+			huh.NewOption(t("new.dccpage.on"), "on"),
+			huh.NewOption(t("new.dccpage.default"), ""),
+			huh.NewOption(t("new.dccpage.off"), "off"),
+		)).
+			WithHideFunc(func() bool { return s.flow != string(core.FlowMethod) }),
+		s.amountGroup().WithHideFunc(check),
+	)
+	return s.form.Init()
+}
+
+// startCheck runs the eDCC check: BIN check and quote for one card after
+// the other, without paying.
+func (s *newPaymentScreen) startCheck(ctx *Context) tea.Cmd {
+	if _, err := money.Parse(s.checkAmount, s.currency); err != nil {
+		return s.formWithError(ctx, err)
+	}
+	switch s.checkWhat {
+	case "one":
+		s.checkNumbers = []string{s.checkBIN}
+	case "own":
+		own := strings.NewReplacer(" ", "", "-", "").Replace(s.checkOwn)
+		if _, err := cards.BIN(own); err != nil {
+			return s.formWithError(ctx, err)
+		}
+		s.checkNumbers = []string{own}
+	default:
+		s.checkNumbers = s.checkNumbers[:0]
+		for _, c := range cards.DCCTestCards {
+			s.checkNumbers = append(s.checkNumbers, c.Number)
+		}
+	}
+	s.seq = nextRun()
+	s.stage, s.form, s.probes, s.checkRunning, s.checkScroll, s.checkEnd = stageCheck, nil, nil, true, 0, ""
+	s.checkFollow = true
+	return tea.Batch(s.spin.Tick, s.probe(ctx))
+}
+
+// probe checks the next card of the eDCC check.
+func (s *newPaymentScreen) probe(ctx *Context) tea.Cmd {
+	seq, client, number := s.seq, ctx.Session.Client, s.checkNumbers[len(s.probes)]
+	amount, err := core.DCCAmount(core.PaymentInput{Amount: s.checkAmount, Currency: s.currency}, ctx.Session.Profile)
+	if err != nil {
+		return func() tea.Msg { return dccProbeMsg{seq: seq, probe: &core.DCCProbe{Err: err}} }
+	}
+	return func() tea.Msg {
+		c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		return dccProbeMsg{seq: seq, probe: core.ProbeDCC(c, client, number, amount)}
+	}
+}
+
+func (s *newPaymentScreen) onProbe(ctx *Context, msg dccProbeMsg) tea.Cmd {
+	s.probes = append(s.probes, msg.probe)
+	// A refused key or no answer at all would fail every card the same
+	// way: the check stops at the first.
+	if msg.probe.Fatal() {
+		s.checkRunning, s.checkEnd = false, fmt.Sprintf(t("dcc.check.fatal"), msg.probe.Err)
+		return nil
+	}
+	if len(s.probes) < len(s.checkNumbers) {
+		return s.probe(ctx)
+	}
+	s.checkRunning = false
+	return nil
+}
+
+// manualCardGroup asks for the card details typed in.
+func (s *newPaymentScreen) manualCardGroup() *huh.Group {
+	return huh.NewGroup(
+		huh.NewInput().Title(t("new.card.number")).Value(&s.cardNumber).Validate(func(v string) error {
+			if len(strings.ReplaceAll(v, " ", "")) < 12 {
+				return errors.New(t("new.card.short"))
+			}
+			return nil
+		}),
+		huh.NewInput().Title(t("new.card.expiry")).Placeholder(cards.DefaultExpiry()).Value(&s.expiry),
+		huh.NewInput().Title("CVC").Placeholder("123").Value(&s.cvc),
+		huh.NewSelect[string]().Title("3-D Secure").Options(
+			huh.NewOption(t("3ds.skip"), "skip"),
+			huh.NewOption(t("3ds.request"), "request"),
+		).Inline(true).Value(&s.threeDS),
+	).WithHideFunc(func() bool { return s.flow != string(core.FlowDirect) || s.cardChoice != manualCardChoice })
+}
+
+// currencyOptions are the common currencies, with the current one first
+// when it is none of them, e.g. a profile currency like HUF.
+func currencyOptions(current string) []huh.Option[string] {
+	currencies := huh.NewOptions(money.Common...)
+	if !containsFold(money.Common, current) {
+		currencies = append([]huh.Option[string]{huh.NewOption(current, current)}, currencies...)
+	}
+	return currencies
+}
+
+// listHeight lets a long select scroll in a low window: title,
+// description and as many options as fit below the steps and above the key
+// help. 0 lets huh size it to all options.
+func listHeight(options, height int) int {
+	if height <= 0 || options+4 <= height-8 {
+		return 0
+	}
+	return max(height-8, 6)
+}
+
+// amountGroup asks for amount, currency, description, simulation and
+// capture, the last step of every payment.
+func (s *newPaymentScreen) amountGroup() *huh.Group {
+	currencies := currencyOptions(s.currency)
+	return huh.NewGroup(
+		huh.NewInput().Title(t("new.amount")).Value(&s.amount).Validate(func(v string) error {
+			_, err := money.Parse(v, s.currency)
+			return err
+		}),
+		huh.NewSelect[string]().Title(t("new.currency")).Options(currencies...).Inline(true).Value(&s.currency),
+		huh.NewInput().Title(t("new.desc")).Value(&s.description),
+		huh.NewSelect[string]().Title(t("new.sim")).DescriptionFunc(func() string {
+			if s.flow == string(core.FlowLink) {
+				return t("new.sim.link")
+			}
+			return t("new.sim.desc")
+		}, &s.flow).Options(
+			huh.NewOption(t("sim.off"), "off"),
+			huh.NewOption(t("sim.ok"), "ok"),
+			huh.NewOption(t("sim.decline"), "decline"),
+		).Value(&s.simulate),
+		huh.NewSelect[string]().Title(t("new.capture")).Options(
+			huh.NewOption(t("cap.auto"), "auto"),
+			huh.NewOption(t("cap.manual"), "manual"),
+		).Inline(true).Value(&s.capture),
+	)
 }
 
 func (s *newPaymentScreen) input() core.PaymentInput {
@@ -362,6 +622,9 @@ func (s *newPaymentScreen) input() core.PaymentInput {
 		in.Methods = s.methods
 	case core.FlowMethod:
 		in.Method = s.single
+		if s.dcc {
+			in.DCCEnabled = s.dccPage
+		}
 	case core.FlowLink:
 		in.Methods, in.Send, in.Expires = s.methods, s.delivery, s.expires
 		switch s.delivery {
@@ -381,10 +644,86 @@ func (s *newPaymentScreen) input() core.PaymentInput {
 	return in
 }
 
+// afterForm asks Paygate for an eDCC offer first when the form wants one,
+// then shows the review.
+func (s *newPaymentScreen) afterForm(ctx *Context) tea.Cmd {
+	if s.dcc && s.flow == dccCheckFlow {
+		return s.startCheck(ctx)
+	}
+	s.offer, s.dccChoice = nil, ""
+	if s.asksDCC() {
+		// Before the quote: nobody should answer an offer for a payment
+		// that would be refused.
+		if err := core.CheckProdTestCard(s.input(), ctx.Session.Profile); err != nil {
+			return s.formWithError(ctx, err)
+		}
+		return s.quote(ctx)
+	}
+	return s.review(ctx)
+}
+
+// again prepares the payment once more: with a new offer when it asks for
+// one, as a quote pays once.
+func (s *newPaymentScreen) again(ctx *Context) tea.Cmd {
+	if s.asksDCC() {
+		return s.afterForm(ctx)
+	}
+	return s.review(ctx)
+}
+
+// asksDCC reports a direct payment of the eDCC screen: Paygate's offer
+// comes first.
+func (s *newPaymentScreen) asksDCC() bool {
+	return s.dcc && core.Flow(s.flow) == core.FlowDirect
+}
+
+// quote asks Paygate whether the card can pay in its own currency.
+func (s *newPaymentScreen) quote(ctx *Context) tea.Cmd {
+	in := s.input()
+	number, err := core.CardNumber(in)
+	if err != nil {
+		return s.formWithError(ctx, err)
+	}
+	amount, err := core.DCCAmount(in, ctx.Session.Profile)
+	if err != nil {
+		return s.formWithError(ctx, err)
+	}
+	s.seq = nextRun()
+	seq, client := s.seq, ctx.Session.Client
+	s.stage, s.form, s.errText, s.quoted = stageQuoting, nil, "", amount
+	return tea.Batch(s.spin.Tick, func() tea.Msg {
+		c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		offer, err := core.QuoteDCC(c, client, number, amount)
+		return dccQuoteMsg{seq: seq, offer: offer, err: err}
+	})
+}
+
+// onQuote shows the offer for the customer to choose, or goes on to the
+// review in the shop's currency when there is none.
+func (s *newPaymentScreen) onQuote(ctx *Context, msg dccQuoteMsg) tea.Cmd {
+	if msg.err != nil {
+		return s.formWithError(ctx, fmt.Errorf(t("dcc.failed"), msg.err))
+	}
+	s.offer = msg.offer
+	if !s.offer.Available() {
+		return s.review(ctx)
+	}
+	s.stage, s.dccChoice = stageDCC, core.DCCDecline // the shop's currency first, as the eDCC rules ask
+	s.form = newForm(s.width, huh.NewGroup(huh.NewSelect[string]().Title(t("dcc.ask")).Options(
+		huh.NewOption(money.Format(s.quoted.Value, s.quoted.Currency)+"   "+t("dcc.inshop"), core.DCCDecline),
+		huh.NewOption(ui.DCCAmount(s.offer.Info().Amounts.Cardholder)+"   "+t("dcc.incard"), core.DCCAccept),
+	).Value(&s.dccChoice)))
+	return s.form.Init()
+}
+
 // review builds the request from the form values and shows the summary.
 func (s *newPaymentScreen) review(ctx *Context) tea.Cmd {
 	in := s.input()
 	in.TransID = ids.NewTransID()
+	if s.asksDCC() && s.offer.Available() {
+		in.DCC, in.DCCRequestID = s.dccChoice, s.offer.Info().DCCRequestID
+	}
 	// Webhooks go to a paygate listen running in another terminal.
 	if st, ok := listen.For(ctx.Session.Name); ok && in.Flow != core.FlowDirect {
 		in.WebhookURL = st.URL
@@ -418,10 +757,13 @@ func (s *newPaymentScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 		s.spin, cmd = s.spin.Update(msg)
 		return cmd
 	case sessionChangedMsg:
+		// Answers to the old profile's payment, quote or details are
+		// dropped: they belong to its history, not to the new profile.
 		s.initialized, s.stage, s.form = false, stageForm, nil
+		s.seq, s.req, s.result, s.offer = nextRun(), nil, nil, nil
 		return nil
 	case payResultMsg:
-		if msg.seq == s.seq {
+		if msg.seq == s.seq && s.stage == stageSending {
 			return s.onPaid(ctx, msg)
 		}
 		return nil
@@ -431,8 +773,25 @@ func (s *newPaymentScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 		}
 		return nil
 	case opResultMsg:
-		if msg.seq == s.seq {
+		if msg.seq == s.seq && s.stage == stageOperating {
 			return s.onOperation(ctx, msg)
+		}
+		return nil
+	case dccQuoteMsg:
+		if msg.seq == s.seq && s.stage == stageQuoting {
+			return s.onQuote(ctx, msg)
+		}
+		return nil
+	case dccProbeMsg:
+		if msg.seq == s.seq && s.stage == stageCheck {
+			return s.onProbe(ctx, msg)
+		}
+		return nil
+	case dccDetailsMsg:
+		// Also while a refund or cancel is asked for or runs: neither
+		// replaces the result.
+		if msg.seq == s.seq && (s.stage == stageResult || s.stage == stageConfirmOp || s.stage == stageOperating) {
+			s.onDCCDetails(msg)
 		}
 		return nil
 	}
@@ -455,6 +814,16 @@ func (s *newPaymentScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 		case huh.StateAborted:
 			s.form = nil
 			return backToMenu
+		case huh.StateCompleted:
+			return s.afterForm(ctx)
+		}
+		return cmd
+	case stageDCC:
+		f, cmd := s.form.Update(msg)
+		s.form = f.(*huh.Form)
+		switch s.form.State {
+		case huh.StateAborted:
+			return s.startForm(ctx)
 		case huh.StateCompleted:
 			return s.review(ctx)
 		}
@@ -487,6 +856,22 @@ func (s *newPaymentScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 		return nil
 	}
 	switch s.stage {
+	case stageCheck:
+		switch km.String() {
+		case "up", "k":
+			s.checkScroll, s.checkFollow = max(0, s.checkScroll-1), false
+		case "down", "j":
+			s.checkScroll, s.checkFollow = s.checkScroll+1, false // the view stops at the end
+		case "x":
+			if s.checkRunning {
+				s.seq, s.checkRunning = nextRun(), false // the card on its way is dropped
+				s.checkEnd = fmt.Sprintf(t("dcc.check.stopped"), len(s.probes), len(s.checkNumbers))
+			}
+		case "r":
+			if !s.checkRunning {
+				return s.startCheck(ctx)
+			}
+		}
 	case stageReview:
 		switch km.String() {
 		case "enter":
@@ -528,16 +913,19 @@ func (s *newPaymentScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 	case stageResult:
 		switch km.String() {
 		case "r":
+			if s.req != nil && s.asksDCC() {
+				return s.afterForm(ctx) // a new offer for the customer to choose
+			}
 			if s.req != nil {
 				if cmd := s.review(ctx); cmd != nil {
 					return cmd
 				}
 				return s.send(ctx)
 			}
-		case "n", "e":
+		case s.Shortcut(), "e": // n, or u on the eDCC screen
 			return s.startForm(ctx)
 		case "shift+tab":
-			return s.review(ctx)
+			return s.again(ctx)
 		case "d":
 			s.details = !s.details
 		case "x":
@@ -559,7 +947,7 @@ func backToMenu() tea.Msg { return focusMenuMsg{} }
 // ---- sending and waiting ---------------------------------------------------------
 
 func (s *newPaymentScreen) send(ctx *Context) tea.Cmd {
-	s.seq++
+	s.seq = nextRun()
 	seq, client, prepared := s.seq, ctx.Session.Client, s.prepared
 	s.stage, s.result, s.response, s.errText, s.errLines, s.note = stageSending, nil, nil, "", nil, ""
 	s.opKind, s.waitStart, s.waited, s.details, s.zoom = "", time.Time{}, 0, false, false
@@ -591,7 +979,29 @@ func (s *newPaymentScreen) onPaid(ctx *Context, msg payResultMsg) tea.Cmd {
 	if paygate.ClassifyCode(s.result.ResponseCode) == paygate.Code3DS {
 		s.note = t("res.3ds")
 	}
+	if core.DCCAccepted(s.req) && paygate.OutcomeOf(s.result) == paygate.OutcomeSuccess {
+		seq, client, transID := s.seq, ctx.Session.Client, s.req.TransID
+		return func() tea.Msg {
+			c, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			res, err := client.GetByTransID(c, transID)
+			return dccDetailsMsg{seq: seq, res: res, err: err}
+		}
+	}
 	return nil
+}
+
+// onDCCDetails shows the eDCC outcome from the payment details.
+func (s *newPaymentScreen) onDCCDetails(msg dccDetailsMsg) {
+	if msg.err != nil || msg.res == nil || msg.res.Payment == nil {
+		s.note = fmt.Sprintf(t("dcc.nodetails"), msg.err)
+		return
+	}
+	p := msg.res.Payment
+	if p.TransID == "" {
+		p.TransID = s.req.TransID
+	}
+	s.result = p
 }
 
 func (s *newPaymentScreen) poll(ctx *Context, delay time.Duration) tea.Cmd {
@@ -629,7 +1039,7 @@ func (s *newPaymentScreen) onPoll(ctx *Context, msg pollResultMsg) tea.Cmd {
 }
 
 func (s *newPaymentScreen) stopWaiting() {
-	s.seq++ // ignore polls still in flight
+	s.seq = nextRun() // ignore polls still in flight
 	s.stage, s.note = stageResult, t("res.stopped")
 	if core.Flow(s.flow) == core.FlowLink {
 		s.note = t("res.stopped.link")
@@ -751,7 +1161,7 @@ func (s *newPaymentScreen) onOperation(ctx *Context, msg opResultMsg) tea.Cmd {
 func (s *newPaymentScreen) View(ctx *Context, w, h int) string {
 	s.width = w
 	if ctx.Session == nil {
-		return title(t("new.title")) + "\n\n" + ui.Label.Render(t("new.noprofile"))
+		return title(s.Title()) + "\n\n" + ui.Label.Render(t("new.noprofile"))
 	}
 	out := s.header(ctx) + strings.Repeat("\n", viewTop)
 	switch s.stage {
@@ -777,31 +1187,167 @@ func (s *newPaymentScreen) View(ctx *Context, w, h int) string {
 		return out + spinView(s.spin) + " " + ui.Label.Render("…")
 	case stageConfirmOp:
 		return out + s.resultView(ctx, w) + "\n\n" + s.form.View()
+	case stageQuoting:
+		return out + spinView(s.spin) + " " + ui.Label.Render(fmt.Sprintf(t("dcc.quoting"), ctx.Session.Host()))
+	case stageDCC:
+		return out + s.offerView(w)
+	case stageCheck:
+		return out + s.checkView(ctx, w, h-2)
 	}
 	return out + s.resultView(ctx, w)
 }
 
+// checkView shows the eDCC check: per card the BIN check and the offer as
+// Paygate answered, and the verdict once all are asked.
+func (s *newPaymentScreen) checkView(ctx *Context, w, h int) string {
+	intro, note := ui.Label.Render(wrap(t("dcc.check.intro"), min(w, 76)))+"\n", ""
+	if ctx.Session.Profile.IsProd() {
+		note = hang(ui.Warning.Render("! "), ui.Label.Render(wrap(t("dcc.check.prodnote"), min(w-2, 74)))) + "\n"
+	}
+	out := intro + note + "\n"
+	// The mark comes first, so a narrow window cuts the words, not the
+	// result; the note on it takes the rest of the line.
+	rows := make([][]string, 0, len(s.probes)+1)
+	notes := make([]string, 0, len(s.probes)+1)
+	for i, p := range s.probes {
+		rows = append(rows, append(append([]string{ui.DCCOutcomeMark(p)}, checkCells(s.checkNumbers[i], p.Expected)...),
+			ui.DCCBinCheckCell(p.Offer), ui.DCCQuoteCell(p)))
+		notes = append(notes, ui.DCCOutcomeNote(p))
+	}
+	if s.checkRunning {
+		n := s.checkNumbers[len(s.probes)]
+		expect := ""
+		if c, ok := cards.FindDCCTestCard(n); ok {
+			expect = c.Currency
+		}
+		rows = append(rows, append(append([]string{spinView(s.spin)}, checkCells(n, expect)...), ui.Muted.Render(t("dcc.check.asking")), ""))
+		notes = append(notes, "")
+	}
+	headings := []string{"", "BIN", t("dcc.check.col.card"), t("dcc.check.col.expect"), t("dcc.check.col.bin"), t("dcc.check.col.quote")}
+	cols := newColumns(headings, rows)
+	lines := []string{ui.Muted.Render(cols.row(headings...))}
+	for i, r := range rows {
+		lines = append(lines, ansi.Truncate(cols.row(r...)+notes[i], w, "…"))
+	}
+	foot := "\n" + ui.Muted.Render(fmt.Sprintf(t("dcc.check.progress"), len(s.probes), len(s.checkNumbers)))
+	if !s.checkRunning {
+		foot = ""
+		if s.checkEnd != "" {
+			foot = "\n" + ui.Warning.Render("! "+s.checkEnd)
+		}
+		if len(s.probes) > 0 { // stopped before the first answer: no verdict
+			foot += "\n" + wrap(ui.DCCVerdict(core.SummarizeDCC(s.probes)), w)
+		}
+	}
+	// In a low window the intro, then the blank line above the verdict
+	// give way, so verdict, hint and counts stay whole. The production note
+	// stays: the verdict relies on it.
+	if h-lipgloss.Height(out)-lipgloss.Height(foot) < 1 {
+		out = note
+		if h-lipgloss.Height(out)-lipgloss.Height(foot) < 1 {
+			foot = strings.TrimPrefix(foot, "\n")
+		}
+	}
+	// The table scrolls and shows its end, the newest card, until the user
+	// scrolls. The verdict always stays in view: out, the heading, the
+	// rows and foot fill h exactly.
+	room := max(h-lipgloss.Height(out)-lipgloss.Height(foot), 1)
+	body := lines[1:]
+	if s.checkFollow {
+		s.checkScroll = max(len(body)-room, 0)
+	}
+	s.checkScroll = min(s.checkScroll, max(len(body)-room, 0))
+	end := min(s.checkScroll+room, len(body))
+	return out + lines[0] + "\n" + strings.Join(body[s.checkScroll:end], "\n") + "\n" + foot
+}
+
+// checkCells are the BIN, brand and expected currency of a card in the eDCC
+// check. A card that is no test card shows 6 digits of its BIN.
+func checkCells(number, expect string) []string {
+	bin, brand := number, "–"
+	if b, err := cards.BIN(number); err == nil {
+		bin = b
+	}
+	if c, ok := cards.FindDCCTestCard(bin); ok {
+		if b := brandName(c.Brand()); b != "" {
+			brand = b
+		}
+	} else {
+		bin = cards.ShortBIN(bin)
+		if b := brandName(cards.DetectBrand(number)); b != "" {
+			brand = b
+		}
+	}
+	if expect == "" {
+		expect = "–"
+	}
+	return []string{bin, brand, expect}
+}
+
+// offerView shows Paygate's offer with the rate, markup and source the
+// eDCC rules ask to show before the customer chooses.
+func (s *newPaymentScreen) offerView(w int) string {
+	info := s.offer.Info()
+	card := ""
+	if n, err := core.CardNumber(s.input()); err == nil {
+		card = strings.TrimSpace(brandName(cards.DetectBrand(n)) + " " + cards.Mask(n))
+	}
+	if s.offer.Country != "" {
+		card += " · " + fmt.Sprintf(t("dcc.country"), s.offer.Country)
+	}
+	rate := ui.DCCRate(info.Amounts, info.Rate)
+	if m := ui.DCCMarkup(info.Rate); m != "" {
+		rate += ui.Muted.Render(" · " + m)
+	}
+	rows := [][2]string{
+		{t("dcc.rate"), rate},
+		{t("dcc.provider"), ui.DCCSource(info.Provider, info.Rate)},
+		{"Quote ID", ui.Muted.Render(info.DCCRequestID)},
+	}
+	return ui.Label.Render(wrap(t("dcc.offer"), min(w, 74))) + "\n" + ui.Muted.Render(card) + "\n\n" +
+		kv(rows) + "\n\n" + s.form.View() + "\n" +
+		hang(ui.Accent.Render("i "), ui.Muted.Render(wrap(t("dcc.preselected"), min(w-2, 72))))
+}
+
 func (s *newPaymentScreen) header(ctx *Context) string {
-	steps := []struct {
-		key   string
-		stage payStage
-	}{{"new.step.form", stageForm}, {"new.step.review", stageReview}, {"new.step.result", stageResult}}
-	cur := s.stage
-	if cur == stageSending || cur == stageWaiting || cur == stageOperating || cur == stageConfirmOp {
-		cur = stageResult
+	// A step's rank orders it: form, offer, review, result.
+	type step struct {
+		key  string
+		rank int
+	}
+	steps := []step{{"new.step.form", 0}, {"new.step.review", 2}, {"new.step.result", 3}}
+	name := title(t("new.title"))
+	if s.dcc {
+		// eDCC is not yet verified against an account with eDCC enabled.
+		name = title(t("menu.dcc")) + " " + ui.Badge(t("dcc.badge"), ui.ToneAccent)
+	}
+	if s.dcc && s.flow == dccCheckFlow {
+		return name + "   " + ui.Link.Render("● "+t("dcc.check.title"))
+	}
+	if s.asksDCC() {
+		steps = []step{{"dcc.step.card", 0}, {"dcc.step.offer", 1}, {"new.step.review", 2}, {"new.step.result", 3}}
+	}
+	cur := 3
+	switch s.stage {
+	case stageForm:
+		cur = 0
+	case stageQuoting, stageDCC:
+		cur = 1
+	case stageReview:
+		cur = 2
 	}
 	var parts []string
 	for _, st := range steps {
 		switch {
-		case st.stage < cur:
+		case st.rank < cur:
 			parts = append(parts, ui.Success.Render("✓ "+t(st.key)))
-		case st.stage == cur:
+		case st.rank == cur:
 			parts = append(parts, ui.Link.Render("● "+t(st.key)))
 		default:
 			parts = append(parts, ui.Muted.Render("○ "+t(st.key)))
 		}
 	}
-	return title(t("new.title")) + "   " + strings.Join(parts, ui.Muted.Render(" ─ "))
+	return name + "   " + strings.Join(parts, ui.Muted.Render(" ─ "))
 }
 
 func (s *newPaymentScreen) reviewView(ctx *Context, w, h int) string {
@@ -825,7 +1371,19 @@ func (s *newPaymentScreen) reviewView(ctx *Context, w, h int) string {
 	default:
 		rows = append(rows, [2]string{t("rev.method"), s.label})
 	}
-	if pm := req.PaymentMethods; pm != nil && pm.Card != nil {
+	if s.asksDCC() && s.offer != nil {
+		rows = append(rows, [2]string{"eDCC", s.dccReview(req)})
+	}
+	if pm := req.PaymentMethods; pm != nil && pm.Card != nil && pm.Card.DCCEnabled != nil {
+		page := t("rev.dccpage.off")
+		if *pm.Card.DCCEnabled {
+			page = t("rev.dccpage.on")
+		}
+		rows = append(rows, [2]string{"eDCC", page})
+	}
+	// The payment page runs 3-D Secure in the browser; only a direct
+	// payment has to skip it.
+	if pm := req.PaymentMethods; pm != nil && pm.Card != nil && core.Flow(s.flow) == core.FlowDirect {
 		threeDS := ui.Warning.Render(t("rev.3ds.on"))
 		if pm.Card.ThreeDsPolicy != nil {
 			threeDS = t("rev.3ds.skip")
@@ -859,6 +1417,11 @@ func (s *newPaymentScreen) reviewView(ctx *Context, w, h int) string {
 				out += ui.Label.Render("  "+t("rev.prod.manual")) + "\n"
 			}
 		}
+		// On the eDCC payment page the customer types the card in: a test
+		// card there pays for real without a simulation.
+		if s.dcc && core.Flow(s.flow) == core.FlowMethod && !s.simulated() {
+			out += ui.Warning.Render("! ") + ui.Label.Render(wrap(t("rev.dccpage.prodwarn"), min(w-2, 74))) + "\n"
+		}
 		// Simulated or not, an e-mail or SMS reaches a real person.
 		if to := core.LinkRecipient(req); to != "" {
 			out += ui.Warning.Render("! ") + ui.Label.Render(fmt.Sprintf(t("rev.prod.send"), to)) + "\n"
@@ -880,6 +1443,18 @@ func (s *newPaymentScreen) reviewView(ctx *Context, w, h int) string {
 	return out
 }
 
+// dccReview is the customer's answer to the eDCC offer in the review.
+func (s *newPaymentScreen) dccReview(req *paygate.PaymentRequest) string {
+	info := s.offer.Info()
+	switch {
+	case !s.offer.Available():
+		return ui.Muted.Render(fmt.Sprintf(t("rev.dcc.none"), req.Amount.Currency))
+	case s.dccChoice == core.DCCAccept:
+		return ui.Success.Render(ui.DCCAmount(info.Amounts.Cardholder)) + ui.Muted.Render(" · "+ui.DCCRate(info.Amounts, info.Rate))
+	}
+	return fmt.Sprintf(t("rev.dcc.declined"), req.Amount.Currency)
+}
+
 // waitText is the status column shown next to (or instead of) the QR code.
 // cardHint lists test cards for the payment page. Only on the test system:
 // production declines test cards.
@@ -889,6 +1464,14 @@ func (s *newPaymentScreen) cardHint(ctx *Context) string {
 		core.Flow(s.flow) == core.FlowMethod && s.single == "card"
 	if !offersCard || ctx.IsProd() {
 		return ""
+	}
+	if s.dcc {
+		// Foreign cards get the offer on the page.
+		usd, _ := cards.FindDCCCard("dcc-usd")
+		chf, _ := cards.FindDCCCard("dcc-chf")
+		return ui.Label.Render(t("wait.dcccards")) + "\n" +
+			ui.Text.Render(formatPAN(usd.Number)) + ui.Muted.Render("  USD") + "\n" +
+			ui.Text.Render(formatPAN(chf.Number)) + ui.Muted.Render("  CHF")
 	}
 	visa, _ := cards.FindCard("visa-ok")
 	challenge, _ := cards.FindCard("visa-3ds-challenge")
@@ -1069,11 +1652,13 @@ func (s *newPaymentScreen) resultView(ctx *Context, w int) string {
 var (
 	cardNumberRe = regexp.MustCompile(`("number"\s*:\s*")\d{8,15}(\d{4})"`)
 	cvcRe        = regexp.MustCompile(`("securityCode"\s*:\s*")[^"]*"`)
+	binRe        = regexp.MustCompile(`("bin"\s*:\s*")(\d{6})\d+"`)
 )
 
 // maskCard hides card number and CVC in a request body shown on screen.
 func maskCard(body []byte) []byte {
 	b := cardNumberRe.ReplaceAll(body, []byte(`${1}•••• ${2}"`))
+	b = binRe.ReplaceAll(b, []byte(`${1}${2}••••"`))
 	return cvcRe.ReplaceAll(b, []byte(`${1}•••"`))
 }
 

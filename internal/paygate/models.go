@@ -77,6 +77,8 @@ type Card struct {
 	Brand          string         `json:"brand,omitempty"`
 	SubType        []string       `json:"subType,omitempty"`
 	ThreeDsPolicy  *ThreeDsPolicy `json:"threeDsPolicy,omitempty"`
+	DCCEnabled     *bool          `json:"dccEnabled,omitempty"` // hosted: true forces the eDCC check, false turns it off
+	DCC            *DCCDecision   `json:"dcc,omitempty"`        // direct: the customer's answer to an eDCC quote
 }
 
 type SubTyped struct {
@@ -202,6 +204,7 @@ type MethodInfo struct {
 	ProviderResponseMessage string
 	IssuerResponseCode      string
 	IssuerResponseMessage   string
+	DCC                     *CardDCC // card payments with an eDCC outcome
 }
 
 // Method extracts the payment method summary. Paygate returns either an
@@ -250,6 +253,14 @@ func (p *Payment) Method() MethodInfo {
 		mi.ProviderResponseMessage = str("providerResponseMessage")
 		mi.IssuerResponseCode = str("issuerResponseCode")
 		mi.IssuerResponseMessage = str("issuerResponseMessage")
+		if _, ok := sub["dccInfo"]; ok {
+			var card struct {
+				DCCInfo *CardDCC `json:"dccInfo"`
+			}
+			if json.Unmarshal(val, &card) == nil {
+				mi.DCC = card.DCCInfo
+			}
+		}
 		break
 	}
 	if mi.Last4 == "" && len(mi.PseudoCardNumber) >= 4 {
