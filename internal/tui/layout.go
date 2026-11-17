@@ -21,6 +21,7 @@ const (
 
 type layoutInfo struct {
 	wide     bool
+	focus    bool // wide, but the screen hides the menu (Focuser)
 	innerW   int
 	bodyH    int
 	bodyTop  int // absolute screen row of the first body line
@@ -39,10 +40,19 @@ type layoutInfo struct {
 func (m *model) layout() layoutInfo {
 	l := layoutInfo{innerW: m.width - 2, bodyTop: 1, sidebarW: sidebarW}
 	l.wide = m.width >= wideMinW
-	if l.wide {
+	// A screen in focus mode gets the whole width at every size: no menu,
+	// no tabs.
+	if f, ok := m.current().(Focuser); ok && f.Focus(m.ctx) {
+		l.focus, l.sidebarW = true, 0
+	}
+	switch {
+	case l.focus:
+		l.bodyH = m.height - 4
+		l.contentW = l.innerW
+	case l.wide:
 		l.bodyH = m.height - 4 // top border, footer separator, footer, bottom border
 		l.contentW = l.innerW - sidebarW - 1
-	} else {
+	default:
 		l.bodyH = m.height - 6 // plus tabs and their separator
 		l.contentW = l.innerW
 	}
@@ -52,6 +62,9 @@ func (m *model) layout() layoutInfo {
 // contentOrigin is the screen position of the first cell of the content:
 // past the frame (and menu or tabs) and the padding of renderContent.
 func (l layoutInfo) contentOrigin() (x, y int) {
+	if l.focus {
+		return 1 + 2, l.bodyTop + 1
+	}
 	if l.wide {
 		return 1 + l.sidebarW + 1 + 2, l.bodyTop + 1
 	}
@@ -70,14 +83,20 @@ func frame(s string) string { return lipgloss.NewStyle().Foreground(ui.ColFrame)
 func (m *model) render() string {
 	l := m.layout()
 	rows := []string{m.topBorder(l)}
-	if l.wide {
+	switch {
+	case l.focus:
+		for _, c := range strings.Split(m.renderContent(l.contentW, l.bodyH), "\n") {
+			rows = append(rows, frame("│")+c+frame("│"))
+		}
+		rows = append(rows, frame("├"+strings.Repeat("─", l.innerW)+"┤"))
+	case l.wide:
 		side := strings.Split(m.renderSidebar(l.bodyH), "\n")
 		content := strings.Split(m.renderContent(l.contentW, l.bodyH), "\n")
 		for i := 0; i < l.bodyH; i++ {
 			rows = append(rows, frame("│")+side[i]+frame("│")+content[i]+frame("│"))
 		}
 		rows = append(rows, frame("├"+strings.Repeat("─", sidebarW)+"┴"+strings.Repeat("─", l.contentW)+"┤"))
-	} else {
+	default:
 		rows = append(rows, frame("│")+m.renderTabs(l.innerW)+frame("│"))
 		rows = append(rows, frame("├"+strings.Repeat("─", l.innerW)+"┤"))
 		for _, c := range strings.Split(m.renderContent(l.contentW, l.bodyH), "\n") {
@@ -92,12 +111,16 @@ func (m *model) render() string {
 // topBorder embeds version (left) and the active profile (right).
 func (m *model) topBorder(l layoutInfo) string {
 	left := " " + ui.Accent.Render("◆") + " " + ui.Label.Render(shortVersion(m.ctx.Version)) + commitTag(m.ctx) + " "
+	if l.focus {
+		// The menu is hidden: the frame says where the user is.
+		left += ui.Muted.Render("· ") + lipgloss.NewStyle().Foreground(ui.ColAccent2).Bold(true).Render(m.current().Title()) + " "
+	}
 	right := " " + ui.Muted.Render(t("no.profile")) + " "
 	if s := m.ctx.Session; s != nil {
 		right = " " + ui.EnvBadge(s.Profile.Env) + " " + ui.Label.Render(s.Profile.Brand+" · "+s.Name) + " " + ui.Muted.Render(s.Profile.MerchantID) + " "
 	}
 	lw, rw := lipgloss.Width(left), lipgloss.Width(right)
-	if l.wide {
+	if l.wide && !l.focus {
 		leftFill := max(sidebarW-1-lw, 0)
 		rightFill := l.contentW - 1 - rw
 		if rightFill < 0 {
@@ -246,6 +269,10 @@ func (m *model) renderFooter(w int) string {
 		hints = append(hints, Hint{"ctrl+k", t("key.commands")}, Hint{"?", t("key.help")}, Hint{"q", t("key.quit")})
 	}
 	var parts []string
+	if m.mouseOff {
+		// Clicks are off: say so first, the app does not react to the mouse.
+		parts = append(parts, ui.Warning.Bold(true).Render(t("mouse.selecting"))+" "+ui.Muted.Render(t("mouse.back")))
+	}
 	for _, h := range hints {
 		parts = append(parts, lipgloss.NewStyle().Foreground(ui.ColMuted2).Bold(true).Render(h.Key)+" "+ui.Muted.Render(h.Desc))
 	}
@@ -287,6 +314,7 @@ func (m *model) helpView(w int) string {
 	rows = append(rows,
 		[2]string{strings.Join(keys, " "), t("help.jump")},
 		[2]string{t("help.clickkey"), t("help.mouse")},
+		[2]string{"m", t("help.select")},
 		[2]string{"q  ctrl+c", t("help.quit")},
 	)
 	var b strings.Builder

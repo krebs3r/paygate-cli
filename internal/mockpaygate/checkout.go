@@ -40,13 +40,17 @@ func checkoutChoices(b *paymentBody, method string) []string {
 	return out
 }
 
+// CancelCode is the responseCode of a payment the customer cancelled on the
+// demo checkout. Made up for the demo, like the other codes below.
+const CancelCode = "22000001"
+
 // Outcomes of the checkout page and what a payment looks like afterwards.
 // The codes are made up for the demo; they only follow Paygate's classes
 // (0 success, 2 declined).
 var checkoutOutcomes = map[string]struct{ status, code, desc string }{
 	"pay":     {"OK", "00000000", "success"},
 	"decline": {"FAILED", "21000305", "declined on the demo checkout"},
-	"cancel":  {"FAILED", "22000001", "cancelled by the customer"},
+	"cancel":  {"FAILED", CancelCode, "cancelled by the customer"},
 }
 
 // localURL reports whether a URL points to this computer.
@@ -302,7 +306,7 @@ var checkoutTexts = map[string][2]string{
 	"result.decline":     {"Payment declined", "Zahlung abgelehnt"},
 	"result.cancel":      {"Payment cancelled", "Zahlung abgebrochen"},
 	"browser":            {"Browser", "Browser"},
-	"browser.text":       {"Paygate now sends the customer to %s. The demo stays here so the browser does not leave this computer:", "Paygate schickt den Kunden jetzt zu %s. Die Demo bleibt hier, damit der Browser diesen Rechner nicht verlässt:"},
+	"browser.text":       {"Paygate now sends the customer to %s. The demo checkout does not forward there, so the browser calls nothing on the internet during the demo:", "Paygate schickt den Kunden jetzt auf %s. Die Demo-Kasse leitet nicht dorthin weiter, damit der Browser in der Demo nichts im Internet aufruft:"},
 	"webhook":            {"Webhook", "Webhook"},
 	"hook.sent":          {"Sent to %s:", "Gesendet an %s:"},
 	"hook.skipped":       {"Not sent: %s is not an address on this computer, and the demo only sends webhooks there:", "Nicht gesendet: %s ist keine Adresse auf diesem Rechner, und die Demo sendet Webhooks nur dorthin:"},

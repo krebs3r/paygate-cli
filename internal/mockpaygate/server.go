@@ -6,6 +6,7 @@ package mockpaygate
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -53,6 +54,10 @@ type Server struct {
 	LocalWebhooksOnly bool
 	// Lang returns the language of the checkout page: "de" or English.
 	Lang func() string
+	// DocsWebhooks sends webhooks as the API documentation describes them:
+	// the Basic body {"payId": …} and the signature in lower-case hex.
+	// Without it the mock sends them as Paygate was seen sending them.
+	DocsWebhooks bool
 
 	mu       sync.Mutex
 	byTrans  map[string]*record
@@ -355,9 +360,17 @@ func (s *Server) createPayment(w http.ResponseWriter, r *http.Request) {
 		s.store(rec)
 		out := s.paymentJSON(rec)
 		pm := out["paymentMethods"].(map[string]any)
+		// The fields of the example in the API reference; the 3DS method
+		// form data is base64 JSON as EMV 3-D Secure defines it.
+		notify := s.BaseURL + "/cbThreeDS.aspx?action=mthdNtfn"
+		form, _ := json.Marshal(map[string]string{"threeDSMethodNotificationURL": notify, "threeDSServerTransID": rec.PayID})
 		pm["card"].(map[string]any)["versioningData"] = map[string]any{
-			"threeDSServerTransId": rec.PayID,
-			"threeDSMethodUrl":     s.BaseURL + "/cbThreeDS.aspx?action=mthdNtfn",
+			"threeDSServerTransId":    rec.PayID,
+			"acsStartProtocolVersion": "2.1.0", "acsEndProtocolVersion": "2.2.0",
+			"dsStartProtocolVersion": "2.1.0", "dsEndProtocolVersion": "2.2.0",
+			"threeDSMethodUrl":      s.BaseURL + "/acs/3ds-method",
+			"threeDSMethodDataForm": base64.StdEncoding.EncodeToString(form),
+			"threeDSMethodData":     map[string]any{"threeDSMethodNotificationUrl": notify, "threeDSServerTransId": rec.PayID},
 		}
 		writeJSON(w, http.StatusCreated, out)
 		return
@@ -592,6 +605,10 @@ func (s *Server) sendWebhook(rec record) {
 		return
 	}
 	msg := webhooks.NewBasic(rec.PayID)
+	if s.DocsWebhooks {
+		id, _ := json.Marshal(rec.PayID)
+		msg.Body = []byte(`{"payId":` + string(id) + `}`)
+	}
 	if s.Webhook == "enhanced" {
 		pl := webhooks.Payload{
 			PayID: rec.PayID, TransID: rec.TransID, Status: rec.Status, ResponseCode: rec.Code, ResponseDescription: rec.Desc,
@@ -603,6 +620,9 @@ func (s *Server) sendWebhook(rec record) {
 		if msg, err = webhooks.NewEnhanced(s.HMACKey, pl, time.Now(), webhooks.TamperNone); err != nil {
 			s.webhookDone(rec.WebhookURL, 0, err)
 			return
+		}
+		if s.DocsWebhooks {
+			msg.Signature = strings.ToLower(msg.Signature)
 		}
 	}
 	req, err := http.NewRequest(http.MethodPost, rec.WebhookURL, bytes.NewReader(msg.Body))

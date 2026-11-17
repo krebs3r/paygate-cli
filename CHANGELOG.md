@@ -9,19 +9,35 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Demo mode: `paygate demo` opens the app without credentials, against a
   demo Paygate that runs inside paygate on 127.0.0.1. Single commands use it
-  with the global flag `--demo`, and `paygate demo --reset` deletes its data.
-  The profile `demo` and the demo's payments, request log and webhooks live
-  in their own folder; the keychain is never touched, and in demo mode no
-  other profile and no real host can be reached. Hosted payments and payment
-  links end on a demo checkout page where you pay, decline or cancel; it
-  shows where Paygate would send the customer and the webhook. Webhooks
-  (Enhanced, signed with `demo-hmac-key`) go only to addresses on this
-  computer. Everything is marked with a violet `DEMO` badge. The welcome
-  screen of the app offers the demo next to connecting a Paygate (test)
-  account; Home and the
-  command palette start and end it.
+  with the global flag `--demo`, and `paygate demo --reset` deletes its
+  data. The profile `demo` and the demo's payments, request log and webhooks
+  live in their own folder; the keychain is never touched, and in demo mode
+  no other profile and no real host can be reached. Hosted payments and
+  payment links end on a demo checkout page where you pay, decline or
+  cancel; it shows where Paygate would send the customer and the webhook.
+  Webhooks (Enhanced, signed with `demo-hmac-key`, as the API documentation
+  describes them) go only to addresses on this computer. Everything is
+  marked with a violet `DEMO` badge. The welcome screen of the app offers
+  the demo next to connecting a Paygate (test) account; Home and the command
+  palette start and end it.
+- Integration tours: the hosted payment page, a direct card payment with
+  3-D Secure, checking webhooks and capture/refund/reversal, step by step,
+  with a sequence diagram, an explanation per step, a link to the page of the
+  official documentation (API reference of Nexi or Computop, Nexi guides),
+  the request with notes on its fields, the real answer and curl. In the app
+  under Tour (`t`, the first quick action of the demo), where a running tour
+  hides menu and tabs (focus mode), steps that wait for the customer or the
+  webhook start by themselves, `y` copies the shown request or answer and
+  `d` or a click opens the documentation; in the terminal with
+  `paygate tour` (explains only) and `paygate tour … --run`.
+- `m` in the app turns its mouse clicks off and on, so any text on the
+  screen can be marked with the mouse and copied; the footer shows when text
+  selection is on. Also in the command palette and the help.
+  The 3-D Secure browser steps are explained with the values of the real
+  answer, not run. Tours do not run on production profiles.
 - Mock server: `-checkout ask` shows the demo checkout page instead of
-  completing hosted payments by itself.
+  completing hosted payments by itself. Direct payments that need 3-D Secure
+  answer with all `versioningData` fields of the API reference example.
 
 ### Fixed
 

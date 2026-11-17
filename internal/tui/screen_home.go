@@ -19,6 +19,7 @@ type homeAction struct{ key, label, target string }
 
 var homeActions = []homeAction{
 	{"n", "act.new", "new"},
+	{"t", "act.tour", "tour"},
 	{"u", "act.dcc", "dcc"},
 	{"l", "act.lookup", "payments"},
 	{"p", "act.profile", "profiles"},
@@ -30,8 +31,11 @@ var homeActions = []homeAction{
 // switch to.
 func actionsFor(ctx *Context) []homeAction {
 	var out []homeAction
+	if ctx.Demo() != nil {
+		out = append(out, homeActions[1]) // the tour first: it is what the demo is for
+	}
 	for _, a := range homeActions {
-		if ctx.Demo() != nil && a.label == "act.profile" {
+		if ctx.Demo() != nil && (a.label == "act.profile" || a.label == "act.tour") {
 			continue
 		}
 		out = append(out, a)

@@ -45,6 +45,12 @@ type FullScreener interface {
 	FullScreen(ctx *Context, w, h int) (string, bool)
 }
 
+// Focuser screens hide the menu while Focus is true, so a view that needs
+// the whole width gets it, e.g. a step of a tour.
+type Focuser interface {
+	Focus(ctx *Context) bool
+}
+
 // Quitter screens say what quitting the app now would end, if anything,
 // so q asks first.
 type Quitter interface {
@@ -170,6 +176,12 @@ func sessionChanged() tea.Cmd {
 func toast(text string, tone ui.Tone) tea.Cmd {
 	return func() tea.Msg { return toastMsg{text: text, tone: tone} }
 }
+
+// dismissToast removes the toast at once, e.g. one that belongs to what was
+// just left.
+func dismissToast() tea.Msg { return dismissToastMsg{} }
+
+type dismissToastMsg struct{}
 
 func clearToastAfter(id int) tea.Cmd {
 	return tea.Tick(4*time.Second, func(time.Time) tea.Msg { return clearToastMsg{id: id} })

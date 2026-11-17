@@ -139,6 +139,11 @@ func (m *model) paletteCommands() []paletteCmd {
 		add(t("pal.listen"), "webhooks listen receive tunnel cloudflared zuhören empfangen", func(*model) tea.Cmd { return switchTo("webhooks", "listen") })
 	}
 	add(t("pal.clearhooks"), "webhooks clear delete received empfangene löschen leeren", func(*model) tea.Cmd { return switchTo("webhooks", "clear") })
+	mouse := t("pal.mouse.off")
+	if m.mouseOff {
+		mouse = t("pal.mouse.on")
+	}
+	add(mouse, "mouse select text copy maus text markieren kopieren auswahl", func(*model) tea.Cmd { return toggleMouse })
 	add(t("pal.clearlog"), "clear request log inspector leeren protokoll", func(m *model) tea.Cmd {
 		if err := reqlog.Clear(); err != nil {
 			return toast(err.Error(), ui.ToneDanger)

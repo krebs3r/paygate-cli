@@ -97,7 +97,7 @@ func start() (*Paygate, error) {
 	m.BaseURL = p.URL
 	m.Checkout = mockpaygate.CheckoutAsk
 	m.Webhook, m.HMACKey = "enhanced", HMACKey
-	m.LocalWebhooksOnly = true
+	m.LocalWebhooksOnly, m.DocsWebhooks = true, true
 	m.Lang = pageLanguage // the checkout page speaks the app's language
 	p.mock = m
 	if b, err := os.ReadFile(p.path); err == nil {

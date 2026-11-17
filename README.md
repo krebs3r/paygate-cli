@@ -32,6 +32,7 @@ every request can be inspected or exported as `curl`.
   - [Still `command not found`?](#still-command-not-found)
 - [Quickstart](#quickstart)
 - [Demo mode (no credentials)](#demo-mode-no-credentials)
+- [Integration tours](#integration-tours)
 - [Commands](#commands)
 - [Configuration and security](#configuration-and-security)
 - [Payment links](#payment-links)
@@ -51,6 +52,9 @@ every request can be inspected or exported as `curl`.
 - **Demo mode**: `paygate demo` tries every function without credentials,
   against a demo Paygate on your computer. Hosted payments end on a demo
   checkout page where you pay, decline or cancel.
+- **Integration tours**: guided flows (hosted payment page, direct card
+  payment with 3-D Secure, webhooks, capture/refund/reversal) with a sequence
+  diagram, a short explanation per step and the real request and answer.
 - **All integration types**: hosted payment page, hosted single method (PayPal,
   iDEAL, SEPA, Klarna and more), direct card payments and payment links (Pay by
   Link).
@@ -214,13 +218,16 @@ area in the menu on the left with the arrow keys or the mouse, the bottom line
 always shows the keys you can use, <kbd>?</kbd> lists all shortcuts and
 <kbd>ctrl</kbd>+<kbd>k</kbd> opens a command palette that finds every action
 by typing a few letters (English or German), for example "3ds" to copy a
-test card number. On first start you choose: try the
+test card number. The app uses the mouse for clicks; `m` turns that off, so
+you can mark any text with the mouse and copy it, and `m` again turns the
+clicks back on. On first start you choose: try the
 [demo mode](#demo-mode-no-credentials) without credentials, or connect your
 Paygate (test) account.
 
 | Area | What you do there |
 | --- | --- |
 | Home | Active profile, credential check, today's numbers, latest payments |
+| Tour | [Integration tours](#integration-tours): a flow step by step, with diagram, explanation, request, answer and curl |
 | New payment | Form, review (request JSON, copy as curl), send, receipt; QR code, live status and test cards for hosted pages |
 | eDCC (preview) | eDCC check for all 28 test cards or one card; a card payment with the offer here in the terminal or on the payment page |
 | Payments | Local history with filter (`/`), lookup by ID (`g`), details with capture, refund, reversal and refresh; the timeline lists every API call of the payment and its webhooks, and <kbd>Enter</kbd> shows a call's request and response side by side (`[` `]` step through them) |
@@ -283,6 +290,45 @@ command palette, and end it with `x` on Home.
 > The demo Paygate follows the Paygate API reference, but its answers are
 > made up. What counts is the real Paygate.
 
+## Integration tours
+
+A tour walks through one integration step by step: a sequence diagram of
+your server, Paygate and the customer's browser, what happens in the step, a
+link to the page of the official documentation, and the real request with
+notes on its fields (required, smallest unit, what it is for). Run the step
+and the answer appears, or copy it as `curl`. The tours speak the language
+of the app. The links lead to the API reference of the profile's platform
+(Nexi or Computop) and, for Nexi, to the guides on the hosted payment page,
+direct integration and webhooks.
+
+| Tour | Steps |
+| --- | --- |
+| `hosted` Hosted Payment Page | session, redirect, the customer pays, return, webhook, status, capture |
+| `direct` Direct card payment with 3DS | a 3DS card (`70000000` and `versioningData`), the 3DS method and the challenge (explained with the real values, not run: paygate is not a browser), a payment without the 3DS check, a declined card, status |
+| `webhooks` Check webhooks | a payment with a webhook URL, the customer pays, the webhook arrives, its HMAC signature worked out step by step with a cross-check, status |
+| `operations` Capture, refund, reversal | authorize, partial capture, partial refund, a second authorization released again |
+
+In the app, open **Tour** (`t`, on Home of the demo the first quick action).
+A running tour hides the menu (focus mode), so diagram and request get the
+whole width, also in a screen share. `enter` runs a step and moves on; steps
+that wait for the customer or the webhook start by themselves, so a payment
+in the browser shows up at once. `←` `→` step through the steps that ran,
+`↑` `↓`, `pgup` `pgdn` or the mouse wheel scroll the step, `v` switches
+between request, answer and curl, `y` copies what is shown (the JSON without
+the notes), `c` the curl command, `d` (or a click on the link) opens the
+documentation, and `esc` leaves.
+
+```bash
+paygate tour                                     # list the tours
+paygate tour webhooks                            # explain only, sends nothing
+paygate --demo tour hosted --run                 # run it against the demo
+```
+
+Tours run against the active profile, best the demo. They do not run on
+production profiles. Against a real test account, the webhook steps need the
+webhook listener (`paygate listen`, or Webhooks in the app); in the demo
+paygate receives the webhooks itself.
+
 ## Commands
 
 Single commands work without the app, for example in scripts:
@@ -296,6 +342,7 @@ Single commands work without the app, for example in scripts:
 | `paygate` | Open the full-screen app | `paygate` |
 | `paygate init` | Add or update a merchant profile | `paygate init` |
 | `paygate demo` | Open the app in demo mode, without credentials | `paygate demo` |
+| `paygate tour` | Explain an integration step by step; `--run` sends the requests | `paygate --demo tour hosted --run` |
 | `paygate pay` | Create a payment (wizard without flags) | `paygate pay --card visa-ok --amount 12.99` |
 | `paygate pay --hosted` | Hosted payment page with all or selected methods | `paygate pay --hosted --methods card,paypal --open` |
 | `paygate pay --method` | Hosted form for a single method | `paygate pay --method ideal --amount 5` |

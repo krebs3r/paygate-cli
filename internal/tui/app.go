@@ -53,6 +53,9 @@ type model struct {
 	pal palette
 	// quitAsk holds what quitting would end while q waits for a yes.
 	quitAsk []string
+	// mouseOff: the app ignores the mouse, so the terminal can select text
+	// (m switches).
+	mouseOff bool
 
 	splash      bool
 	splashStart time.Time
@@ -70,6 +73,7 @@ func newModel(ctx *Context) *model {
 		ctx: ctx,
 		screens: []Screen{
 			newHomeScreen(),
+			newTourScreen(),
 			newNewPaymentScreen(),
 			newDCCScreen(),
 			newPaymentsScreen(),
@@ -174,6 +178,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.focus = focusMenu
 		return m, nil
 
+	case toggleMouseMsg:
+		m.mouseOff = !m.mouseOff
+		if m.mouseOff {
+			return m, tea.Batch(tea.DisableMouse, toast(t("mouse.off"), ui.ToneWarning))
+		}
+		return m, tea.Batch(tea.EnableMouseCellMotion, toast(t("mouse.on"), ui.ToneSuccess))
+
 	case toastMsg:
 		m.toastSeq++
 		m.toast, m.toneT = msg.text, msg.tone
@@ -183,6 +194,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.id == m.toastSeq {
 			m.toast = ""
 		}
+		return m, nil
+
+	case dismissToastMsg:
+		m.toast = ""
 		return m, nil
 
 	case tea.MouseMsg:
@@ -266,7 +281,12 @@ func (m *model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		case "?":
 			m.help = true
 			return nil
+		case "m":
+			return toggleMouse
 		case "tab":
+			if m.layout().focus {
+				return nil // no menu to go to
+			}
 			if m.focus == focusMenu {
 				m.focus = focusContent
 			} else {
@@ -334,20 +354,23 @@ func (m *model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 	if m.quitAsk != nil {
 		return nil
 	}
+	// Where the content starts depends on the layout of the moment: a
+	// screen in focus mode hides the menu.
+	l := m.layout()
+	m.ctx.ContentX, m.ctx.ContentY = l.contentOrigin()
 	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
 		if m.focus == focusContent {
 			return m.current().Update(m.ctx, msg)
 		}
 		return nil
 	}
-	l := m.layout()
-	if l.wide && msg.X >= 1 && msg.X <= l.sidebarW && msg.Y >= l.bodyTop+sidebarItemsTop {
+	if l.wide && !l.focus && msg.X >= 1 && msg.X <= l.sidebarW && msg.Y >= l.bodyTop+sidebarItemsTop {
 		i := msg.Y - l.bodyTop - sidebarItemsTop
 		if i >= 0 && i < len(m.screens) {
 			return m.activate(i, focusContent)
 		}
 	}
-	if !l.wide && msg.Y == l.bodyTop {
+	if !l.wide && !l.focus && msg.Y == l.bodyTop {
 		x := 1
 		if m.tabStart > 0 {
 			x += 2
@@ -389,3 +412,10 @@ func (m *model) View() string {
 	}
 	return m.render()
 }
+
+// toggleMouseMsg switches the app's mouse handling off and on. While it is
+// off, the terminal selects text with the mouse, so anything shown can be
+// copied.
+type toggleMouseMsg struct{}
+
+func toggleMouse() tea.Msg { return toggleMouseMsg{} }

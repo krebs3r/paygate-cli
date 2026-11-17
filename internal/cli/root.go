@@ -225,6 +225,7 @@ func NewRootCmd(build BuildInfo) *cobra.Command {
 		newWebhooksCmd(app),
 		newTestcardsCmd(app),
 		newDCCCmd(app),
+		newTourCmd(app),
 	} {
 		c.GroupID = "payments"
 		root.AddCommand(c)

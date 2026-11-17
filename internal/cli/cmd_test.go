@@ -627,3 +627,26 @@ func TestDemoFlagChainsCommands(t *testing.T) {
 		t.Error("demo --reset forgets the demo payments")
 	}
 }
+
+func TestTourCommand(t *testing.T) {
+	setup(t)
+	t.Setenv("LANG", "en_US.UTF-8") // tours speak the app's language, "auto" by default
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_MESSAGES", "")
+	out, _, err := run(t, "tour")
+	if err != nil || !strings.Contains(out, "hosted") || !strings.Contains(out, "operations") {
+		t.Fatalf("tour list: %v\n%s", err, out)
+	}
+	out, _, err = run(t, "tour", "webhooks")
+	if err != nil || !strings.Contains(out, "HMAC") || strings.Contains(out, "POST http") ||
+		!strings.Contains(out, "https://docs.paygate.nexigroup.com/nexi-developer/rest-api-webhooks") {
+		t.Fatalf("tour without --run explains and sends nothing: %v\n%s", err, out)
+	}
+	if _, _, err := run(t, "tour", "nope"); err == nil {
+		t.Error("an unknown tour is an error")
+	}
+	out, _, err = runDemo(t, "tour", "operations", "--run")
+	if err != nil || !strings.Contains(out, "Tour finished") || !strings.Contains(out, "201 Created") || !strings.Contains(out, "reversals") {
+		t.Fatalf("tour --run: %v\n%s", err, out)
+	}
+}
