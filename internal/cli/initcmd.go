@@ -177,7 +177,7 @@ func runInit(app *App, o *initOptions) error {
 		Title: "Profile " + o.name,
 		Rows: []ui.Row{
 			{Label: "Platform", Value: paygate.BrandLabel(paygate.Brand(o.brand))},
-			{Label: "Environment", Value: ui.EnvBadge(prof.IsProd())},
+			{Label: "Environment", Value: ui.EnvBadge(prof.Env)},
 			{Label: "Host", Value: hostOf(origin)},
 			{Label: "Merchant ID", Value: prof.MerchantID},
 			{Label: "Auth", Value: authLabel(prof.Auth)},

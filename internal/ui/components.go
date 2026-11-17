@@ -42,18 +42,24 @@ func Badge(text string, t Tone) string {
 	return lipgloss.NewStyle().Bold(true).Foreground(fg).Background(bg).Padding(0, 1).Render(text)
 }
 
-// EnvBadge renders the TEST / PROD marker.
-func EnvBadge(prod bool) string {
-	if prod {
+// ColDemo marks the demo: violet, apart from TEST (amber) and PROD (red).
+var ColDemo = lipgloss.AdaptiveColor{Light: "#7c3aed", Dark: "#8b5cf6"}
+
+// EnvBadge renders the TEST / PROD / DEMO marker of a profile's environment.
+func EnvBadge(env string) string {
+	switch strings.ToLower(env) {
+	case "prod":
 		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#ffffff")).Background(ColDanger).Padding(0, 1).Render("PROD")
+	case "demo":
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#ffffff")).Background(ColDemo).Padding(0, 1).Render("DEMO")
 	}
 	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#1a1204")).Background(ColWarning).Padding(0, 1).Render("TEST")
 }
 
 // Header is the one-line banner shown above interactive output.
-func Header(brand, profile, merchantID string, prod bool) string {
+func Header(brand, profile, merchantID, env string) string {
 	left := Accent.Render("◆") + " " + Bold.Render("paygate") + " " + Muted.Render(Version)
-	right := EnvBadge(prod) + "  " + Label.Render(brand+" · "+profile) + Muted.Render(" ("+merchantID+")")
+	right := EnvBadge(env) + "  " + Label.Render(brand+" · "+profile) + Muted.Render(" ("+merchantID+")")
 	gap := 4
 	return " " + left + strings.Repeat(" ", gap) + right
 }

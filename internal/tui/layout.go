@@ -94,7 +94,7 @@ func (m *model) topBorder(l layoutInfo) string {
 	left := " " + ui.Accent.Render("◆") + " " + ui.Label.Render(shortVersion(m.ctx.Version)) + commitTag(m.ctx) + " "
 	right := " " + ui.Muted.Render(t("no.profile")) + " "
 	if s := m.ctx.Session; s != nil {
-		right = " " + ui.EnvBadge(s.Profile.IsProd()) + " " + ui.Label.Render(s.Profile.Brand+" · "+s.Name) + " " + ui.Muted.Render(s.Profile.MerchantID) + " "
+		right = " " + ui.EnvBadge(s.Profile.Env) + " " + ui.Label.Render(s.Profile.Brand+" · "+s.Name) + " " + ui.Muted.Render(s.Profile.MerchantID) + " "
 	}
 	lw, rw := lipgloss.Width(left), lipgloss.Width(right)
 	if l.wide {
@@ -158,12 +158,18 @@ func (m *model) renderSidebar(h int) string {
 			lines = append(lines, ui.Selected(title+strings.Repeat(" ", pad)+plainKey, sidebarW))
 		case i == m.active:
 			lines = append(lines, ui.SelectedIdle(lipgloss.NewStyle().Foreground(ui.ColAccent2).Bold(true).Render(title)+strings.Repeat(" ", pad)+key+" "))
+		case m.ctx.Session == nil && needsProfile[s.ID()]:
+			lines = append(lines, "  "+ui.Muted.Render(title)+strings.Repeat(" ", pad)+key+" ")
 		default:
 			lines = append(lines, "  "+ui.Label.Render(title)+strings.Repeat(" ", pad)+key+" ")
 		}
 	}
 	return fit(strings.Join(lines, "\n"), sidebarW, h)
 }
+
+// needsProfile are the areas that are empty without a profile; the menu
+// shows them greyed out until one exists or the demo runs.
+var needsProfile = map[string]bool{"new": true, "dcc": true, "payments": true, "webhooks": true, "inspect": true}
 
 func (m *model) renderTabs(w int) string {
 	// Start late enough that the active tab is always visible.
@@ -223,6 +229,9 @@ func (m *model) renderFooter(w int) string {
 		hints = []Hint{{"esc", t("key.close")}}
 	case m.focus == focusMenu:
 		hints = []Hint{{"↑↓", t("key.navigate")}, {"enter", t("key.open")}}
+		if m.current().ID() == "home" && m.ctx.Demo() != nil {
+			hints = append(hints, Hint{"x", t("act.demo.stop")})
+		}
 	default:
 		hints = m.current().Hints(m.ctx)
 		hasEsc := false
@@ -339,7 +348,7 @@ func (m *model) renderSplash() string {
 
 	profile := ""
 	if s := m.ctx.Session; s != nil {
-		profile = ui.EnvBadge(s.Profile.IsProd()) + "  " + ui.Label.Render(s.Profile.Brand+" · "+s.Name+" · "+s.Profile.MerchantID)
+		profile = ui.EnvBadge(s.Profile.Env) + "  " + ui.Label.Render(s.Profile.Brand+" · "+s.Name+" · "+s.Profile.MerchantID)
 	}
 	lines := []string{
 		logo,

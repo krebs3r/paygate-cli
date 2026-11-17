@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -67,6 +68,13 @@ func (p *Profile) DefaultLanguage() string { return orDefault(p.Language, "en") 
 // IsProd reports whether the profile targets production.
 func (p *Profile) IsProd() bool { return strings.EqualFold(p.Env, "prod") }
 
+// EnvDemo is the environment of the demo profile: its calls go to the demo
+// Paygate built into paygate, never to a real host.
+const EnvDemo = "demo"
+
+// IsDemo reports whether the profile is the demo profile.
+func (p *Profile) IsDemo() bool { return strings.EqualFold(p.Env, EnvDemo) }
+
 func orDefault(v, d string) string {
 	if strings.TrimSpace(v) == "" {
 		return d
@@ -83,6 +91,7 @@ type Config struct {
 	Profiles      map[string]*Profile `toml:"profiles"`
 
 	path string
+	demo bool // read from the demo directory; the app settings live in the main config
 }
 
 var nameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$`)
@@ -94,9 +103,45 @@ func ValidName(name string) bool { return nameRe.MatchString(name) }
 // ErrNoProfile means no profile has been set up yet.
 var ErrNoProfile = errors.New("no profile configured — run `paygate init` first")
 
-// Dir returns the configuration directory: $XDG_CONFIG_HOME/paygate-cli,
-// %AppData%\paygate-cli on Windows, otherwise ~/.config/paygate-cli.
+// demoMode switches Dir to the demo directory; see UseDemo.
+var (
+	demoMu   sync.RWMutex
+	demoMode bool
+)
+
+// UseDemo switches paygate into demo mode and back. In demo mode Dir is the
+// demo directory below the configuration directory, so profiles, history,
+// request log and webhooks of the demo stay apart from the real ones, and
+// the keychain is never touched.
+func UseDemo(on bool) {
+	demoMu.Lock()
+	defer demoMu.Unlock()
+	demoMode = on
+}
+
+// Demo reports whether paygate runs in demo mode.
+func Demo() bool {
+	demoMu.RLock()
+	defer demoMu.RUnlock()
+	return demoMode
+}
+
+// DemoDirName is the folder of the demo below the configuration directory.
+const DemoDirName = "demo"
+
+// Dir returns the directory paygate stores its data in: BaseDir, or its
+// demo folder in demo mode.
 func Dir() (string, error) {
+	d, err := BaseDir()
+	if err != nil || !Demo() {
+		return d, err
+	}
+	return filepath.Join(d, DemoDirName), nil
+}
+
+// BaseDir returns the configuration directory: $XDG_CONFIG_HOME/paygate-cli,
+// %AppData%\paygate-cli on Windows, otherwise ~/.config/paygate-cli.
+func BaseDir() (string, error) {
 	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
 		return filepath.Join(x, "paygate-cli"), nil
 	}
@@ -123,12 +168,35 @@ func Path() (string, error) {
 	return filepath.Join(d, "config.toml"), nil
 }
 
-// Load reads the configuration; a missing file yields an empty config.
+// Load reads the configuration; a missing file yields an empty config. In
+// demo mode it reads the demo's configuration, with the app settings
+// (language, theme, splash) of the main one.
 func Load() (*Config, error) {
 	p, err := Path()
 	if err != nil {
 		return nil, err
 	}
+	cfg, err := loadFile(p)
+	if err != nil || !Demo() {
+		return cfg, err
+	}
+	cfg.demo = true
+	if main, err := loadMain(); err == nil {
+		cfg.UILanguage, cfg.Theme, cfg.NoSplash = main.UILanguage, main.Theme, main.NoSplash
+	}
+	return cfg, nil
+}
+
+// loadMain reads the main configuration, also in demo mode.
+func loadMain() (*Config, error) {
+	d, err := BaseDir()
+	if err != nil {
+		return nil, err
+	}
+	return loadFile(filepath.Join(d, "config.toml"))
+}
+
+func loadFile(p string) (*Config, error) {
 	cfg := &Config{Profiles: map[string]*Profile{}, path: p}
 	b, err := os.ReadFile(p)
 	if errors.Is(err, os.ErrNotExist) {
@@ -152,7 +220,9 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// Save writes the configuration with owner-only permissions.
+// Save writes the configuration with owner-only permissions. A demo
+// configuration also writes changed app settings to the main one, so
+// language and theme stay the same in and outside the demo.
 func (c *Config) Save() error {
 	if c.path == "" {
 		p, err := Path()
@@ -161,6 +231,24 @@ func (c *Config) Save() error {
 		}
 		c.path = p
 	}
+	if err := c.write(); err != nil {
+		return err
+	}
+	if !c.demo {
+		return nil
+	}
+	main, err := loadMain()
+	if err != nil {
+		return err
+	}
+	if main.UILanguage == c.UILanguage && main.Theme == c.Theme && main.NoSplash == c.NoSplash {
+		return nil
+	}
+	main.UILanguage, main.Theme, main.NoSplash = c.UILanguage, c.Theme, c.NoSplash
+	return main.write()
+}
+
+func (c *Config) write() error {
 	if err := os.MkdirAll(filepath.Dir(c.path), 0o700); err != nil {
 		return err
 	}
@@ -190,7 +278,8 @@ func (c *Config) Names() []string {
 
 // Resolve picks the profile: explicit name > PAYGATE_PROFILE > active profile.
 func (c *Config) Resolve(name string) (string, *Profile, error) {
-	if name == "" {
+	// PAYGATE_PROFILE names a real profile; the demo has its own.
+	if name == "" && !Demo() {
 		name = os.Getenv("PAYGATE_PROFILE")
 	}
 	if name == "" {

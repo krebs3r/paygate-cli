@@ -1404,7 +1404,7 @@ func (s *newPaymentScreen) reviewView(ctx *Context, w, h int) string {
 		[2]string{t("rev.sim"), sim},
 		[2]string{t("rev.desc"), req.Order.Description},
 		[2]string{t("rev.transid"), ui.Muted.Render(req.TransID)},
-		[2]string{t("rev.host"), ctx.Session.Host() + "  " + ui.EnvBadge(p.IsProd())},
+		[2]string{t("rev.host"), ctx.Session.Host() + "  " + ui.EnvBadge(p.Env)},
 	)
 	border := ui.ColBorder
 	out := box(kv(rows), min(w, 72), border) + "\n"

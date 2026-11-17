@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/krebs3r/paygate-cli/internal/config"
+	"github.com/krebs3r/paygate-cli/internal/demo"
 	"github.com/krebs3r/paygate-cli/internal/history"
 	"github.com/krebs3r/paygate-cli/internal/mockpaygate"
 	"github.com/krebs3r/paygate-cli/internal/ui"
@@ -582,5 +583,47 @@ func TestHistoryCommand(t *testing.T) {
 	var recs []map[string]any
 	if err != nil || json.Unmarshal([]byte(js), &recs) != nil || len(recs) != 1 || recs[0]["simulation"] != "Test:0000" {
 		t.Fatalf("history json: %v\n%s", err, js)
+	}
+}
+
+// runDemo runs a command with --demo like a separate paygate process.
+func runDemo(t *testing.T, args ...string) (string, string, error) {
+	t.Helper()
+	defer demo.Stop()
+	return run(t, append([]string{"--demo"}, args...)...)
+}
+
+func TestDemoFlagChainsCommands(t *testing.T) {
+	setup(t) // the mock behind PAYGATE_BASE_URL must not be used by the demo
+	out, _, err := runDemo(t, "pay", "--amount", "12.00", "--card", "visa-ok", "--capture", "manual", "-o", "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var paid struct {
+		PayID  string `json:"payId"`
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(out), &paid); err != nil || paid.PayID == "" {
+		t.Fatalf("pay output: %v\n%s", err, out)
+	}
+	if _, _, err := runDemo(t, "capture", paid.PayID, "--yes"); err != nil {
+		t.Fatalf("capture in a later process: %v", err)
+	}
+	out, _, err = runDemo(t, "get", paid.PayID, "-o", "json")
+	if err != nil || !strings.Contains(out, `"capturedValue": 1200`) {
+		t.Fatalf("get after capture: %v\n%s", err, out)
+	}
+
+	if _, _, err := runDemo(t, "init"); err == nil || !strings.Contains(err.Error(), "not available in demo mode") {
+		t.Errorf("init must be refused in demo mode: %v", err)
+	}
+	if _, _, err := run(t, "get", paid.PayID); !errors.Is(err, config.ErrNoProfile) {
+		t.Errorf("without --demo the real (empty) configuration applies: %v", err)
+	}
+	if _, _, err := run(t, "demo", "--reset", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := runDemo(t, "get", paid.PayID); err == nil {
+		t.Error("demo --reset forgets the demo payments")
 	}
 }

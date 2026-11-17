@@ -141,7 +141,11 @@ func shortPath(raw string) string {
 func (s *inspectorScreen) View(ctx *Context, w, h int) string {
 	s.width = w
 	out := title(t("insp.title")) + "  " + ui.Muted.Render(fmt.Sprintf(t("insp.count"), len(s.entries))) + "\n"
-	out += ui.Muted.Render(t("insp.redacted")) + "\n\n"
+	out += ui.Muted.Render(t("insp.redacted")) + "\n"
+	if ctx.Demo() != nil {
+		out += ui.Label.Render(t("insp.demo")) + "\n"
+	}
+	out += "\n"
 	if s.form != nil {
 		return out + s.form.View()
 	}

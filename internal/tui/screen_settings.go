@@ -12,6 +12,7 @@ import (
 
 	"github.com/krebs3r/paygate-cli/internal/config"
 	"github.com/krebs3r/paygate-cli/internal/core"
+	"github.com/krebs3r/paygate-cli/internal/demo"
 	"github.com/krebs3r/paygate-cli/internal/i18n"
 	"github.com/krebs3r/paygate-cli/internal/money"
 	"github.com/krebs3r/paygate-cli/internal/ui"
@@ -104,6 +105,9 @@ func (s *settingsScreen) current(ctx *Context, id string) (value string, isDefau
 	cfg := ctx.Cfg
 	switch id {
 	case "reset":
+		if ctx.Demo() != nil {
+			return ui.Muted.Render(t("set.reset.demo.what")), false
+		}
 		return ui.Muted.Render(t("set.reset.what")), false
 	case "theme":
 		return themeLabel(ui.ThemeID()), ui.ThemeID() == ui.Themes[0].ID
@@ -190,9 +194,13 @@ func (s *settingsScreen) edit(ctx *Context, st setting) tea.Cmd {
 	case "reset":
 		s.confirm = false
 		dir, _ := config.Dir()
-		field = huh.NewConfirm().Title(t("set.reset.q")).
-			Description(fmt.Sprintf(t("set.reset.d"), config.Tilde(dir))).
-			Affirmative(t("set.reset.yes")).Negative(t("no")).
+		key := "set.reset"
+		if ctx.Demo() != nil {
+			key = "set.reset.demo"
+		}
+		field = huh.NewConfirm().Title(t(key + ".q")).
+			Description(fmt.Sprintf(t(key+".d"), config.Tilde(dir))).
+			Affirmative(t(key + ".yes")).Negative(t("no")).
 			Value(&s.confirm)
 	case "theme":
 		s.value = ui.ThemeID()
@@ -271,7 +279,7 @@ func (s *settingsScreen) apply(ctx *Context) tea.Cmd {
 		if !s.confirm {
 			return nil
 		}
-		return s.reset()
+		return s.reset(ctx)
 	}
 	if s.editing == "hmac_key" {
 		return s.applyHMACKey(ctx)
@@ -355,8 +363,17 @@ func setTheme(cfg *config.Config, id string) {
 	}
 }
 
-// reset deletes all data and starts over on the welcome screen.
-func (s *settingsScreen) reset() tea.Cmd {
+// reset deletes all data and starts over on the welcome screen. In demo
+// mode it deletes the demo's data only and sets up the demo profile again.
+func (s *settingsScreen) reset(ctx *Context) tea.Cmd {
+	if ctx.Demo() != nil {
+		closeListen(ctx)
+		if err := demo.Reset(); err != nil {
+			return toast(err.Error(), ui.ToneDanger)
+		}
+		s.sel = 0
+		return tea.Batch(sessionChanged(), switchTo("home", nil), toast(t("set.reset.demo.done"), ui.ToneSuccess))
+	}
 	if _, err := config.Reset(); err != nil {
 		return toast(err.Error(), ui.ToneDanger)
 	}
@@ -387,7 +404,11 @@ func (s *settingsScreen) View(ctx *Context, w, h int) string {
 		if def && st.id != "ui_language" && st.id != "splash" && st.id != "customer_ip" {
 			val += ui.Muted.Render("  " + t("set.default"))
 		}
-		label := fmt.Sprintf("%-26s ", truncate(t(st.label), 26))
+		lbl := st.label
+		if st.id == "reset" && ctx.Demo() != nil {
+			lbl = "set.reset.demo"
+		}
+		label := fmt.Sprintf("%-26s ", truncate(t(lbl), 26))
 		if st.id == "reset" {
 			label = ui.Danger.Render(label)
 		}

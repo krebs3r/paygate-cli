@@ -31,6 +31,9 @@ installed.`,
 }
 
 func runReset(app *App) error {
+	if config.Demo() {
+		return runDemoReset(app)
+	}
 	dir, err := config.Dir()
 	if err != nil {
 		return err

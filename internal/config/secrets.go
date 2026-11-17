@@ -29,7 +29,7 @@ func CleanSecret(s string) string {
 // StoreAPIKey saves the key in the keychain, falling back to the config file
 // (0600) when no keychain is available. It returns the backend used.
 func StoreAPIKey(profileName string, p *Profile, apiKey string) (string, error) {
-	if os.Getenv("PAYGATE_NO_KEYCHAIN") != "" {
+	if noKeychain() {
 		p.SecretStore = StoreFile
 		p.APIKey = apiKey
 		return StoreFile, nil
@@ -44,9 +44,14 @@ func StoreAPIKey(profileName string, p *Profile, apiKey string) (string, error) 
 	return StoreFile, nil
 }
 
-// APIKey returns the profile's key: PAYGATE_API_KEY > keychain > file.
+// noKeychain reports whether the keychain is off: with PAYGATE_NO_KEYCHAIN
+// and always in demo mode, so the demo can never change a real key.
+func noKeychain() bool { return Demo() || os.Getenv("PAYGATE_NO_KEYCHAIN") != "" }
+
+// APIKey returns the profile's key: PAYGATE_API_KEY > keychain > file. In
+// demo mode PAYGATE_API_KEY is ignored; it belongs to a real profile.
 func APIKey(profileName string, p *Profile) (string, error) {
-	if v := CleanSecret(os.Getenv("PAYGATE_API_KEY")); v != "" {
+	if v := CleanSecret(os.Getenv("PAYGATE_API_KEY")); v != "" && !Demo() {
 		return v, nil
 	}
 	if p.SecretStore == StoreFile || p.APIKey != "" {
@@ -67,7 +72,7 @@ func APIKey(profileName string, p *Profile) (string, error) {
 
 // DeleteAPIKey removes the key from the keychain (ignoring "not found").
 func DeleteAPIKey(profileName string) {
-	if os.Getenv("PAYGATE_NO_KEYCHAIN") != "" {
+	if noKeychain() {
 		return
 	}
 	_ = keyring.Delete(keyringService, profileName)
@@ -82,7 +87,7 @@ func CopySecrets(from, to string, p *Profile) error {
 	if !apiInKeychain && !hmacInKeychain {
 		return nil
 	}
-	if os.Getenv("PAYGATE_NO_KEYCHAIN") != "" {
+	if noKeychain() {
 		return errors.New("the keys of this profile are in the keychain, which PAYGATE_NO_KEYCHAIN turns off")
 	}
 	for _, s := range []struct {
@@ -112,7 +117,7 @@ const hmacService = keyringService + ".hmac"
 // StoreHMACKey saves the key Paygate signs Enhanced webhooks with, in the
 // keychain or, without one, in the config file. It returns the backend used.
 func StoreHMACKey(profileName string, p *Profile, key string) (string, error) {
-	if os.Getenv("PAYGATE_NO_KEYCHAIN") == "" {
+	if !noKeychain() {
 		if err := keyring.Set(hmacService, profileName, key); err == nil {
 			p.HMACStore, p.HMACKey = StoreKeychain, ""
 			return StoreKeychain, nil
@@ -125,7 +130,7 @@ func StoreHMACKey(profileName string, p *Profile, key string) (string, error) {
 // HMACKey returns the profile's webhook HMAC key: PAYGATE_HMAC_KEY >
 // keychain > file. An empty key without error means none is set.
 func HMACKey(profileName string, p *Profile) (string, error) {
-	if v := CleanSecret(os.Getenv("PAYGATE_HMAC_KEY")); v != "" {
+	if v := CleanSecret(os.Getenv("PAYGATE_HMAC_KEY")); v != "" && !Demo() {
 		return v, nil
 	}
 	switch p.HMACStore {
@@ -150,7 +155,7 @@ func DeleteHMACKey(profileName string, p *Profile) {
 	if p != nil {
 		p.HMACStore, p.HMACKey = "", ""
 	}
-	if os.Getenv("PAYGATE_NO_KEYCHAIN") != "" {
+	if noKeychain() {
 		return
 	}
 	_ = keyring.Delete(hmacService, profileName)

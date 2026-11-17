@@ -31,6 +31,7 @@ every request can be inspected or exported as `curl`.
   - [Uninstall](#uninstall)
   - [Still `command not found`?](#still-command-not-found)
 - [Quickstart](#quickstart)
+- [Demo mode (no credentials)](#demo-mode-no-credentials)
 - [Commands](#commands)
 - [Configuration and security](#configuration-and-security)
 - [Payment links](#payment-links)
@@ -47,6 +48,9 @@ every request can be inspected or exported as `curl`.
 
 - **App and commands**: a full-screen app (`paygate`) with menu, key hints and
   command palette, and the same functions as single commands for scripts and CI.
+- **Demo mode**: `paygate demo` tries every function without credentials,
+  against a demo Paygate on your computer. Hosted payments end on a demo
+  checkout page where you pay, decline or cancel.
 - **All integration types**: hosted payment page, hosted single method (PayPal,
   iDEAL, SEPA, Klarna and more), direct card payments and payment links (Pay by
   Link).
@@ -74,8 +78,7 @@ every request can be inspected or exported as `curl`.
 ## Installation
 
 You need about five minutes. Every step shows what you should see, so you know
-it worked before you continue. The repository is private for now: you need
-access to it, and Git asks you to sign in to GitHub when you download it.
+it worked before you continue.
 
 <a id="installation-on-macos"></a>
 <details open>
@@ -211,7 +214,9 @@ area in the menu on the left with the arrow keys or the mouse, the bottom line
 always shows the keys you can use, <kbd>?</kbd> lists all shortcuts and
 <kbd>ctrl</kbd>+<kbd>k</kbd> opens a command palette that finds every action
 by typing a few letters (English or German), for example "3ds" to copy a
-test card number. On first start it walks you through adding your merchant.
+test card number. On first start you choose: try the
+[demo mode](#demo-mode-no-credentials) without credentials, or connect your
+Paygate (test) account.
 
 | Area | What you do there |
 | --- | --- |
@@ -240,6 +245,44 @@ paygate get <payId>                # 3. look at it again later
 2. **`paygate pay`** guides you through flow, test card, amount and currency.
 3. **`paygate get`** shows status, amounts and response codes of any payment.
 
+## Demo mode (no credentials)
+
+No merchant account yet, or explaining an integration to someone without
+one? `paygate demo` opens the app with a demo Paygate that runs inside paygate
+on your computer.
+
+- **No credentials:** the profile `demo` uses made-up ones that only the demo
+  Paygate accepts.
+- **Nothing leaves your computer:** the demo Paygate listens on 127.0.0.1,
+  sends webhooks only to addresses on your computer, and its checkout page
+  loads nothing from elsewhere.
+- **Every function works:** all payment flows, payment links, status,
+  capture, refund, reversal, webhooks (Enhanced, signed with
+  `demo-hmac-key`), eDCC and the Inspector.
+- **Demo checkout:** hosted payments and payment links open a demo checkout
+  page in your browser. Pay, decline or cancel there, and see where Paygate
+  would send the customer and the webhook.
+
+Everything is marked `DEMO`. The demo keeps its payments, request log and
+webhooks in its own folder (`~/.config/paygate-cli/demo`), apart from your
+real profiles, and never touches your keychain. They stay until you delete
+them.
+
+```bash
+paygate demo                                     # the app in demo mode
+paygate --demo pay --amount 49.90 --card visa-ok
+paygate --demo pay --hosted                      # pay on the demo checkout page
+paygate --demo get <payId>
+paygate demo --reset                             # delete the demo's data
+```
+
+In the app, start the demo on the welcome screen, on Home (`d`) or from the
+command palette, and end it with `x` on Home.
+
+> [!NOTE]
+> The demo Paygate follows the Paygate API reference, but its answers are
+> made up. What counts is the real Paygate.
+
 ## Commands
 
 Single commands work without the app, for example in scripts:
@@ -252,6 +295,7 @@ Single commands work without the app, for example in scripts:
 | --- | --- | --- |
 | `paygate` | Open the full-screen app | `paygate` |
 | `paygate init` | Add or update a merchant profile | `paygate init` |
+| `paygate demo` | Open the app in demo mode, without credentials | `paygate demo` |
 | `paygate pay` | Create a payment (wizard without flags) | `paygate pay --card visa-ok --amount 12.99` |
 | `paygate pay --hosted` | Hosted payment page with all or selected methods | `paygate pay --hosted --methods card,paypal --open` |
 | `paygate pay --method` | Hosted form for a single method | `paygate pay --method ideal --amount 5` |
@@ -277,6 +321,7 @@ Global flags work with every command:
 | Flag | Effect |
 | --- | --- |
 | `-p, --profile <name>` | Use another profile for this call |
+| `--demo` | Use the demo Paygate on this computer: no credentials, no real requests |
 | `-o json` | Print the raw API response as JSON (pipe it into `jq`) |
 | `--curl` | Print the request as a `curl` command instead of sending it |
 | `-v` / `-vv` | Log HTTP bodies / headers to stderr, credentials redacted |
@@ -429,8 +474,9 @@ Direct card payments use the test cards without 3-D Secure (`visa-ok`,
 `mc-decline` …). Try the 3DS cards on the payment page (`--hosted` or
 `--method card`).
 
-**No credentials yet?** Start the built-in mock server and try every flow
-locally:
+**No credentials yet?** Use the [demo mode](#demo-mode-no-credentials). The
+mock server behind it also runs on its own, for the README recordings and
+your own tests (`-checkout ask` adds the demo checkout page):
 
 ```bash
 make mock                                          # terminal 1

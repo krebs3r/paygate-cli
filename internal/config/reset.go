@@ -19,6 +19,14 @@ func Reset() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// In demo mode only the demo folder goes; there is nothing in the
+	// keychain to remove.
+	if Demo() {
+		if filepath.Base(dir) != DemoDirName || filepath.Base(filepath.Dir(dir)) != "paygate-cli" {
+			return "", fmt.Errorf("refusing to delete %s", dir)
+		}
+		return dir, os.RemoveAll(dir)
+	}
 	// Dir always ends in paygate-cli; never delete anything else.
 	if filepath.Base(dir) != "paygate-cli" {
 		return "", fmt.Errorf("refusing to delete %s", dir)
@@ -37,7 +45,7 @@ func Reset() (string, error) {
 // webhook HMAC keys, also those of profiles removed from the config file by
 // hand.
 func deleteAllAPIKeys(profiles map[string]*Profile) error {
-	if os.Getenv("PAYGATE_NO_KEYCHAIN") != "" {
+	if noKeychain() {
 		return nil
 	}
 	for _, service := range []string{keyringService, hmacService} {

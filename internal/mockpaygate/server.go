@@ -44,6 +44,15 @@ type Server struct {
 	// DCCOff answers like a merchant without eDCC: the BIN check fails with
 	// 20500077 and no card gets an offer.
 	DCCOff bool
+	// Checkout is how hosted payments end: CheckoutAuto ("") completes them
+	// after NotFoundPolls and PendingPolls status lookups; CheckoutAsk lets
+	// the customer pay, decline or cancel on the checkout page.
+	Checkout string
+	// LocalWebhooksOnly sends webhooks only to addresses on this computer,
+	// so nothing leaves it.
+	LocalWebhooksOnly bool
+	// Lang returns the language of the checkout page: "de" or English.
+	Lang func() string
 
 	mu       sync.Mutex
 	byTrans  map[string]*record
@@ -63,6 +72,9 @@ type record struct {
 	Created                                                            time.Time
 	DCC                                                                *quote // the eDCC quote the customer answered
 	DCCSelected                                                        bool
+	ReturnURL, CancelURL                                               string
+	Choices                                                            []string `json:",omitempty"` // methods the checkout page offers
+	Opened                                                             bool     // CheckoutAsk: the customer opened the checkout page
 }
 
 // New returns a mock that accepts the given credentials.
@@ -114,6 +126,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v2/services/dcc/bin-check", s.auth(s.binCheck))
 	mux.HandleFunc("POST /api/v2/services/dcc/quote", s.auth(s.dccQuote))
 	mux.HandleFunc("GET /checkout", s.checkoutPage)
+	mux.HandleFunc("POST /checkout", s.checkoutAnswer)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Correlation-ID", randHex(8))
 		mux.ServeHTTP(w, r)
@@ -190,9 +203,10 @@ type paymentBody struct {
 			} `json:"dcc"`
 		} `json:"card"`
 	} `json:"paymentMethods"`
-	ServiceType      string `json:"serviceType"`
-	ExternalTemplate string `json:"externalTemplate"`
-	CustomerInfo     *struct {
+	AllowedPaymentMethods []string `json:"allowedPaymentMethods"`
+	ServiceType           string   `json:"serviceType"`
+	ExternalTemplate      string   `json:"externalTemplate"`
+	CustomerInfo          *struct {
 		Email string `json:"email"`
 		Phone *struct {
 			Number string `json:"number"`
@@ -273,6 +287,7 @@ func (s *Server) createLink(w http.ResponseWriter, r *http.Request) {
 func (s *Server) hosted(w http.ResponseWriter, b *paymentBody, method string, link bool) {
 	rec := s.newRecord(b)
 	rec.Hosted, rec.Method, rec.Status, rec.Code = true, method, "", ""
+	rec.Choices = checkoutChoices(b, method)
 	if link {
 		rec.Link, rec.LinkPayID = true, rec.PayID
 	}
@@ -368,7 +383,7 @@ func (s *Server) newRecord(b *paymentBody) *record {
 		Currency: strings.ToUpper(b.Amount.Currency), Capture: capture, Created: time.Now(),
 	}
 	if b.URLs != nil {
-		rec.WebhookURL = b.URLs.Webhook
+		rec.WebhookURL, rec.ReturnURL, rec.CancelURL = b.URLs.Webhook, b.URLs.Return, b.URLs.Cancel
 	}
 	// Like Paygate: the order description Test:<code> simulates the result.
 	if b.Order != nil && strings.HasPrefix(b.Order.Description, "Test:") {
@@ -426,6 +441,24 @@ func (s *Server) getByTransID(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	s.mu.Lock()
 	rec, ok := s.byTrans[id]
+	if ok && rec.Hosted && s.Checkout == CheckoutAsk {
+		// The customer decides on the checkout page; until it is opened, a
+		// session is unknown and a payment link answers with its own record.
+		var out map[string]any
+		switch {
+		case rec.Opened:
+			out = s.detailsJSON(rec)
+		case rec.Link:
+			out = s.linkJSON(rec)
+		}
+		s.mu.Unlock()
+		if out == nil {
+			notFound(w)
+			return
+		}
+		writeJSON(w, 200, out)
+		return
+	}
 	var final *record // set when the payment completes with this lookup
 	if ok && rec.Hosted && rec.Status != "OK" && rec.Status != "FAILED" {
 		defer func() {
@@ -555,6 +588,9 @@ func (s *Server) sendWebhook(rec record) {
 	if rec.WebhookURL == "" || (s.Webhook != "basic" && s.Webhook != "enhanced") {
 		return
 	}
+	if s.LocalWebhooksOnly && !localURL(rec.WebhookURL) {
+		return
+	}
 	msg := webhooks.NewBasic(rec.PayID)
 	if s.Webhook == "enhanced" {
 		pl := webhooks.Payload{
@@ -595,6 +631,10 @@ func (s *Server) webhookDone(url string, status int, err error) {
 }
 
 func (s *Server) checkoutPage(w http.ResponseWriter, r *http.Request) {
+	if s.Checkout == CheckoutAsk {
+		s.askPage(w, r)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><title>Mock checkout</title>
 <body style="font-family:system-ui;background:#080b10;color:#dce8f5;display:grid;place-items:center;height:100vh;margin:0">

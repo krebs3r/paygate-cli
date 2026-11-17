@@ -79,6 +79,11 @@ func (m *model) paletteCommands() []paletteCmd {
 		id := s.ID()
 		add(fmt.Sprintf(t("pal.go"), s.Title()), "go open screen gehe öffnen "+id, func(*model) tea.Cmd { return switchTo(id, nil) })
 	}
+	if m.ctx.Demo() != nil {
+		add(t("act.demo.stop"), "demo end stop quit leave beenden verlassen", func(m *model) tea.Cmd { return stopDemo(m.ctx) })
+	} else {
+		add(t("act.demo.start"), "demo start try without credentials sandbox ausprobieren ohne zugangsdaten", func(m *model) tea.Cmd { return startDemo(m.ctx) })
+	}
 	add(t("pal.addprofile"), "add profile merchant credentials profil hinzufügen händler zugangsdaten", func(*model) tea.Cmd { return switchTo("profiles", "add") })
 	if m.ctx.Session != nil {
 		add(t("pal.editprofile"), "edit rename profile merchant credentials profil bearbeiten umbenennen zugangsdaten", func(*model) tea.Cmd { return switchTo("profiles", "edit") })

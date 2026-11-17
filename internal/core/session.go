@@ -1,20 +1,52 @@
 package core
 
 import (
+	"errors"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/krebs3r/paygate-cli/internal/config"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
 	"github.com/krebs3r/paygate-cli/internal/reqlog"
 )
 
+// demoOrigin is the address of the demo Paygate this process runs.
+var (
+	demoMu     sync.RWMutex
+	demoOrigin string
+)
+
+// SetDemoOrigin tells where the demo Paygate of this process listens; ""
+// when it stopped.
+func SetDemoOrigin(origin string) {
+	demoMu.Lock()
+	defer demoMu.Unlock()
+	demoOrigin = strings.TrimRight(origin, "/")
+}
+
+// ErrDemoNotRunning means a demo profile was used without the demo Paygate.
+var ErrDemoNotRunning = errors.New("the demo Paygate is not running — use `paygate demo` or `paygate --demo …`")
+
 // Origin returns the API origin of a profile. PAYGATE_BASE_URL overrides it
-// (mock server, proxies).
+// (mock server, proxies). The demo profile always talks to the demo Paygate
+// of this process, and in demo mode no other profile is reachable, so the
+// demo never reaches a real host.
 func Origin(p *config.Profile) (string, error) {
+	if p.IsDemo() {
+		demoMu.RLock()
+		defer demoMu.RUnlock()
+		if demoOrigin == "" {
+			return "", ErrDemoNotRunning
+		}
+		return demoOrigin, nil
+	}
+	if config.Demo() {
+		return "", errors.New("demo mode only works with the demo profile")
+	}
 	if o := os.Getenv("PAYGATE_BASE_URL"); o != "" {
 		return strings.TrimRight(o, "/"), nil
 	}

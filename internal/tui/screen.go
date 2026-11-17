@@ -10,6 +10,7 @@ import (
 
 	"github.com/krebs3r/paygate-cli/internal/config"
 	"github.com/krebs3r/paygate-cli/internal/core"
+	"github.com/krebs3r/paygate-cli/internal/demo"
 	"github.com/krebs3r/paygate-cli/internal/i18n"
 	"github.com/krebs3r/paygate-cli/internal/listen"
 	"github.com/krebs3r/paygate-cli/internal/reqlog"
@@ -109,6 +110,28 @@ func verifySession(ctx *Context) tea.Cmd {
 		defer cancel()
 		return sessionVerifiedMsg{name: name, err: client.Verify(c)}
 	}
+}
+
+// Demo returns the demo Paygate while the app runs in demo mode.
+func (c *Context) Demo() *demo.Paygate { return demo.Running() }
+
+// startDemo switches the app into demo mode.
+func startDemo(ctx *Context) tea.Cmd {
+	if _, err := demo.Start(); err != nil {
+		return toast(err.Error(), ui.ToneDanger)
+	}
+	return tea.Batch(sessionChanged(), switchTo("home", nil), toast(t("demo.started"), ui.ToneSuccess))
+}
+
+// stopDemo ends demo mode, with the webhook listener of the demo, and goes
+// back to the real profiles.
+func stopDemo(ctx *Context) tea.Cmd {
+	if ctx.Demo() == nil {
+		return nil
+	}
+	closeListen(ctx)
+	demo.Stop()
+	return tea.Batch(sessionChanged(), switchTo("home", nil), toast(t("demo.stopped"), ui.ToneSuccess))
 }
 
 // IsProd reports whether the active profile targets production.

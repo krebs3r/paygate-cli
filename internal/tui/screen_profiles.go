@@ -121,6 +121,10 @@ func countLocal() map[string]profileCounts {
 }
 
 func (s *profilesScreen) Receive(ctx *Context, data any) tea.Cmd {
+	if ctx.Demo() != nil && (data == "add" || data == "edit") {
+		s.message, s.msgTone = t("demo.profiles"), ui.ToneDanger
+		return nil
+	}
 	switch data {
 	case "add":
 		s.editing = ""
@@ -149,6 +153,9 @@ func (s *profilesScreen) Hints(ctx *Context) []Hint {
 		return []Hint{{"← →", t("key.select")}, {"enter", t("key.open")}, {"esc", t("key.cancel")}}
 	case modeBusy:
 		return nil
+	}
+	if ctx.Demo() != nil {
+		return []Hint{{"v", t("prof.verify")}}
 	}
 	hints := []Hint{{"a", t("prof.add")}}
 	if len(ctx.Cfg.Profiles) > 0 {
@@ -190,6 +197,13 @@ func (s *profilesScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 		return nil
 	}
 	name, prof := s.selected(ctx)
+	if ctx.Demo() != nil {
+		switch km.String() {
+		case "a", "e", "d", "enter":
+			s.message, s.msgTone = t("demo.profiles"), ui.ToneDanger
+			return nil
+		}
+	}
 	switch km.String() {
 	case "up", "k":
 		s.sel = clamp(s.sel-1, len(ctx.Cfg.Profiles))
@@ -631,7 +645,7 @@ func (s *profilesScreen) View(ctx *Context, w, h int) string {
 
 // profileCells are the values of a profile's list columns but the last.
 func profileCells(name string, p *config.Profile) []string {
-	return []string{truncate(name, 24), ui.EnvBadge(p.IsProd()), platformName(p.Brand), truncate(p.MerchantID, 28), authName(p.Auth)}
+	return []string{truncate(name, 24), ui.EnvBadge(p.Env), platformName(p.Brand), truncate(p.MerchantID, 28), authName(p.Auth)}
 }
 
 // detail tells where the selected profile's calls go, where its key is and

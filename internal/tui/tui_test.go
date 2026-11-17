@@ -21,6 +21,7 @@ import (
 
 	"github.com/krebs3r/paygate-cli/internal/config"
 	"github.com/krebs3r/paygate-cli/internal/core"
+	"github.com/krebs3r/paygate-cli/internal/demo"
 	"github.com/krebs3r/paygate-cli/internal/history"
 	"github.com/krebs3r/paygate-cli/internal/i18n"
 	"github.com/krebs3r/paygate-cli/internal/listen"
@@ -50,6 +51,7 @@ func setupMock(t *testing.T, profiles map[string]*config.Profile, active string)
 	t.Setenv("PAYGATE_PROFILE", "")
 	t.Setenv("PAYGATE_API_KEY", "")
 	t.Setenv("LANG", "en_US.UTF-8")
+	t.Cleanup(demo.Stop) // a test that starts the demo must not leave demo mode on
 	if !t.Failed() && !strings.HasPrefix(t.Name(), "TestSplash") {
 		t.Setenv("PAYGATE_NO_SPLASH", "1")
 	} else {
@@ -142,14 +144,67 @@ func TestWelcomeWithoutProfile(t *testing.T) {
 	m := setup(t, nil, "")
 	i18n.Set(i18n.EN)
 	view := m.View()
-	for _, want := range []string{"Welcome to paygate", "Add profile", "no profile"} {
+	for _, want := range []string{"Welcome to paygate", "Start demo", "DEMO", "Connect your own (test) account", "no profile", "q quit"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view misses %q:\n%s", want, view)
 		}
 	}
-	send(m, enter)
+	send(m, keys("a"))
 	if m.current().ID() != "profiles" || !m.current().Capturing() {
-		t.Fatalf("enter on the welcome screen should open the add-profile form, got %s", m.current().ID())
+		t.Fatalf("a on the welcome screen should open the add-profile form, got %s", m.current().ID())
+	}
+}
+
+func TestWelcomeDownEnterAddsProfile(t *testing.T) {
+	m := setup(t, nil, "")
+	send(m, down, enter)
+	if m.current().ID() != "profiles" || !m.current().Capturing() || m.ctx.Demo() != nil {
+		t.Fatalf("down and enter should open the add-profile form, got %s demo=%v", m.current().ID(), m.ctx.Demo() != nil)
+	}
+}
+
+func TestDemoFromWelcomeAndBack(t *testing.T) {
+	m := setup(t, nil, "")
+	i18n.Set(i18n.EN)
+	send(m, enter)
+	if m.ctx.Demo() == nil || m.ctx.Session == nil || !m.ctx.Session.Profile.IsDemo() {
+		t.Fatalf("enter on the welcome screen should start the demo, session=%v", m.ctx.Session)
+	}
+	send(m, verifySession(m.ctx)())
+	view := m.View()
+	for _, want := range []string{"Demo mode", "DEMO", "demo-shop", "built in", "Demo Paygate ready", "End demo mode"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("demo home misses %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "Switch profile") {
+		t.Errorf("the demo has no profile to switch to:\n%s", view)
+	}
+	dir, _ := config.Dir()
+	if filepath.Base(dir) != config.DemoDirName {
+		t.Errorf("demo data should go to the demo folder, got %s", dir)
+	}
+
+	// The demo keeps its hands off the real profiles.
+	send(m, keys("p"), keys("a"))
+	if m.current().Capturing() || !strings.Contains(m.View(), "only the profile demo") {
+		t.Fatalf("adding a profile in demo mode should be refused:\n%s", m.View())
+	}
+
+	send(m, keys("h"), esc)
+	if !strings.Contains(m.View(), "x End demo mode") {
+		t.Fatalf("with the menu in focus, the footer tells how to end the demo:\n%s", m.View())
+	}
+	send(m, keys("x"))
+	if m.ctx.Demo() != nil || config.Demo() || m.ctx.Session != nil {
+		t.Fatalf("x should end the demo and go back to the welcome screen")
+	}
+	if !strings.Contains(m.View(), "Welcome to paygate") {
+		t.Fatalf("after the demo:\n%s", m.View())
+	}
+	base, _ := config.Dir()
+	if cfg, _ := config.Load(); len(cfg.Profiles) != 0 || filepath.Base(base) != "paygate-cli" {
+		t.Errorf("the demo must not add real profiles: %v in %s", cfg.Names(), base)
 	}
 }
 
@@ -214,7 +269,7 @@ func TestSwitchProfileToProduction(t *testing.T) {
 func TestAddProfileThroughForm(t *testing.T) {
 	m := setup(t, nil, "")
 	i18n.Set(i18n.EN)
-	send(m, enter)                                                      // open form from the welcome screen
+	send(m, keys("a"))                                                  // open form from the welcome screen
 	send(m, keys("x"), enter, enter, enter)                             // name "defaultx", platform, environment
 	send(m, keys("demo-shop"), enter, keys(" demo-key "), enter, enter) // merchant, padded key, auth
 	if !strings.Contains(m.View(), "HMAC key for webhooks") {
@@ -257,7 +312,7 @@ func TestProfileFormShowsWhereCallsGo(t *testing.T) {
 			t.Fatalf("expected %q:\n%s", want, v)
 		}
 	}
-	send(m, enter, keys("x"), enter) // open the form, name; on to the platform
+	send(m, keys("a"), keys("x"), enter) // open the form, name; on to the platform
 	expect("API https://test.paygate.nexigroup.com/api/v2")
 	send(m, down) // Computop
 	expect("API https://test.computop-paygate.com/api/v2")

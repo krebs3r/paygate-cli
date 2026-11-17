@@ -5,6 +5,29 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Demo mode: `paygate demo` opens the app without credentials, against a
+  demo Paygate that runs inside paygate on 127.0.0.1. Single commands use it
+  with the global flag `--demo`, and `paygate demo --reset` deletes its data.
+  The profile `demo` and the demo's payments, request log and webhooks live
+  in their own folder; the keychain is never touched, and in demo mode no
+  other profile and no real host can be reached. Hosted payments and payment
+  links end on a demo checkout page where you pay, decline or cancel; it
+  shows where Paygate would send the customer and the webhook. Webhooks
+  (Enhanced, signed with `demo-hmac-key`) go only to addresses on this
+  computer. Everything is marked with a violet `DEMO` badge. The welcome
+  screen of the app offers the demo next to connecting a Paygate (test)
+  account; Home and the
+  command palette start and end it.
+- Mock server: `-checkout ask` shows the demo checkout page instead of
+  completing hosted payments by itself.
+
+### Fixed
+
+- README: the repository is public; the installation no longer asks for
+  access.
+
 ## [0.8.0]
 
 ### Added

@@ -12,6 +12,7 @@ import (
 
 	"github.com/krebs3r/paygate-cli/internal/config"
 	"github.com/krebs3r/paygate-cli/internal/core"
+	"github.com/krebs3r/paygate-cli/internal/demo"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
 	"github.com/krebs3r/paygate-cli/internal/tui"
 	"github.com/krebs3r/paygate-cli/internal/ui"
@@ -34,6 +35,7 @@ type App struct {
 	NoColor     bool
 	Curl        bool
 	ShowSecrets bool
+	Demo        bool
 
 	cfg *config.Config
 }
@@ -126,7 +128,7 @@ func (a *App) PrintHeader(name string, p *config.Profile) {
 		brand = p.Brand
 	}
 	ui.Println()
-	ui.Println(ui.Header(brand, name, p.MerchantID, p.IsProd()))
+	ui.Println(ui.Header(brand, name, p.MerchantID, p.Env))
 	ui.Println()
 }
 
@@ -173,6 +175,12 @@ func NewRootCmd(build BuildInfo) *cobra.Command {
 			default:
 				return fmt.Errorf("unknown output format %q (use table or json)", app.Output)
 			}
+			// Demo mode first: it decides which configuration is read.
+			if app.Demo {
+				if err := startDemo(cmd); err != nil {
+					return err
+				}
+			}
 			// The colour theme chosen in the app; errors surface in the command.
 			if cfg, err := app.Config(); err == nil {
 				ui.SetTheme(cfg.Theme)
@@ -185,6 +193,7 @@ func NewRootCmd(build BuildInfo) *cobra.Command {
 			if !ui.Interactive() || app.JSON() {
 				return cmd.Help()
 			}
+			defer demo.Stop()
 			return tui.Run(tui.Options{Version: build.Version, Commit: build.Commit, Profile: app.ProfileName})
 		},
 	}
@@ -198,6 +207,7 @@ func NewRootCmd(build BuildInfo) *cobra.Command {
 	f.BoolVar(&app.NoColor, "no-color", false, "disable colours (also honours NO_COLOR)")
 	f.BoolVar(&app.Curl, "curl", false, "print the request as a curl command instead of sending it")
 	f.BoolVar(&app.ShowSecrets, "show-secrets", false, "with --curl: print the API key instead of $PAYGATE_API_KEY")
+	f.BoolVar(&app.Demo, "demo", false, "use the demo Paygate on this computer: no credentials, no real requests")
 
 	root.AddGroup(
 		&cobra.Group{ID: "payments", Title: "Payments:"},
@@ -221,6 +231,7 @@ func NewRootCmd(build BuildInfo) *cobra.Command {
 	}
 	for _, c := range []*cobra.Command{
 		newInitCmd(app),
+		newDemoCmd(app),
 		newProfileCmd(app),
 		newResetCmd(app),
 		newAboutCmd(app),
@@ -261,7 +272,7 @@ func renderError(err error) string {
 		hint = "Check merchant ID, API key and auth mode with `paygate profile show`, or run `paygate init` again."
 	case errors.Is(err, config.ErrNoProfile):
 		msg = "No profile configured yet."
-		hint = "Run `paygate init` to add your Paygate merchant credentials."
+		hint = "Run `paygate init` to add your Paygate merchant credentials, or `paygate demo` to try paygate without them."
 	case strings.Contains(msg, "no such host") || strings.Contains(msg, "connection refused") || strings.Contains(msg, "timeout"):
 		hint = "Check your internet connection or VPN."
 	}

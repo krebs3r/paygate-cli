@@ -231,7 +231,7 @@ func profileShow(app *App) error {
 		Title: name,
 		Rows: []ui.Row{
 			{Label: "Platform", Value: paygate.BrandLabel(paygate.Brand(p.Brand))},
-			{Label: "Environment", Value: ui.EnvBadge(p.IsProd())},
+			{Label: "Environment", Value: ui.EnvBadge(p.Env)},
 			{Label: "Host", Value: hostOf(origin)},
 			{Label: "Merchant ID", Value: p.MerchantID},
 			{Label: "Auth", Value: authLabel(p.Auth)},
