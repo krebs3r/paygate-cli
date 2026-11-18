@@ -2,7 +2,7 @@
 
 Send real Nexi / Computop Paygate payments from your terminal.
 
-![Version](https://img.shields.io/badge/version-0.8.0-3d7eff)
+![Version](https://img.shields.io/badge/version-0.9.0-3d7eff)
 ![Go](https://img.shields.io/badge/go-1.27-00add8)
 ![Status](https://img.shields.io/badge/status-MVP-f59e0b)
 ![License](https://img.shields.io/badge/license-Apache--2.0-22c55e)
@@ -139,7 +139,7 @@ Then close PowerShell and open a new window.
 paygate --version
 ```
 
-You should see `paygate 0.8.0`. Continue with the [Quickstart](#quickstart).
+You should see `paygate 0.9.0`. Continue with the [Quickstart](#quickstart).
 
 </details>
 
@@ -192,7 +192,7 @@ updated `PATH`.
 paygate --version
 ```
 
-You should see `paygate 0.8.0`. Continue with the [Quickstart](#quickstart).
+You should see `paygate 0.9.0`. Continue with the [Quickstart](#quickstart).
 
 </details>
 
@@ -237,7 +237,7 @@ that folder to your `PATH`. It ends with `Done. Next steps`.
 paygate --version
 ```
 
-You should see `paygate 0.8.0`. Continue with the [Quickstart](#quickstart).
+You should see `paygate 0.9.0`. Continue with the [Quickstart](#quickstart).
 
 </details>
 
