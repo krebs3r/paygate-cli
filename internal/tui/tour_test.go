@@ -384,3 +384,34 @@ func TestFinishedTourSavesTheLog(t *testing.T) {
 		t.Error("the log of a finished tour has every step")
 	}
 }
+
+func TestEDCCTourInTheApp(t *testing.T) {
+	m := setup(t, nil, "")
+	send(m, enter)
+	i18n.Set(i18n.EN)
+	send(m, keys("t"))
+	for _, want := range []string{"Pay by Link", "Hosted Forms", "eDCC in your own checkout", "PREVIEW"} {
+		if !strings.Contains(ansi.Strip(m.View()), want) {
+			t.Fatalf("tour list misses %q:\n%s", want, m.View())
+		}
+	}
+	send(m, down, down, down, down, down, down, enter) // eDCC
+	s := m.current().(*tourScreen)
+	if s.run == nil || s.run.Tour.ID != "dcc" || !strings.Contains(ansi.Strip(m.View()), "PREVIEW") {
+		t.Fatalf("the eDCC tour starts with its preview badge:\n%s", m.View())
+	}
+	for !s.run.Finished() {
+		tourStep(t, m)
+		if !s.run.Finished() {
+			send(m, enter)
+		}
+	}
+	for i := range s.run.Tour.Steps {
+		if o := s.run.Outcome(i); o == nil || o.Err != nil || o.Skipped != "" {
+			t.Errorf("step %d: %+v", i+1, o)
+		}
+	}
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "For the confirmation page") || !strings.Contains(v, "USD") {
+		t.Errorf("the last step shows the eDCC outcome above the long answer:\n%s", v)
+	}
+}

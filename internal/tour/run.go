@@ -47,7 +47,9 @@ type Run struct {
 	planned map[int]*Planned
 	hook    *receiver
 	version string
-	opened  bool // the payment page was opened
+	opened  bool             // the payment page was opened
+	flow    core.Flow        // how the tour's payment is collected; "" is a checkout session
+	dcc     *paygate.DCCInfo // the eDCC offer of a quote
 
 	mu sync.RWMutex // guards Outcomes: a step runs while the app draws
 }

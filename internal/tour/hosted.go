@@ -90,6 +90,22 @@ func statusStep(explain T) *Step {
 	}
 }
 
+// webhookStep waits for the webhook of the tour's payment.
+func webhookStep() *Step {
+	return &Step{
+		Short: T{"Webhook", "Webhook"},
+		Title: T{"Paygate reports the result", "Paygate meldet das Ergebnis"},
+		Explain: T{
+			"Paygate posts the result to urls.webhook, even if the customer never comes back to the shop. An Enhanced webhook carries the result in its body and is signed with your HMAC key. A Basic webhook carries only the payId.",
+			"Paygate schickt das Ergebnis per POST an urls.webhook, auch wenn der Kunde nicht in den Shop zurückkommt. Ein Enhanced-Webhook enthält das Ergebnis im Body und ist mit deinem HMAC-Key signiert. Ein Basic-Webhook enthält nur die payId.",
+		},
+		Doc:    docWebhooks,
+		Kind:   Wait,
+		Arrows: []Arrow{{1, 0, T{"webhook to urls.webhook", "Webhook an urls.webhook"}}},
+		Do:     waitWebhook,
+	}
+}
+
 func hostedTour() *Tour {
 	return &Tour{
 		ID:    "hosted",
@@ -125,18 +141,7 @@ func hostedTour() *Tour {
 				Arrows: []Arrow{{2, 0, T{"GET urls.return", "GET urls.return"}}},
 				Do:     returnStep,
 			},
-			{
-				Short: T{"Webhook", "Webhook"},
-				Title: T{"Paygate reports the result", "Paygate meldet das Ergebnis"},
-				Explain: T{
-					"Paygate posts the result to urls.webhook, even if the customer never comes back to the shop. An Enhanced webhook carries the result in its body and is signed with your HMAC key. A Basic webhook carries only the payId.",
-					"Paygate schickt das Ergebnis per POST an urls.webhook, auch wenn der Kunde nicht in den Shop zurückkommt. Ein Enhanced-Webhook enthält das Ergebnis im Body und ist mit deinem HMAC-Key signiert. Ein Basic-Webhook enthält nur die payId.",
-				},
-				Doc:    docWebhooks,
-				Kind:   Wait,
-				Arrows: []Arrow{{1, 0, T{"webhook to urls.webhook", "Webhook an urls.webhook"}}},
-				Do:     waitWebhook,
-			},
+			webhookStep(),
 			statusStep(T{
 				"Your server looks up the status using the transId from step 1. Whether you ship depends on status and responseCode: OK with 00000000 means successful.",
 				"Dein Server fragt den Status über die transId aus Schritt 1 ab. Ob du die Ware verschickst, entscheiden status und responseCode: OK mit 00000000 bedeutet erfolgreich.",

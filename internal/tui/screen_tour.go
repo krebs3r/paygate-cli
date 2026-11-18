@@ -540,7 +540,7 @@ func (s *tourScreen) View(ctx *Context, w, h int) string {
 	}
 	if s.form != nil {
 		r := s.run
-		head := spread(title(t("tour.title")+" · "+r.Tour.Title.String()),
+		head := spread(tourHead(r.Tour),
 			ui.Muted.Render(fmt.Sprintf(t("tour.stepof"), r.Step+1, len(r.Tour.Steps))), w)
 		return strings.Join([]string{head, s.stepBar(w), "", s.form.View()}, "\n")
 	}
@@ -551,13 +551,13 @@ func (s *tourScreen) listView(ctx *Context, w int) string {
 	out := title(t("tour.title")) + "\n" + ui.Label.Render(wrap(t("tour.intro"), min(w, 80))) + "\n\n"
 	nameW := 0
 	for _, tr := range s.tours {
-		nameW = max(nameW, lipgloss.Width(tr.Title.String()))
+		nameW = max(nameW, lipgloss.Width(tourName(tr)))
 	}
 	nameW = max(nameW, lipgloss.Width(t("tour.col.flow"))) + 3
 	stepsW := lipgloss.Width(t("tour.col.steps")) + 3
 	out += ui.Muted.Render("  "+padTo(t("tour.col.flow"), nameW)+padTo(t("tour.col.steps"), stepsW)+t("tour.col.shows")) + "\n"
 	for i, tr := range s.tours {
-		row := padTo(tr.Title.String(), nameW) + padTo(fmt.Sprintf("%d", len(tr.Steps)), stepsW) + ui.Label.Render(tr.Shows.String())
+		row := padTo(tourName(tr), nameW) + padTo(fmt.Sprintf("%d", len(tr.Steps)), stepsW) + ui.Label.Render(tr.Shows.String())
 		out += selectable(ctx, ansi.Truncate(row, max(w-4, 10), "…"), i == s.sel, w) + "\n"
 	}
 	out += "\n" + section(t("tour.target")) + "  "
@@ -580,6 +580,24 @@ func (s *tourScreen) listView(ctx *Context, w int) string {
 	return out
 }
 
+// tourName is a tour's title with the preview badge of a tour not yet
+// verified against a real merchant account.
+func tourName(tr *tour.Tour) string {
+	if tr.Preview {
+		return tr.Title.String() + " " + ui.Badge(t("dcc.badge"), ui.ToneAccent)
+	}
+	return tr.Title.String()
+}
+
+// tourHead is the title line of a running tour.
+func tourHead(tr *tour.Tour) string {
+	head := title(t("tour.title") + " · " + tr.Title.String())
+	if tr.Preview {
+		head += " " + ui.Badge(t("dcc.badge"), ui.ToneAccent)
+	}
+	return head
+}
+
 func padTo(s string, w int) string {
 	return s + strings.Repeat(" ", max(w-lipgloss.Width(s), 1))
 }
@@ -590,7 +608,7 @@ func padTo(s string, w int) string {
 // no text is cut off.
 func (s *tourScreen) runView(w, h int) string {
 	r := s.run
-	head := spread(title(t("tour.title")+" · "+r.Tour.Title.String()),
+	head := spread(tourHead(r.Tour),
 		ui.Muted.Render(fmt.Sprintf(t("tour.stepof"), r.Step+1, len(r.Tour.Steps))), w)
 	header := []string{head, s.stepBar(w), ""}
 
@@ -789,7 +807,15 @@ func (s *tourScreen) paneBody(w int) []string {
 		return []string{ui.Muted.Render(t("tour.noresponse"))}
 	}
 	var out []string
+	// What a step found out of an answer, such as the eDCC outcome, comes
+	// first: the answer itself can be long.
+	extra := s.outcomeLines(o, w)
 	if x != nil && x.Status != 0 {
+		if len(extra) > 0 {
+			out = append(out, extra...)
+			out = append(out, "")
+			extra = nil
+		}
 		out = append(out, statusTag(x.Status)+ui.Muted.Render(fmt.Sprintf(" · %s", formatDur(x.Duration))+demoTag(s.run)), "")
 		out = append(out, tour.Annotate(x.Response, nil)...)
 	}
@@ -803,23 +829,30 @@ func (s *tourScreen) paneBody(w int) []string {
 		out = append(out, "")
 		out = append(out, tour.Annotate(wh.Body, nil)...)
 	}
-	if len(o.Lines) > 0 {
+	if len(extra) > 0 {
 		if len(out) > 0 {
 			out = append(out, "")
 		}
-		// Text wraps; code lines such as the 3DS form are short enough.
-		for _, l := range o.Lines {
-			if lipgloss.Width(l) <= w {
-				out = append(out, l)
-				continue
-			}
-			for _, part := range strings.Split(wrap(l, w), "\n") {
-				out = append(out, strings.TrimRight(part, " "))
-			}
-		}
+		out = append(out, extra...)
 	}
 	if len(out) == 0 {
 		out = []string{ui.Muted.Render(t("tour.nothing"))}
+	}
+	return out
+}
+
+// outcomeLines are the lines of an outcome, wrapped to w. Text wraps; code
+// lines such as the 3DS form are short enough.
+func (s *tourScreen) outcomeLines(o *tour.Outcome, w int) []string {
+	var out []string
+	for _, l := range o.Lines {
+		if lipgloss.Width(l) <= w {
+			out = append(out, l)
+			continue
+		}
+		for _, part := range strings.Split(wrap(l, w), "\n") {
+			out = append(out, strings.TrimRight(part, " "))
+		}
 	}
 	return out
 }

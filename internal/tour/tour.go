@@ -90,15 +90,18 @@ type Tour struct {
 	// NeedsWebhooks: the tour only makes sense when paygate can receive
 	// the webhook (demo, local mock or a running listener).
 	NeedsWebhooks bool
+	// Preview marks a tour of a feature not yet verified against a real
+	// merchant account, such as eDCC.
+	Preview bool
 }
 
 // All returns the tours in the order of the menu.
 func All() []*Tour {
-	return []*Tour{hostedTour(), directTour(), webhooksTour(), operationsTour()}
+	return []*Tour{hostedTour(), directTour(), webhooksTour(), operationsTour(), linkTour(), formsTour(), dccTour()}
 }
 
 // Find returns the tour with id ("hosted", "direct", "webhooks",
-// "operations").
+// "operations", "link", "forms", "dcc").
 func Find(id string) *Tour {
 	for _, t := range All() {
 		if t.ID == id {

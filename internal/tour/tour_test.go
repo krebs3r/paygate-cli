@@ -1,7 +1,9 @@
 package tour
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"html"
 	"net/http"
 	"net/url"
@@ -211,6 +213,119 @@ func TestOperationsTour(t *testing.T) {
 	if a := res.Payment.Amount; a.CapturedValue != 3000 || a.RefundedValue != 1000 {
 		t.Errorf("captured %d, refunded %d", a.CapturedValue, a.RefundedValue)
 	}
+}
+
+func TestLinkTour(t *testing.T) {
+	s := demoSession(t)
+	OpenURL = customer(t, "pay")
+	defer func() { OpenURL = nil }()
+	r, err := Start(Find("link"), s, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	walk(t, r)
+	if x := r.Outcomes[0].Exchange; x == nil || x.Status != 202 || !strings.Contains(x.URL, "/payments/links") || !strings.Contains(string(x.Body), "expirationTime") {
+		t.Fatalf("the link step creates a link with an expiry: %+v", x)
+	}
+	share := strings.Join(r.Outcomes[1].Lines, "\n")
+	for _, want := range []string{"serviceType", "EMAIL", "SMS", "externalTemplate", "customer@example.com"} {
+		if !strings.Contains(share, want) {
+			t.Errorf("the share step shows how Paygate sends the link, missing %q:\n%s", want, share)
+		}
+	}
+	if r.Webhook == nil || !r.Webhook.Check(r.HMACKey()).Valid {
+		t.Error("the link tour receives the signed webhook of the payment")
+	}
+	if last := r.Outcomes[4]; last.Exchange == nil || !strings.Contains(last.Status, "OK") {
+		t.Errorf("the status of the paid link is OK: %+v", last)
+	}
+}
+
+func TestFormsTour(t *testing.T) {
+	s := demoSession(t)
+	OpenURL = customer(t, "pay")
+	defer func() { OpenURL = nil }()
+	r, err := Start(Find("forms"), s, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	walk(t, r)
+	if x := r.Outcomes[0].Exchange; x == nil || x.Status != 202 || !strings.Contains(compact(x.Body), `"integrationType":"HOSTED"`) {
+		t.Fatalf("the payment step creates a hosted payment for one method: %+v", x)
+	}
+	if back := strings.Join(r.Outcomes[3].Lines, "\n"); r.PayID == "" || !strings.Contains(back, r.PayID) {
+		t.Errorf("the return step shows the payId:\n%s", back)
+	}
+	last := r.Outcomes[4]
+	if last.Exchange == nil || !strings.Contains(last.Exchange.URL, "/payments/getByPayId/"+r.PayID) || !strings.Contains(last.Status, "OK") {
+		t.Errorf("the details step looks the payment up by payId: %+v", last)
+	}
+}
+
+func TestDCCTour(t *testing.T) {
+	r, err := Start(Find("dcc"), demoSession(t), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if !r.Tour.Preview {
+		t.Error("the eDCC tour is a preview")
+	}
+	walk(t, r)
+	if !strings.Contains(r.Outcomes[0].Status, "USA") {
+		t.Errorf("the BIN check names the card's country: %s", r.Outcomes[0].Status)
+	}
+	if !strings.Contains(r.Outcomes[1].Status, "USD") || r.dcc == nil {
+		t.Fatalf("the quote makes an offer in USD: %s", r.Outcomes[1].Status)
+	}
+	offer := strings.Join(r.Outcomes[2].Lines, "\n")
+	if !strings.Contains(offer, "49.90 EUR") || !strings.Contains(offer, "USD") || strings.Contains(offer, "●") {
+		t.Errorf("the offer shows both amounts, nothing preselected:\n%s", offer)
+	}
+	if x := r.Outcomes[3].Exchange; x == nil || !strings.Contains(string(x.Body), r.dcc.DCCRequestID) || !strings.Contains(compact(x.Body), `"selected":true`) {
+		t.Errorf("the payment carries the customer's choice: %+v", x)
+	}
+	if got := strings.Join(r.Outcomes[4].Lines, "\n"); !strings.Contains(got, "USD") {
+		t.Errorf("the details show the eDCC outcome:\n%s", got)
+	}
+}
+
+func TestDCCTourWithoutEDCC(t *testing.T) {
+	s := demoSession(t)
+	sc := demo.Scenarios{}
+	_ = sc.Set("edcc", "off")
+	if err := demo.SaveScenarios(sc); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Start(Find("dcc"), s, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	walk(t, r)
+	if x := r.Outcomes[0].Exchange; x == nil || x.Status != 422 {
+		t.Errorf("without eDCC the BIN check is refused: %+v", x)
+	}
+	if r.Outcomes[2].Skipped == "" {
+		t.Error("without an offer there is nothing to show")
+	}
+	if x := r.Outcomes[3].Exchange; x == nil || strings.Contains(string(x.Body), `"dcc"`) || !strings.Contains(r.Outcomes[3].Status, "OK") {
+		t.Errorf("without an offer the payment runs as usual: %+v", x)
+	}
+	if got := strings.Join(r.Outcomes[4].Lines, "\n"); !strings.Contains(got, "No eDCC") {
+		t.Errorf("the details say there is no eDCC:\n%s", got)
+	}
+}
+
+// compact removes the indentation of a JSON body.
+func compact(b []byte) string {
+	var buf bytes.Buffer
+	if json.Compact(&buf, b) != nil {
+		return string(b)
+	}
+	return buf.String()
 }
 
 func TestToursRefuseProduction(t *testing.T) {

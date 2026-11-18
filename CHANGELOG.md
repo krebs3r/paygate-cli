@@ -27,16 +27,26 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the next API call (400, 401, 429, 503). In the app under Settings in demo
   mode (`z` on Home), in the terminal with `paygate demo scenario`. Tours
   skip the webhook steps when webhooks are off.
-- Integration tours: the hosted payment page, a direct card payment with
-  3-D Secure, checking webhooks and capture/refund/reversal, step by step,
-  with a sequence diagram, an explanation per step, a link to the page of the
-  official documentation (API reference of Nexi or Computop, Nexi guides),
-  the request with notes on its fields, the real answer and curl. In the app
-  under Tour (`t`, the first quick action of the demo), where a running tour
-  hides menu and tabs (focus mode), steps that wait for the customer or the
-  webhook start by themselves, `y` copies the shown request or answer and
-  `d` or a click opens the documentation; in the terminal with
-  `paygate tour` (explains only) and `paygate tour … --run`.
+- Integration tours: the hosted payment page, hosted forms (the method
+  picked in the shop, credit card as the example, return with the payId), a
+  direct card payment with 3-D Secure, Pay by Link (expiry, sent by you or
+  by Paygate by e-mail or SMS), checking webhooks, capture/refund/reversal
+  and, as a preview, eDCC in your own checkout (BIN check, quote, both
+  currencies, the customer's choice, the outcome for the confirmation page),
+  step by step, with a sequence diagram, an explanation per step, a link to
+  the page of the official documentation (API reference of Nexi or Computop,
+  Nexi guides), the request with notes on its fields, the real answer and
+  curl. In the app under Tour (`t`, the first quick action of the demo),
+  where a running tour hides menu and tabs (focus mode), steps that wait for
+  the customer or the webhook start by themselves, `y` copies the shown
+  request or answer and `d` or a click opens the documentation; in the
+  terminal with `paygate tour` (explains only) and `paygate tour … --run`.
+  The 3-D Secure browser steps are explained with the values of the real
+  answer, not run. Tours do not run on production profiles.
+- Ready-made binaries: every GitHub release carries archives for macOS
+  (Apple silicon, Intel), Linux and Windows (x64, ARM) with SHA-256
+  checksums, built by a workflow from the tagged commit. The README shows how
+  to install them without Go.
 - Tour logs: the run of a tour as one HTML or Markdown file to send to
   someone without paygate, with every step's explanation, documentation
   link, request with field notes, curl command, answer and webhook, JSON in
@@ -48,8 +58,6 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `m` in the app turns its mouse clicks off and on, so any text on the
   screen can be marked with the mouse and copied; the footer shows when text
   selection is on. Also in the command palette and the help.
-  The 3-D Secure browser steps are explained with the values of the real
-  answer, not run. Tours do not run on production profiles.
 - Mock server: `-checkout ask` shows the demo checkout page instead of
   completing hosted payments by itself. Direct payments that need 3-D Secure
   answer with all `versioningData` fields of the API reference example.

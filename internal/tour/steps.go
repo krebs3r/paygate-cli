@@ -111,6 +111,22 @@ func lookup(r *Run, transID string) (*Planned, error) {
 	}}, nil
 }
 
+// lookupPayID plans a request for the payment details by payId.
+func lookupPayID(r *Run, payID string) (*Planned, error) {
+	if payID == "" {
+		return nil, errEarlierStep
+	}
+	prep, err := r.Session.Client.GetByPayIDRequest(payID)
+	if err != nil {
+		return nil, err
+	}
+	return &Planned{Prepared: prep, Record: func(res *paygate.Result, err error) {
+		if err == nil && res != nil {
+			core.RecordStatus(r.Session.Name, res.Payment)
+		}
+	}}, nil
+}
+
 // operation plans a capture, refund or reversal.
 func operation(r *Run, op paygate.Operation, payID, transID string, amount paygate.Amount) (*Planned, error) {
 	if payID == "" {
@@ -214,9 +230,17 @@ func waitCustomer(ctx context.Context, r *Run) *Outcome {
 		return &Outcome{Pending: true, Status: err.Error()}
 	}
 	pay := res.Payment
-	if core.WaitOutcome(core.FlowHosted, pay) == paygate.OutcomePending {
-		return &Outcome{Pending: true, Status: T{"Waiting for the customer", "Wartet auf den Kunden"}.String() +
-			ui.Muted.Render(" · "+pay.Status+" "+string(pay.ResponseCode))}
+	flow := r.flow
+	if flow == "" {
+		flow = core.FlowHosted
+	}
+	if core.WaitOutcome(flow, pay) == paygate.OutcomePending {
+		waiting := T{"Waiting for the customer", "Wartet auf den Kunden"}.String()
+		if flow == core.FlowLink && pay.Method().Type == "" {
+			// The link's own record, not a payment yet.
+			return &Outcome{Pending: true, Status: waiting + ui.Muted.Render(T{" · the link is not paid yet", " · der Link ist noch nicht bezahlt"}.String())}
+		}
+		return &Outcome{Pending: true, Status: waiting + ui.Muted.Render(" · "+pay.Status+" "+string(pay.ResponseCode))}
 	}
 	core.RecordStatus(r.Session.Name, pay)
 	rememberPayment(r, res)

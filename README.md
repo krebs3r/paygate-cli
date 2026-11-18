@@ -25,6 +25,7 @@ every request can be inspected or exported as `curl`.
 
 - [Features](#features)
 - [Installation](#installation)
+  - [Ready-made binary](#installation-binary)
   - [macOS](#installation-on-macos)
   - [Windows 10 / 11](#installation-on-windows)
   - [Update](#update)
@@ -53,9 +54,10 @@ every request can be inspected or exported as `curl`.
 - **Demo mode**: `paygate demo` tries every function without credentials,
   against a demo Paygate on your computer. Hosted payments end on a demo
   checkout page where you pay, decline or cancel.
-- **Integration tours**: guided flows (hosted payment page, direct card
-  payment with 3-D Secure, webhooks, capture/refund/reversal) with a sequence
-  diagram, a short explanation per step and the real request and answer.
+- **Integration tours**: guided flows (hosted payment page, hosted forms,
+  direct card payment with 3-D Secure, Pay by Link, webhooks,
+  capture/refund/reversal, eDCC as a preview) with a sequence diagram, a
+  short explanation per step and the real request and answer.
   A run can be saved as an HTML or Markdown log to send on, without
   credentials.
 - **All integration types**: hosted payment page, hosted single method (PayPal,
@@ -84,12 +86,66 @@ every request can be inspected or exported as `curl`.
 
 ## Installation
 
-You need about five minutes. Every step shows what you should see, so you know
-it worked before you continue.
+There are two ways: download a ready-made binary, which takes a minute and
+needs no Go, or build paygate from source with the installer, which takes
+about five minutes. Both put `paygate` in the same folder. Every step shows
+what you should see, so you know it worked before you continue.
+
+<a id="installation-binary"></a>
+<details open>
+<summary><b>Ready-made binary (macOS, Linux, Windows)</b></summary>
+
+Every [release](https://github.com/krebs3r/paygate-cli/releases/latest) has
+archives for macOS, Linux and Windows and their SHA-256 checksums
+(`checksums.txt`). The commands below download the latest one.
+
+**macOS and Linux.** In the Terminal, with the archive for your computer:
+`paygate_darwin_arm64` (Mac with Apple silicon), `paygate_darwin_amd64` (Mac
+with Intel), `paygate_linux_amd64` or `paygate_linux_arm64`:
+
+```bash
+mkdir -p ~/.local/bin
+curl -fsSL https://github.com/krebs3r/paygate-cli/releases/latest/download/paygate_darwin_arm64.tar.gz | tar -xz -C ~/.local/bin paygate
+```
+
+Downloaded with `curl`, macOS starts paygate without asking. A binary
+downloaded in the browser is blocked, because it is not signed by Apple;
+`xattr -d com.apple.quarantine ~/.local/bin/paygate` releases it.
+
+If `~/.local/bin` is not on your `PATH` yet, add it once (on Linux with bash,
+use `~/.bashrc`), then open a new Terminal window:
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+```
+
+**Windows.** In PowerShell (on an ARM computer, take
+`paygate_windows_arm64.zip`):
+
+```powershell
+$dir = "$env:LOCALAPPDATA\Programs\paygate"
+New-Item -ItemType Directory -Force $dir | Out-Null
+Invoke-WebRequest https://github.com/krebs3r/paygate-cli/releases/latest/download/paygate_windows_amd64.zip -OutFile "$env:TEMP\paygate.zip"
+Expand-Archive "$env:TEMP\paygate.zip" -DestinationPath $dir -Force
+$path = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($path -notlike "*$dir*") { [Environment]::SetEnvironmentVariable("Path", "$path;$dir", "User") }
+```
+
+Then close PowerShell and open a new window.
+
+**Check the installation:**
+
+```bash
+paygate --version
+```
+
+You should see `paygate 0.8.0`. Continue with the [Quickstart](#quickstart).
+
+</details>
 
 <a id="installation-on-macos"></a>
 <details open>
-<summary><b>macOS</b></summary>
+<summary><b>macOS (from source)</b></summary>
 
 **1. Open the Terminal.** Press <kbd>⌘ Cmd</kbd> + <kbd>Space</kbd>, type
 `Terminal` and press <kbd>Enter</kbd>.
@@ -142,7 +198,7 @@ You should see `paygate 0.8.0`. Continue with the [Quickstart](#quickstart).
 
 <a id="installation-on-windows"></a>
 <details open>
-<summary><b>Windows 10 / 11</b></summary>
+<summary><b>Windows 10 / 11 (from source)</b></summary>
 
 **1. Open PowerShell.** Click Start, type `PowerShell` and press
 <kbd>Enter</kbd>. (Windows Terminal works too and shows colours and QR codes
@@ -187,8 +243,10 @@ You should see `paygate 0.8.0`. Continue with the [Quickstart](#quickstart).
 
 ### Update
 
-Download the latest version and run the installer again (macOS shown; on
-Windows use the commands from step 3 and 4 above):
+With a ready-made binary, run its download commands again.
+
+From source, download the latest version and run the installer again (macOS
+shown; on Windows use the commands from step 3 and 4 above):
 
 ```bash
 git -C ~/paygate-cli pull
@@ -199,8 +257,10 @@ git -C ~/paygate-cli pull
 
 | | Command |
 | --- | --- |
-| macOS | `~/paygate-cli/scripts/install.sh --uninstall` |
-| Windows | `powershell -ExecutionPolicy Bypass -File $HOME\paygate-cli\scripts\install.ps1 -Uninstall` |
+| Ready-made binary, macOS and Linux | `rm ~/.local/bin/paygate` |
+| Ready-made binary, Windows | `Remove-Item -Recurse "$env:LOCALAPPDATA\Programs\paygate"` |
+| macOS, from source | `~/paygate-cli/scripts/install.sh --uninstall` |
+| Windows, from source | `powershell -ExecutionPolicy Bypass -File $HOME\paygate-cli\scripts\install.ps1 -Uninstall` |
 
 Your profiles and API keys are kept. Remove them first with `paygate reset`
 if you want a clean slate.
@@ -323,7 +383,7 @@ notes on its fields (required, smallest unit, what it is for). Run the step
 and the answer appears, or copy it as `curl`. The tours speak the language
 of the app. The links lead to the API reference of the profile's platform
 (Nexi or Computop) and, for Nexi, to the guides on the hosted payment page,
-direct integration and webhooks.
+hosted forms, direct integration, eDCC and webhooks.
 
 | Tour | Steps |
 | --- | --- |
@@ -331,6 +391,9 @@ direct integration and webhooks.
 | `direct` Direct card payment with 3DS | a 3DS card (`70000000` and `versioningData`), the 3DS method and the challenge (explained with the real values, not run: paygate is not a browser), a payment without the 3DS check, a declined card, status |
 | `webhooks` Check webhooks | a payment with a webhook URL, the customer pays, the webhook arrives, its HMAC signature worked out step by step with a cross-check, status |
 | `operations` Capture, refund, reversal | authorize, partial capture, partial refund, a second authorization released again |
+| `link` Pay by Link | a payment link with an expiry, how it reaches the customer (shared by you, or sent by Paygate by e-mail or SMS), the customer pays, webhook, status |
+| `forms` Hosted Forms | a payment with the method the customer picked in your shop (`integrationType` `HOSTED`, credit card as the example), redirect to Paygate's credit card form, the customer pays, return with the payId, payment details by payId |
+| `dcc` eDCC in your own checkout (preview) | BIN check, quote, both currencies shown without a preselection, the payment with the customer's choice, the eDCC outcome from the payment details for the confirmation page |
 
 In the app, open **Tour** (`t`, on Home of the demo the first quick action).
 A running tour hides the menu (focus mode), so diagram and request get the
@@ -351,7 +414,8 @@ paygate --demo tour hosted --run --export hosted.html
 ```
 
 Tours run against the active profile, best the demo. They do not run on
-production profiles. Against a real test account, the webhook steps need the
+production profiles. The eDCC tour carries the preview badge, like eDCC in
+the rest of paygate. Against a real test account, the webhook steps need the
 webhook listener (`paygate listen`, or Webhooks in the app); in the demo
 paygate receives the webhooks itself.
 

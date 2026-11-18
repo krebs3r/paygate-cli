@@ -61,4 +61,14 @@ var (
 		Guide: nexiGuide + "rest-api-webhooks", GuideTitle: "REST API Webhooks"}
 	docSignature = Doc{API: "/webhooks", APITitle: "Webhooks",
 		Guide: nexiGuide + "rest-api-webhooks#Security-&-verification", GuideTitle: "REST API Webhooks · Security & verification"}
+	docStatusByPayID = Doc{API: "/payments/getpaymentdetailsbypaymentid", APITitle: "Retrieve payment details by Payment ID"}
+	docLink          = Doc{API: "/payments/createpaymentlink", APITitle: "Create payment link"}
+	docForms         = Doc{API: "/payments/createpayment", APITitle: "Create payment",
+		Guide: nexiGuide + "rest-api-hosted-forms", GuideTitle: "REST API Hosted Forms"}
+	docBinCheck = Doc{API: "/services/binlookup", APITitle: "Get card country and DCC eligibility information",
+		Guide: nexiGuide + "rest-api-edcc", GuideTitle: "REST API eDCC"}
+	docQuote = Doc{API: "/services/dccquote", APITitle: "Get Dynamic Currency Conversion quote",
+		Guide: nexiGuide + "rest-api-edcc", GuideTitle: "REST API eDCC"}
+	docEDCC = Doc{API: "/payments/createpayment", APITitle: "Create payment",
+		Guide: nexiGuide + "rest-api-edcc", GuideTitle: "REST API eDCC"}
 )
