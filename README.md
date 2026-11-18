@@ -410,6 +410,8 @@ of the app. The links lead to the API reference of the profile's platform
 (Nexi or Computop) and, for Nexi, to the guides on the hosted payment page,
 hosted forms, direct integration, eDCC and webhooks.
 
+![The hosted payment page tour in the demo: the sequence diagram marks each step, its request and answer below](docs/demo-tour.gif)
+
 | Tour | Steps |
 | --- | --- |
 | `hosted` Hosted Payment Page | session, redirect, the customer pays, return, webhook, status, capture |

@@ -29,6 +29,7 @@ demo: build ## Record the README GIFs (needs vhs and a running mock)
 	vhs docs/demo.tape
 	vhs docs/demo-hosted.tape
 	vhs docs/demo-webhooks.tape
+	vhs docs/demo-tour.tape
 
 notices: ## Regenerate THIRD_PARTY_NOTICES.md
 	./scripts/notices.sh
