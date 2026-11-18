@@ -691,7 +691,8 @@ tries the usual mistakes (body without timestamp, body serialised again, Base64
 instead of hex, a line break in the key …) and names the one that produces it.
 
 In a checkout of this repository the mock server sends webhooks too, signed
-with `demo-hmac-key`, once a hosted payment completes:
+with `demo-hmac-key`, once a hosted payment completes. `-docs-webhooks` sends
+them as the API documentation describes them, like the demo mode:
 
 ```bash
 go run ./tools/mockpaygate -webhook enhanced -webhook-to http://localhost:3000/paygate/webhook

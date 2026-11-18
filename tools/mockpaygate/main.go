@@ -6,7 +6,8 @@
 //
 // With -webhook basic or -webhook enhanced, completed hosted payments post a
 // webhook to their urls.webhook, or to -webhook-to; enhanced ones are signed
-// with -hmac-key.
+// with -hmac-key. They look as Paygate was seen sending them, or with
+// -docs-webhooks as the API documentation describes them.
 package main
 
 import (
@@ -27,6 +28,7 @@ func main() {
 	webhook := flag.String("webhook", "off", "webhook of completed hosted payments: off, basic or enhanced")
 	hmacKey := flag.String("hmac-key", "demo-hmac-key", "HMAC key that signs enhanced webhooks")
 	webhookTo := flag.String("webhook-to", "", "send webhooks here instead of urls.webhook, e.g. http://localhost:3000/webhook")
+	docsWebhooks := flag.Bool("docs-webhooks", false, "send webhooks as the API documentation describes them: Basic body {\"payId\": …}, signature in lower-case hex")
 	dccOff := flag.Bool("dcc-off", false, "answer like a merchant without eDCC: BIN check 422 20500077, no offers")
 	checkout := flag.String("checkout", "auto", "hosted payments: auto (complete after the polls) or ask (pay, decline or cancel on the checkout page)")
 	flag.Parse()
@@ -46,7 +48,7 @@ func main() {
 	default:
 		log.Fatalf("unknown -webhook %q (use off, basic or enhanced)", *webhook)
 	}
-	s.Webhook, s.HMACKey, s.WebhookTo = *webhook, *hmacKey, *webhookTo
+	s.Webhook, s.HMACKey, s.WebhookTo, s.DocsWebhooks = *webhook, *hmacKey, *webhookTo, *docsWebhooks
 	s.OnWebhook = func(url string, status int, err error) {
 		if err != nil {
 			log.Printf("webhook to %s failed: %v", url, err)

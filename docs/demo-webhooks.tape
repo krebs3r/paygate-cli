@@ -25,7 +25,7 @@ Env XDG_CONFIG_HOME "/tmp/paygate-demo-webhooks"
 Env LANG "en_US.UTF-8"
 
 Hide
-Type@1ms "go build -o /tmp/paygate-demo-mock ./tools/mockpaygate && (/tmp/paygate-demo-mock -addr 127.0.0.1:8090 -webhook enhanced -not-found-polls 0 -pending-polls 1 >/dev/null 2>&1 &) && rm -rf /tmp/paygate-demo-webhooks && export PATH=$PWD:$PATH PS1='$ ' && sleep 1 && paygate init --name demo-shop --merchant-id demo-shop --api-key demo-key >/dev/null && printf demo-hmac-key | paygate profile set hmac-key >/dev/null && clear"
+Type@1ms "go build -o /tmp/paygate-demo-mock ./tools/mockpaygate && (/tmp/paygate-demo-mock -addr 127.0.0.1:8090 -webhook enhanced -docs-webhooks -not-found-polls 0 -pending-polls 1 >/dev/null 2>&1 &) && rm -rf /tmp/paygate-demo-webhooks && export PATH=$PWD:$PATH PS1='$ ' && sleep 1 && paygate init --name demo-shop --merchant-id demo-shop --api-key demo-key >/dev/null && printf demo-hmac-key | paygate profile set hmac-key >/dev/null && clear"
 Enter
 Sleep 5s
 Show

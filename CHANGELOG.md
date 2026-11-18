@@ -5,6 +5,12 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Mock server: `-docs-webhooks` sends webhooks as the API documentation
+  describes them (Basic body with `payId`, signature in lower-case hex), like
+  the demo mode. The README recording of the webhooks uses it.
+
 ## [0.9.0]
 
 ### Added
