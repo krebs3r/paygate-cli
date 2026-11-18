@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 
 func newTourCmd(app *App) *cobra.Command {
 	var run bool
+	var exportPath string
 	var timeout time.Duration
 	var ids []string
 	for _, t := range tour.All() {
@@ -35,11 +37,19 @@ only explains; nothing is sent. With --run the requests go to the active
 profile, best the demo (--demo): no credentials needed and nothing leaves
 this computer. Tours do not run on production profiles.
 
+--export writes a log of the run to a file, as HTML (.html) or Markdown
+(.md), to send to someone who does not have paygate: every step with its
+explanation, request, curl command and answer. Credentials appear only as
+$PAYGATE_MERCHANT_ID and $PAYGATE_API_KEY; the demo Paygate is replaced by
+the test host of the platform, other addresses on this computer by
+shop.example.
+
 Tours speak the language of the app (paygate profile, Settings).`,
 		Example: `  paygate tour
   paygate tour hosted
   paygate --demo tour hosted --run
-  paygate --demo tour operations --run`,
+  paygate --demo tour hosted --run --export hosted.html
+  paygate --demo tour operations --run --export operations.md`,
 		Args:      cobra.MaximumNArgs(1),
 		ValidArgs: ids,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -54,6 +64,17 @@ Tours speak the language of the app (paygate profile, Settings).`,
 			if t == nil {
 				return fmt.Errorf("unknown tour %q (use %s)", args[0], strings.Join(ids, ", "))
 			}
+			var format tour.Format
+			if exportPath != "" {
+				if !run {
+					return errors.New("--export writes the log of a run: add --run")
+				}
+				f, err := tour.FormatOf(exportPath)
+				if err != nil {
+					return err
+				}
+				format = f
+			}
 			if !run {
 				brand := ""
 				if _, p, err := app.Profile(); err == nil {
@@ -62,10 +83,11 @@ Tours speak the language of the app (paygate profile, Settings).`,
 				explainTour(t, brand)
 				return nil
 			}
-			return runTour(cmd.Context(), app, t, timeout)
+			return runTour(cmd.Context(), app, t, timeout, exportPath, format)
 		},
 	}
 	cmd.Flags().BoolVar(&run, "run", false, "send the requests of the tour to the active profile")
+	cmd.Flags().StringVar(&exportPath, "export", "", "write a log of the run to `file` (.html or .md), without credentials")
 	cmd.Flags().DurationVar(&timeout, "timeout", 10*time.Minute, "how long a step waits for the customer or a webhook")
 	return cmd
 }
@@ -106,7 +128,7 @@ func explainTour(t *tour.Tour, brand string) {
 // documentation of the profile's platform (brand).
 func printStepHead(t *tour.Tour, i int, st *tour.Step, brand string) {
 	ui.Println()
-	ui.Println(" " + ui.Accent.Render(fmt.Sprintf("%d/%d", i+1, len(t.Steps))) + "  " + ui.Bold.Render(st.Title.String()) + "  " + ui.Muted.Render(kindName(st.Kind)))
+	ui.Println(" " + ui.Accent.Render(fmt.Sprintf("%d/%d", i+1, len(t.Steps))) + "  " + ui.Bold.Render(st.Title.String()) + "  " + ui.Muted.Render(st.Kind.Label().String()))
 	for _, l := range strings.Split(lipgloss.NewStyle().Width(76).Render(st.Explain.String()), "\n") {
 		ui.Println("      " + ui.Label.Render(strings.TrimRight(l, " ")))
 	}
@@ -115,23 +137,10 @@ func printStepHead(t *tour.Tour, i int, st *tour.Step, brand string) {
 	}
 }
 
-func kindName(k tour.Kind) string {
-	switch k {
-	case tour.Request:
-		return tt("API request", "API-Request")
-	case tour.Browser:
-		return tt("browser", "Browser")
-	case tour.Wait:
-		return tt("waits", "wartet")
-	case tour.Local:
-		return tt("local", "lokal")
-	}
-	return tt("not run", "nicht ausgeführt")
-}
-
 // runTour sends the tour's requests with the active profile and prints
-// every step with its request and answer.
-func runTour(ctx context.Context, app *App, t *tour.Tour, timeout time.Duration) error {
+// every step with its request and answer. With exportPath it then writes
+// the log of the run, also when a step failed.
+func runTour(ctx context.Context, app *App, t *tour.Tour, timeout time.Duration, exportPath string, format tour.Format) (err error) {
 	name, prof, client, err := app.Client()
 	if err != nil {
 		return err
@@ -144,6 +153,18 @@ func runTour(ctx context.Context, app *App, t *tour.Tour, timeout time.Duration)
 		return err
 	}
 	defer r.Close()
+	if exportPath != "" {
+		defer func() {
+			if !r.Ran() {
+				return
+			}
+			if werr := os.WriteFile(exportPath, tour.Export(r, format, time.Now()), 0o644); werr != nil {
+				err = errors.Join(err, werr)
+				return
+			}
+			ui.Println(ui.OK(tt("Log saved", "Protokoll gespeichert") + "  " + ui.Bold.Render(exportPath) + ui.Muted.Render(" "+tt("(without credentials)", "(ohne Zugangsdaten)"))))
+		}()
+	}
 	app.PrintHeader(name, prof)
 	ui.Println(" " + ui.Bold.Render(tt("Integration tour", "Integrations-Tour")+" · "+t.Title.String()))
 	ui.Println()

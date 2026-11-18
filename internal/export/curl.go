@@ -12,6 +12,10 @@ import (
 // secret never ends up in shell history or screenshots.
 const APIKeyEnv = "PAYGATE_API_KEY"
 
+// MerchantIDEnv is the variable a shared command reads the merchant ID
+// from.
+const MerchantIDEnv = "PAYGATE_MERCHANT_ID"
+
 // Curl renders a runnable curl command. Unless showSecret is set, the API key
 // is referenced as $PAYGATE_API_KEY instead of being printed.
 func Curl(p *paygate.Prepared, c *paygate.Client, showSecret bool) string {
@@ -19,6 +23,16 @@ func Curl(p *paygate.Prepared, c *paygate.Client, showSecret bool) string {
 	if showSecret {
 		key = c.APIKey
 	}
+	return curl(p, c, c.MerchantID, key)
+}
+
+// CurlShared renders a curl command to hand to others: it reads the merchant
+// ID and the API key from $PAYGATE_MERCHANT_ID and $PAYGATE_API_KEY.
+func CurlShared(p *paygate.Prepared, c *paygate.Client) string {
+	return curl(p, c, "$"+MerchantIDEnv, "$"+APIKeyEnv)
+}
+
+func curl(p *paygate.Prepared, c *paygate.Client, merchantID, key string) string {
 	var body strings.Builder
 	if p.Body != nil {
 		body.WriteString(" \\\n  --header 'Content-Type: application/json'")
@@ -33,17 +47,17 @@ func Curl(p *paygate.Prepared, c *paygate.Client, showSecret bool) string {
   --url '%s' \
   --header 'Content-Type: application/x-www-form-urlencoded' \
   --data-urlencode 'grant_type=client_credentials' \
-  --data-urlencode 'client_id=%s' \
+  --data-urlencode "client_id=%s" \
   --data-urlencode "client_secret=%s" | jq -r '.access_token')
 
 curl --request %s \
   --url '%s' \
   --header "Authorization: Bearer $ACCESS_TOKEN"%s`,
-			c.TokenURL(), shellQuote(c.MerchantID), dq(key), p.Method, p.URL, body.String())
+			c.TokenURL(), dq(merchantID), dq(key), p.Method, p.URL, body.String())
 	}
 	return fmt.Sprintf(`curl --request %s \
   --url '%s' \
-  --user "%s:%s"%s`, p.Method, p.URL, dq(c.MerchantID), dq(key), body.String())
+  --user "%s:%s"%s`, p.Method, p.URL, dq(merchantID), dq(key), body.String())
 }
 
 // Webhook renders a webhook POST with its exact body and headers.

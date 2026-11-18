@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"html"
 	"strconv"
 	"strings"
 
@@ -183,6 +184,47 @@ type jsonLine struct {
 // field behind its line, aligned in one column. Bodies that are not JSON
 // come back as they are.
 func Annotate(body []byte, notes map[string]T) []string {
+	return annotate(body, notes, termJSON)
+}
+
+// jsonStyle colours the parts of pretty-printed JSON: in the terminal, or
+// as HTML for a protocol.
+type jsonStyle struct {
+	punct, key, str, num, lit func(string) string
+	note                      func(string) string // the note behind a field
+	text                      func(string) string // a body that is not JSON
+}
+
+// termJSON reads the styles when it draws, so a change of the theme shows.
+var termJSON = jsonStyle{
+	punct: func(s string) string { return ui.Muted.Render(s) },
+	key:   func(s string) string { return ui.Link.Render(s) },
+	str:   func(s string) string { return ui.Success.Render(s) },
+	num:   func(s string) string { return ui.Warning.Render(s) },
+	lit:   func(s string) string { return ui.Accent.Render(s) },
+	note:  noteStyle,
+	text:  func(s string) string { return s },
+}
+
+// htmlJSON marks the parts with classes j-p (punctuation), j-k (key), j-s
+// (string), j-n (number), j-l (true, false, null) and j-c (field note).
+var htmlJSON = jsonStyle{
+	punct: span("j-p"), key: span("j-k"), str: span("j-s"), num: span("j-n"), lit: span("j-l"),
+	note: func(s string) string {
+		head, rest, found := strings.Cut(s, " · ")
+		if !found {
+			return span("j-c")(s)
+		}
+		return `<span class="j-c"><b>` + html.EscapeString(head) + `</b> · ` + html.EscapeString(rest) + `</span>`
+	},
+	text: html.EscapeString,
+}
+
+func span(class string) func(string) string {
+	return func(s string) string { return `<span class="` + class + `">` + html.EscapeString(s) + `</span>` }
+}
+
+func annotate(body []byte, notes map[string]T, st jsonStyle) []string {
 	body = bytes.TrimSpace(body)
 	if len(body) == 0 {
 		return nil
@@ -190,8 +232,12 @@ func Annotate(body []byte, notes map[string]T) []string {
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.UseNumber()
 	var lines []jsonLine
-	if err := writeValue(dec, &lines, "", 0, "", ""); err != nil {
-		return strings.Split(string(body), "\n")
+	if err := writeValue(dec, &lines, "", 0, "", "", st); err != nil {
+		out := strings.Split(string(body), "\n")
+		for i, l := range out {
+			out[i] = st.text(l)
+		}
+		return out
 	}
 	// One column for the notes; a very long line (a URL, a version) gets
 	// its note right behind it instead of pushing the column away.
@@ -206,7 +252,7 @@ func Annotate(body []byte, notes map[string]T) []string {
 	for i, l := range lines {
 		out[i] = l.styled
 		if note, ok := notes[l.path]; ok && l.path != "" {
-			out[i] += strings.Repeat(" ", max(col-lipgloss.Width(l.plain), 0)+3) + noteStyle(note.String())
+			out[i] += strings.Repeat(" ", max(col-lipgloss.Width(l.plain), 0)+3) + st.note(note.String())
 		}
 	}
 	return out
@@ -221,7 +267,7 @@ func noteStyle(s string) string {
 	return ui.Label.Render(head) + ui.Muted.Render(" · "+rest)
 }
 
-func writeValue(dec *json.Decoder, lines *[]jsonLine, path string, depth int, keyPlain, keyStyled string) error {
+func writeValue(dec *json.Decoder, lines *[]jsonLine, path string, depth int, keyPlain, keyStyled string, st jsonStyle) error {
 	indent := strings.Repeat("  ", depth)
 	tok, err := dec.Token()
 	if err != nil {
@@ -236,7 +282,7 @@ func writeValue(dec *json.Decoder, lines *[]jsonLine, path string, depth int, ke
 		if v == '[' {
 			closing = "]"
 		}
-		add(open, ui.Muted.Render(open))
+		add(open, st.punct(open))
 		for dec.More() {
 			var kp, ks, child string
 			if v == '{' {
@@ -246,7 +292,7 @@ func writeValue(dec *json.Decoder, lines *[]jsonLine, path string, depth int, ke
 				}
 				k, _ := kt.(string)
 				q := strconv.Quote(k)
-				kp, ks = q+": ", ui.Link.Render(q)+ui.Muted.Render(": ")
+				kp, ks = q+": ", st.key(q)+st.punct(": ")
 				child = k
 				if path != "" {
 					child = path + "." + k
@@ -254,32 +300,32 @@ func writeValue(dec *json.Decoder, lines *[]jsonLine, path string, depth int, ke
 			} else {
 				child = path + "[]"
 			}
-			if err := writeValue(dec, lines, child, depth+1, kp, ks); err != nil {
+			if err := writeValue(dec, lines, child, depth+1, kp, ks, st); err != nil {
 				return err
 			}
 			if dec.More() {
 				last := &(*lines)[len(*lines)-1]
 				last.plain += ","
-				last.styled += ui.Muted.Render(",")
+				last.styled += st.punct(",")
 			}
 		}
 		if _, err := dec.Token(); err != nil {
 			return err
 		}
-		*lines = append(*lines, jsonLine{plain: indent + closing, styled: indent + ui.Muted.Render(closing)})
+		*lines = append(*lines, jsonLine{plain: indent + closing, styled: indent + st.punct(closing)})
 	case string:
 		q := strconv.Quote(v)
-		add(q, ui.Success.Render(q))
+		add(q, st.str(q))
 	case json.Number:
-		add(v.String(), ui.Warning.Render(v.String()))
+		add(v.String(), st.num(v.String()))
 	case bool:
 		s := strconv.FormatBool(v)
-		add(s, ui.Accent.Render(s))
+		add(s, st.lit(s))
 	case nil:
-		add("null", ui.Accent.Render("null"))
+		add("null", st.lit("null"))
 	default:
 		s := fmt.Sprint(v)
-		add(s, s)
+		add(s, st.text(s))
 	}
 	return nil
 }

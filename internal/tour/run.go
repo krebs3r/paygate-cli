@@ -196,7 +196,7 @@ func (r *Run) send(ctx context.Context, st *Step) *Outcome {
 func (r *Run) exchange(p *Planned, res *paygate.Result) *Exchange {
 	c := r.Session.Client
 	x := &Exchange{Method: p.Prepared.Method, URL: p.Prepared.URL, Body: p.Prepared.Body, Notes: p.Notes,
-		Curl: export.Curl(p.Prepared, c, false)}
+		Curl: export.Curl(p.Prepared, c, false), shared: export.CurlShared(p.Prepared, c)}
 	auth := "Basic ••••••"
 	if c.Auth == paygate.AuthOAuth2 {
 		auth = "Bearer ••••••"

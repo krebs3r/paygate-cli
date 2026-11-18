@@ -37,6 +37,14 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   webhook start by themselves, `y` copies the shown request or answer and
   `d` or a click opens the documentation; in the terminal with
   `paygate tour` (explains only) and `paygate tour … --run`.
+- Tour logs: the run of a tour as one HTML or Markdown file to send to
+  someone without paygate, with every step's explanation, documentation
+  link, request with field notes, curl command, answer and webhook, JSON in
+  colour. `x` in a running tour saves it, the end of a tour asks whether to
+  save it, `paygate tour … --run --export file.html` writes it. Credentials
+  appear only as `$PAYGATE_MERCHANT_ID` and `$PAYGATE_API_KEY`, highlighted
+  in the HTML log; the demo Paygate is replaced by the platform's test host,
+  other addresses on this computer by `shop.example`.
 - `m` in the app turns its mouse clicks off and on, so any text on the
   screen can be marked with the mouse and copied; the footer shows when text
   selection is on. Also in the command palette and the help.

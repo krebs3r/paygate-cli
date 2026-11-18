@@ -3,6 +3,8 @@ package tui
 import (
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -113,8 +115,16 @@ func TestHostedTourInTheApp(t *testing.T) {
 		t.Error("the tour should have received a signed webhook")
 	}
 	send(m, enter)
+	if s.form == nil || !strings.Contains(m.View(), "Tour finished. Save its log?") || !strings.Contains(m.View(), "Don't save") {
+		t.Fatalf("enter on the last step offers the log first:\n%s", m.View())
+	}
+	send(m, esc)
+	if s.run == nil || s.form != nil {
+		t.Fatal("esc goes back to the tour")
+	}
+	send(m, enter, down, down, enter) // don't save
 	if s.run != nil || m.layout().focus || !strings.Contains(m.View(), "Tour finished") {
-		t.Fatalf("enter on the last step ends the tour:\n%s", m.View())
+		t.Fatalf("without a log the tour ends:\n%s", m.View())
 	}
 	recs, _ := history.Load()
 	captured := false
@@ -307,5 +317,70 @@ func TestDemoScenariosInSettings(t *testing.T) {
 	}
 	if !strings.Contains(m.View(), "pays by itself") {
 		t.Errorf("the setting shows the new value:\n%s", m.View())
+	}
+}
+
+func TestTourSavesTheLog(t *testing.T) {
+	m := setup(t, nil, "")
+	send(m, enter)
+	i18n.Set(i18n.EN)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	send(m, keys("t"), down, down, down, enter) // capture, refund, reversal
+	send(m, keys("x"))
+	if !strings.Contains(m.View(), "Run a step first") {
+		t.Fatalf("before a step ran there is nothing to log:\n%s", m.View())
+	}
+	tourStep(t, m)
+	send(m, keys("x"))
+	s := m.current().(*tourScreen)
+	if s.form == nil || !strings.Contains(m.View(), "Save the log of this tour") || !strings.Contains(m.View(), "Markdown") {
+		t.Fatalf("x asks for the format:\n%s", m.View())
+	}
+	send(m, down, enter)
+	if s.form != nil || !strings.Contains(m.View(), "Log saved") {
+		t.Fatalf("enter saves the log:\n%s", m.View())
+	}
+	files, _ := filepath.Glob(filepath.Join(dir, "paygate-tour-operations-*.md"))
+	if len(files) != 1 {
+		t.Fatalf("one Markdown log in the working directory, got %v", files)
+	}
+	b, _ := os.ReadFile(files[0])
+	if !strings.Contains(string(b), "## 1 · Authorize the amount") || !strings.Contains(string(b), "4 not run") {
+		t.Errorf("the log has the step that ran and the rest as not run:\n%s", b)
+	}
+	send(m, keys("x"), enter)
+	if files, _ := filepath.Glob(filepath.Join(dir, "paygate-tour-operations-*.html")); len(files) != 1 {
+		t.Errorf("HTML is the first choice, got %v", files)
+	}
+	if s.run == nil {
+		t.Error("saving the log keeps the tour open")
+	}
+}
+
+func TestFinishedTourSavesTheLog(t *testing.T) {
+	m := setup(t, nil, "")
+	send(m, enter)
+	i18n.Set(i18n.EN)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	send(m, keys("t"), down, down, down, enter) // capture, refund, reversal
+	s := m.current().(*tourScreen)
+	for !s.run.Finished() {
+		tourStep(t, m)
+		if !s.run.Finished() {
+			send(m, enter)
+		}
+	}
+	send(m, enter, enter) // the tour is done: save as HTML
+	if s.run != nil || !strings.Contains(m.View(), "Log saved") {
+		t.Fatalf("saving the log ends the tour:\n%s", m.View())
+	}
+	files, _ := filepath.Glob(filepath.Join(dir, "paygate-tour-operations-*.html"))
+	if len(files) != 1 {
+		t.Fatalf("one HTML log, got %v", files)
+	}
+	if b, _ := os.ReadFile(files[0]); !strings.Contains(string(b), "5 steps, all run") {
+		t.Error("the log of a finished tour has every step")
 	}
 }

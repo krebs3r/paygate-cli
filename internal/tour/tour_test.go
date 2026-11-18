@@ -2,8 +2,12 @@ package tour
 
 import (
 	"context"
+	"html"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -300,5 +304,87 @@ func TestHostedTourWithoutWebhooks(t *testing.T) {
 	}
 	if o := r.Outcomes[6]; o.Skipped != "" || o.Exchange == nil {
 		t.Errorf("the payment that paid by itself can be captured: %+v", o)
+	}
+}
+
+func TestExportKeepsCredentialsAndLocalAddressesOut(t *testing.T) {
+	s := demoSession(t)
+	OpenURL = customer(t, "pay")
+	defer func() { OpenURL = nil }()
+	r, err := Start(Find("hosted"), s, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	walk(t, r)
+	at := time.Date(2026, 11, 18, 14, 5, 0, 0, time.Local)
+	tags := regexp.MustCompile(`<[^>]+>`) // the HTML colours its text with tags
+	for _, f := range []Format{HTML, Markdown} {
+		out := string(Export(r, f, at))
+		if dir := os.Getenv("PAYGATE_EXPORT_DIR"); dir != "" {
+			_ = os.WriteFile(filepath.Join(dir, FileName(r, f, at)), []byte(out), 0o600)
+		}
+		for _, leak := range []string{demo.APIKey, demo.HMACKey, demo.MerchantID, "127.0.0.1", "localhost", "dem…"} {
+			if strings.Contains(out, leak) {
+				t.Errorf("%s: the protocol contains %q", f, leak)
+			}
+		}
+		for _, want := range []string{
+			"https://test.paygate.nexigroup.com/api/v2/payments/sessions",
+			`--user "$PAYGATE_MERCHANT_ID:$PAYGATE_API_KEY"`,
+			"https://shop.example/webhook",
+			"Create a checkout session", "your unique ID", "simulated",
+			"X-Paygate-Signature", "7 steps, all run", "Capture payment",
+		} {
+			text := tags.ReplaceAllString(out, "")
+			if !strings.Contains(text, want) && !strings.Contains(text, html.EscapeString(want)) {
+				t.Errorf("%s: missing %q", f, want)
+			}
+		}
+	}
+	page := string(Export(r, HTML, at))
+	if !strings.HasPrefix(page, "<!doctype html>") {
+		t.Error("HTML protocol should be a page of its own")
+	}
+	for _, want := range []string{`<span class="j-k">&#34;transId&#34;</span>`, `<span class="j-n">4990</span>`, `<span class="h-m">POST</span>`, `<b>required</b> · your unique ID`, `title="Set this variable before you run the command">$PAYGATE_MERCHANT_ID</span>:<span class="v"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the HTML protocol colours its JSON: missing %s", want)
+		}
+	}
+	if got := FileName(r, Markdown, at); got != "paygate-tour-hosted-20261118-1405.md" {
+		t.Errorf("FileName = %q", got)
+	}
+}
+
+func TestExportOfAnUnfinishedRun(t *testing.T) {
+	s := demoSession(t)
+	r, err := Start(Find("operations"), s, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if r.Ran() {
+		t.Fatal("nothing ran yet")
+	}
+	r.Go(0)
+	if o := r.Exec(context.Background()); o.Err != nil {
+		t.Fatal(o.Err)
+	}
+	out := string(Export(r, Markdown, time.Now()))
+	for _, want := range []string{"5 steps, 4 not run", "Not run: the tour ended before this step.", "```bash"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestFormatOf(t *testing.T) {
+	for name, want := range map[string]Format{"a.html": HTML, "b.HTM": HTML, "c.md": Markdown, "d.markdown": Markdown} {
+		if f, err := FormatOf(name); err != nil || f != want {
+			t.Errorf("FormatOf(%q) = %q, %v", name, f, err)
+		}
+	}
+	if _, err := FormatOf("protocol.pdf"); err == nil {
+		t.Error("pdf is no protocol format")
 	}
 }

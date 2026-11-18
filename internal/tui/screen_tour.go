@@ -5,15 +5,19 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/krebs3r/paygate-cli/internal/config"
 	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/export"
 	"github.com/krebs3r/paygate-cli/internal/tour"
@@ -48,6 +52,12 @@ type tourScreen struct {
 	// Where the pane started and how many lines fitted at the last view,
 	// so the answer can be brought into view after a step ran.
 	paneStart, room int
+
+	// form asks for the format of the protocol (x, and when the tour is
+	// finished); format is its answer. finishing: the tour ends after it.
+	form      *huh.Form
+	format    string
+	finishing bool
 }
 
 func newTourScreen() *tourScreen {
@@ -79,6 +89,12 @@ func (s *tourScreen) Hints(ctx *Context) []Hint {
 	if s.run == nil {
 		return []Hint{{"↑↓", t("key.select")}, {"enter", t("tour.start")}}
 	}
+	if s.form != nil && s.finishing {
+		return []Hint{{"↑↓", t("key.select")}, {"enter", t("form.confirm")}, {"esc", t("tour.export.back")}}
+	}
+	if s.form != nil {
+		return []Hint{{"↑↓", t("key.select")}, {"enter", t("tour.export.save")}, {"esc", t("key.cancel")}}
+	}
 	if s.busy {
 		hints := []Hint{{"esc", t("tour.stopwait")}, {"d", t("tour.doc.key")}}
 		if s.run.Redirect != "" {
@@ -97,7 +113,7 @@ func (s *tourScreen) Hints(ctx *Context) []Hint {
 	if s.run.Redirect != "" {
 		hints = append(hints, Hint{"o", t("tour.browser")})
 	}
-	return append(hints, Hint{"esc", t("tour.leave")})
+	return append(hints, Hint{"x", t("tour.export.key")}, Hint{"esc", t("tour.leave")})
 }
 
 // tourStepMsg carries the outcome of a step run in the background.
@@ -131,6 +147,29 @@ func (s *tourScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 		s.leave()
 		return nil
 	}
+	if s.form != nil {
+		f, cmd := s.form.Update(msg)
+		s.form = f.(*huh.Form)
+		switch s.form.State {
+		case huh.StateAborted:
+			// esc goes back to the tour, also when it was about to end.
+			s.form, s.finishing = nil, false
+		case huh.StateCompleted:
+			s.form = nil
+			finishing := s.finishing
+			s.finishing = false
+			if s.format == noLog {
+				s.leave()
+				return toast(t("tour.finished"), ui.ToneSuccess)
+			}
+			cmd, saved := s.saveProtocol(tour.Format(s.format))
+			if finishing && saved {
+				s.leave()
+			}
+			return cmd
+		}
+		return cmd
+	}
 	// A click on the documentation link opens it; the wheel scrolls.
 	if mm, ok := msg.(tea.MouseMsg); ok {
 		if s.run == nil || mm.Action != tea.MouseActionPress {
@@ -155,7 +194,7 @@ func (s *tourScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 	if s.run == nil {
 		return s.updateList(ctx, km)
 	}
-	return s.updateRun(km)
+	return s.updateRun(ctx, km)
 }
 
 // openDoc opens the documentation of the current step in the browser.
@@ -214,7 +253,7 @@ func (s *tourScreen) leave() {
 	if s.run != nil {
 		s.run.Close()
 	}
-	s.run, s.plan, s.planErr, s.busy, s.waiting = nil, nil, nil, false, ""
+	s.run, s.plan, s.planErr, s.busy, s.waiting, s.form, s.finishing = nil, nil, nil, false, "", nil, false
 }
 
 // enterStep prepares the view of the current step: its request, if it
@@ -252,7 +291,7 @@ func (s *tourScreen) runStep() tea.Cmd {
 	return tea.Batch(s.execWith(c), s.spin.Tick)
 }
 
-func (s *tourScreen) updateRun(km tea.KeyMsg) tea.Cmd {
+func (s *tourScreen) updateRun(ctx *Context, km tea.KeyMsg) tea.Cmd {
 	r := s.run
 	if s.busy {
 		// While a step waits, only esc stops it; looking around still works.
@@ -273,8 +312,8 @@ func (s *tourScreen) updateRun(km tea.KeyMsg) tea.Cmd {
 	case "enter":
 		switch {
 		case r.Done(r.Step) && r.Step == len(r.Tour.Steps)-1:
-			s.leave()
-			return toast(t("tour.finished"), ui.ToneSuccess)
+			// Leaving drops the run: offer to keep its log first.
+			return s.askProtocol(ctx.Width, true)
 		case r.Done(r.Step):
 			if r.Go(r.Step + 1) {
 				return s.enterStep()
@@ -320,8 +359,75 @@ func (s *tourScreen) updateRun(km tea.KeyMsg) tea.Cmd {
 				return toast(err.Error(), ui.ToneDanger)
 			}
 		}
+	case "x":
+		return s.askProtocol(ctx.Width, false)
 	}
 	return nil
+}
+
+// noLog is the answer "don't save" when the tour ends.
+const noLog = "none"
+
+// askProtocol asks for the format of the protocol of the run. When the
+// tour is finishing, it also offers to end it without saving.
+func (s *tourScreen) askProtocol(w int, finishing bool) tea.Cmd {
+	if !s.run.Ran() {
+		return toast(t("tour.export.empty"), ui.ToneWarning)
+	}
+	dir, _ := os.Getwd()
+	s.format, s.finishing = string(tour.HTML), finishing
+	opts := []huh.Option[string]{
+		huh.NewOption(t("tour.export.html"), string(tour.HTML)),
+		huh.NewOption(t("tour.export.md"), string(tour.Markdown)),
+	}
+	title := t("tour.export.title")
+	if finishing {
+		title = t("tour.export.finish")
+		opts = append(opts, huh.NewOption(t("tour.export.none"), noLog))
+	}
+	sel := huh.NewSelect[string]().
+		Title(title).
+		Description(fmt.Sprintf(t("tour.export.d"), config.Tilde(dir))).
+		Options(opts...).
+		Value(&s.format)
+	s.form = newForm(w, huh.NewGroup(sel))
+	return s.form.Init()
+}
+
+// saveProtocol writes the protocol of the run to the working directory,
+// under a name that is not taken yet, and says whether it worked.
+func (s *tourScreen) saveProtocol(f tour.Format) (tea.Cmd, bool) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return toast(err.Error(), ui.ToneDanger), false
+	}
+	at := time.Now()
+	data := tour.Export(s.run, f, at)
+	name := tour.FileName(s.run, f, at)
+	for i := 2; ; i++ {
+		path := filepath.Join(dir, name)
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		switch {
+		case errors.Is(err, os.ErrExist) && i < 100:
+			name = strings.TrimSuffix(tour.FileName(s.run, f, at), "."+string(f)) + fmt.Sprintf("-%d.%s", i, f)
+			continue
+		case err != nil:
+			return toast(err.Error(), ui.ToneDanger), false
+		}
+		_, err = file.Write(data)
+		if cerr := file.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			return toast(err.Error(), ui.ToneDanger), false
+		}
+		// The folder was named when asking; a long path shows the name only.
+		shown := config.Tilde(path)
+		if len([]rune(shown)) > 70 {
+			shown = name
+		}
+		return toast(fmt.Sprintf(t("tour.export.saved"), shown), ui.ToneSuccess), true
+	}
 }
 
 // exec runs the current step again, with the context of the first try.
@@ -431,6 +537,12 @@ func (s *tourScreen) curl() string {
 func (s *tourScreen) View(ctx *Context, w, h int) string {
 	if s.run == nil {
 		return s.listView(ctx, w)
+	}
+	if s.form != nil {
+		r := s.run
+		head := spread(title(t("tour.title")+" · "+r.Tour.Title.String()),
+			ui.Muted.Render(fmt.Sprintf(t("tour.stepof"), r.Step+1, len(r.Tour.Steps))), w)
+		return strings.Join([]string{head, s.stepBar(w), "", s.form.View()}, "\n")
 	}
 	return s.runView(w, h)
 }

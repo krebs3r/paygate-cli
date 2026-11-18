@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -648,6 +649,30 @@ func TestTourCommand(t *testing.T) {
 	out, _, err = runDemo(t, "tour", "operations", "--run")
 	if err != nil || !strings.Contains(out, "Tour finished") || !strings.Contains(out, "201 Created") || !strings.Contains(out, "reversals") {
 		t.Fatalf("tour --run: %v\n%s", err, out)
+	}
+
+	file := filepath.Join(t.TempDir(), "operations.md")
+	out, _, err = runDemo(t, "tour", "operations", "--run", "--export", file)
+	if err != nil || !strings.Contains(out, "Log saved") {
+		t.Fatalf("tour --run --export: %v\n%s", err, out)
+	}
+	b, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"# Capture, refund, reversal", "test.paygate.nexigroup.com/api/v2/payments", "$PAYGATE_API_KEY"} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("the log lacks %q", want)
+		}
+	}
+	if strings.Contains(string(b), "127.0.0.1") || strings.Contains(string(b), "demo-key") {
+		t.Error("the log shows a local address or the key")
+	}
+	if _, _, err := runDemo(t, "tour", "operations", "--export", file); err == nil {
+		t.Error("--export without --run is an error")
+	}
+	if _, _, err := runDemo(t, "tour", "operations", "--run", "--export", "log.pdf"); err == nil {
+		t.Error("--export only writes .html and .md")
 	}
 }
 

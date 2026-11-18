@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/krebs3r/paygate-cli/internal/i18n"
 	"github.com/krebs3r/paygate-cli/internal/ui"
@@ -286,7 +287,8 @@ func (m *model) renderFooter(w int) string {
 		case ui.ToneWarning:
 			style = ui.Warning
 		}
-		right = style.Render(m.toast) + " "
+		// A long toast (a file path) is cut rather than dropped.
+		right = style.Render(ansi.Truncate(m.toast, max(w-2, 1), "…")) + " "
 		if avail := w - lipgloss.Width(right) - 1; lipgloss.Width(left) > avail {
 			left = fit(left, max(avail, 0), 1)
 		}

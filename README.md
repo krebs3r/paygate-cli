@@ -33,6 +33,7 @@ every request can be inspected or exported as `curl`.
 - [Quickstart](#quickstart)
 - [Demo mode (no credentials)](#demo-mode-no-credentials)
 - [Integration tours](#integration-tours)
+  - [Tour log](#tour-log)
 - [Commands](#commands)
 - [Configuration and security](#configuration-and-security)
 - [Payment links](#payment-links)
@@ -55,6 +56,8 @@ every request can be inspected or exported as `curl`.
 - **Integration tours**: guided flows (hosted payment page, direct card
   payment with 3-D Secure, webhooks, capture/refund/reversal) with a sequence
   diagram, a short explanation per step and the real request and answer.
+  A run can be saved as an HTML or Markdown log to send on, without
+  credentials.
 - **All integration types**: hosted payment page, hosted single method (PayPal,
   iDEAL, SEPA, Klarna and more), direct card payments and payment links (Pay by
   Link).
@@ -337,18 +340,40 @@ in the browser shows up at once. `←` `→` step through the steps that ran,
 `↑` `↓`, `pgup` `pgdn` or the mouse wheel scroll the step, `v` switches
 between request, answer and curl, `y` copies what is shown (the JSON without
 the notes), `c` the curl command, `d` (or a click on the link) opens the
-documentation, and `esc` leaves.
+documentation, `x` saves the log of the tour, and `esc` leaves. `enter` on
+the last step ends the tour and asks first whether to save its log.
 
 ```bash
 paygate tour                                     # list the tours
 paygate tour webhooks                            # explain only, sends nothing
 paygate --demo tour hosted --run                 # run it against the demo
+paygate --demo tour hosted --run --export hosted.html
 ```
 
 Tours run against the active profile, best the demo. They do not run on
 production profiles. Against a real test account, the webhook steps need the
 webhook listener (`paygate listen`, or Webhooks in the app); in the demo
 paygate receives the webhooks itself.
+
+### Tour log
+
+The log of a tour is one file for someone who does not have paygate: every
+step that ran, with its explanation, the link to the documentation, the
+request with its field notes, the request as `curl`, the answer and the
+webhook. HTML (one page with its styles inside, to attach to an e-mail) or
+Markdown (for wikis and tickets). In the app, `x` in a running tour saves it
+in the folder paygate was started in, and the end of a tour offers it; in
+the terminal, `--export` with a `.html` or `.md` file name writes it after
+the run. In the HTML log, JSON is shown in colour, and the variables a curl
+command needs are highlighted.
+
+The log contains no credentials: the curl commands read the merchant ID and
+the API key from `$PAYGATE_MERCHANT_ID` and `$PAYGATE_API_KEY`, also in
+answers the merchant ID stands as `$PAYGATE_MERCHANT_ID`. Addresses on your
+computer are replaced: the demo Paygate by the test host of the platform
+(`test.paygate.nexigroup.com` or `test.computop-paygate.com`), other local
+addresses such as the webhook receiver of the tour by `shop.example`. A log
+of a demo run says that its answers are simulated.
 
 ## Commands
 
@@ -364,7 +389,7 @@ Single commands work without the app, for example in scripts:
 | `paygate init` | Add or update a merchant profile | `paygate init` |
 | `paygate demo` | Open the app in demo mode, without credentials | `paygate demo` |
 | `paygate demo scenario` | Show or set how the demo Paygate behaves | `paygate demo scenario checkout pay` |
-| `paygate tour` | Explain an integration step by step; `--run` sends the requests | `paygate --demo tour hosted --run` |
+| `paygate tour` | Explain an integration step by step; `--run` sends the requests, `--export` saves a log | `paygate --demo tour hosted --run` |
 | `paygate pay` | Create a payment (wizard without flags) | `paygate pay --card visa-ok --amount 12.99` |
 | `paygate pay --hosted` | Hosted payment page with all or selected methods | `paygate pay --hosted --methods card,paypal --open` |
 | `paygate pay --method` | Hosted form for a single method | `paygate pay --method ideal --amount 5` |

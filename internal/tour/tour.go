@@ -130,4 +130,5 @@ type Exchange struct {
 	Response    []byte
 	Correlation string
 	Curl        string
+	shared      string // curl with all credentials as variables, for a protocol
 }
