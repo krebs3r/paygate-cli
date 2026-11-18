@@ -92,7 +92,7 @@ about five minutes. Both put `paygate` in the same folder. Every step shows
 what you should see, so you know it worked before you continue.
 
 <a id="installation-binary"></a>
-<details open>
+<details>
 <summary><b>Ready-made binary (macOS, Linux, Windows)</b></summary>
 
 Every [release](https://github.com/krebs3r/paygate-cli/releases/latest) has
@@ -144,7 +144,7 @@ You should see `paygate 0.9.0`. Continue with the [Quickstart](#quickstart).
 </details>
 
 <a id="installation-on-macos"></a>
-<details open>
+<details>
 <summary><b>macOS (from source)</b></summary>
 
 **1. Open the Terminal.** Press <kbd>⌘ Cmd</kbd> + <kbd>Space</kbd>, type
@@ -197,7 +197,7 @@ You should see `paygate 0.9.0`. Continue with the [Quickstart](#quickstart).
 </details>
 
 <a id="installation-on-windows"></a>
-<details open>
+<details>
 <summary><b>Windows 10 / 11 (from source)</b></summary>
 
 **1. Open PowerShell.** Click Start, type `PowerShell` and press
