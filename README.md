@@ -31,6 +31,7 @@ every request can be inspected or exported as `curl`.
   - [Update](#update)
   - [Uninstall](#uninstall)
   - [Still `command not found`?](#still-command-not-found)
+  - [Blocked by macOS or Windows?](#blocked-by-macos-or-windows)
 - [Quickstart](#quickstart)
 - [Demo mode (no credentials)](#demo-mode-no-credentials)
 - [Integration tours](#integration-tours)
@@ -91,6 +92,12 @@ needs no Go, or build paygate from source with the installer, which takes
 about five minutes. Both put `paygate` in the same folder. Every step shows
 what you should see, so you know it worked before you continue.
 
+> [!IMPORTANT]
+> The ready-made binaries are not signed by Apple or Microsoft. Downloaded in
+> the browser, macOS refuses to start paygate and Windows may warn about it.
+> The commands in the section below avoid that. If it happened already, see
+> [Blocked by macOS or Windows?](#blocked-by-macos-or-windows).
+
 <a id="installation-binary"></a>
 <details>
 <summary><b>Ready-made binary (macOS, Linux, Windows)</b></summary>
@@ -109,8 +116,8 @@ curl -fsSL https://github.com/krebs3r/paygate-cli/releases/latest/download/payga
 ```
 
 Downloaded with `curl`, macOS starts paygate without asking. A binary
-downloaded in the browser is blocked, because it is not signed by Apple;
-`xattr -d com.apple.quarantine ~/.local/bin/paygate` releases it.
+downloaded in the browser is blocked, see
+[Blocked by macOS or Windows?](#blocked-by-macos-or-windows).
 
 If `~/.local/bin` is not on your `PATH` yet, add it once (on Linux with bash,
 use `~/.bashrc`), then open a new Terminal window:
@@ -126,6 +133,7 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 $dir = "$env:LOCALAPPDATA\Programs\paygate"
 New-Item -ItemType Directory -Force $dir | Out-Null
 Invoke-WebRequest https://github.com/krebs3r/paygate-cli/releases/latest/download/paygate_windows_amd64.zip -OutFile "$env:TEMP\paygate.zip"
+Unblock-File "$env:TEMP\paygate.zip"
 Expand-Archive "$env:TEMP\paygate.zip" -DestinationPath $dir -Force
 $path = [Environment]::GetEnvironmentVariable("Path", "User")
 if ($path -notlike "*$dir*") { [Environment]::SetEnvironmentVariable("Path", "$path;$dir", "User") }
@@ -273,6 +281,23 @@ if you want a clean slate.
 | Windows: `paygate : The term 'paygate' is not recognized` | Close **all** PowerShell windows and open a new one. If it persists, sign out of Windows and back in. |
 | `command not found: go` | Go is missing or the window is too old. Repeat step 3 (macOS) or 2 (Windows) and open a new window. |
 | Windows: "running scripts is disabled on this system" | Start the installer exactly as shown, with `-ExecutionPolicy Bypass`. |
+
+### Blocked by macOS or Windows?
+
+The ready-made binaries are built by GitHub from the tagged commit, but they
+are not signed by Apple or Microsoft. A download in the browser is marked as
+coming from the internet, and the system checks it before the first start:
+
+| System | What you see | Fix |
+| --- | --- | --- |
+| macOS | "paygate" Not Opened: Apple could not verify that it is free of malware | In the Terminal: `xattr -d com.apple.quarantine ~/.local/bin/paygate` (with the path where you put paygate), then start it again. Or open System Settings → Privacy & Security, scroll down to Security and click **Open Anyway** next to paygate. |
+| Windows | Windows protected your PC (Microsoft Defender SmartScreen) | Click **More info**, then **Run anyway**. Better: unblock the zip before you unpack it, with `Unblock-File $HOME\Downloads\paygate_windows_amd64.zip` or right-click → Properties → **Unblock**. |
+| Linux | No such check. `Permission denied` | `chmod +x ~/.local/bin/paygate` |
+
+To check a download, compare its SHA-256 with the line in `checksums.txt` on
+the release page: `shasum -a 256 paygate_darwin_arm64.tar.gz` on macOS,
+`sha256sum paygate_linux_amd64.tar.gz` on Linux and
+`Get-FileHash paygate_windows_amd64.zip` on Windows.
 
 ## Quickstart
 
