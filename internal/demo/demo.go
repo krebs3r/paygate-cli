@@ -44,6 +44,10 @@ type Paygate struct {
 	mu    sync.Mutex
 	path  string
 	saved []byte
+
+	scnMu sync.Mutex
+	scn   Scenarios
+	scnAt time.Time // when the scenarios were applied
 }
 
 var (
@@ -100,6 +104,11 @@ func start() (*Paygate, error) {
 	m.LocalWebhooksOnly, m.DocsWebhooks = true, true
 	m.Lang = pageLanguage // the checkout page speaks the app's language
 	p.mock = m
+	if s, err := LoadScenarios(); err == nil {
+		p.applyScenarios(s)
+	} else {
+		p.applyScenarios(Scenarios{}) // a broken file: the defaults
+	}
 	if b, err := os.ReadFile(p.path); err == nil {
 		// A broken file only loses old demo payments.
 		if m.Restore(b) == nil {
@@ -138,7 +147,9 @@ var (
 func (p *Paygate) handler() http.Handler {
 	h := p.mock.Handler()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p.syncScenarios(true)
 		h.ServeHTTP(w, r)
+		p.syncScenarios(false)
 		p.save()
 	})
 }
@@ -213,6 +224,7 @@ func Reset() error {
 	}
 	dir := filepath.Join(base, config.DemoDirName)
 	if p := Running(); p != nil {
+		p.applyScenarios(Scenarios{}) // the scenarios go with the folder
 		p.mock.Clear()
 		p.mu.Lock()
 		p.saved = nil

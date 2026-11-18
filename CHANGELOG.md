@@ -20,6 +20,13 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   marked with a violet `DEMO` badge. The welcome screen of the app offers
   the demo next to connecting a Paygate (test) account; Home and the command
   palette start and end it.
+- Demo scenarios: how hosted payments end (in the browser, paid or
+  declined by themselves), 3-D Secure for every card, webhooks Enhanced,
+  Basic or none, a webhook signature broken on purpose (wrong key, changed
+  body, old timestamp), a merchant without eDCC, and a one-time error for
+  the next API call (400, 401, 429, 503). In the app under Settings in demo
+  mode (`z` on Home), in the terminal with `paygate demo scenario`. Tours
+  skip the webhook steps when webhooks are off.
 - Integration tours: the hosted payment page, a direct card payment with
   3-D Secure, checking webhooks and capture/refund/reversal, step by step,
   with a sequence diagram, an explanation per step, a link to the page of the

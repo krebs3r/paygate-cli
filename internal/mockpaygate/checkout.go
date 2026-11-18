@@ -214,7 +214,7 @@ func (s *Server) resultPage(w http.ResponseWriter, rec *record, action string) {
 	}
 	hook := esc(s.text("hook.off"))
 	switch {
-	case s.Webhook != "basic" && s.Webhook != "enhanced":
+	case s.Behaviour().Webhook != "basic" && s.Behaviour().Webhook != "enhanced":
 	case rec.WebhookURL == "":
 	case s.LocalWebhooksOnly && !localURL(rec.WebhookURL):
 		hook = fmt.Sprintf(esc(s.text("hook.skipped")), code("urls.webhook")) + ` <span class="url">` + esc(rec.WebhookURL) + `</span>`
@@ -312,6 +312,8 @@ var checkoutTexts = map[string][2]string{
 	"hook.skipped":       {"Not sent: %s is not an address on this computer, and the demo only sends webhooks there:", "Nicht gesendet: %s ist keine Adresse auf diesem Rechner, und die Demo sendet Webhooks nur dorthin:"},
 	"hook.off":           {"None; webhooks are off.", "Keiner; Webhooks sind aus."},
 	"back":               {"Go back to the terminal: paygate shows the result there.", "Zurück zum Terminal: paygate zeigt dort das Ergebnis."},
+	"auto.pay":           {"This payment completes by itself (demo scenario: pays by itself):", "Diese Zahlung wird von selbst abgeschlossen (Demo-Szenario „zahlt automatisch“):"},
+	"auto.decline":       {"This payment is declined by itself (demo scenario: declines by itself):", "Diese Zahlung wird von selbst abgelehnt (Demo-Szenario „lehnt automatisch ab“):"},
 	"notfound.title":     {"Unknown payment", "Unbekannte Zahlung"},
 	"notfound.text":      {"The demo Paygate does not know this payment. It may belong to another paygate process.", "Der Demo-Paygate kennt diese Zahlung nicht. Vielleicht gehört sie zu einem anderen paygate-Prozess."},
 }

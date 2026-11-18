@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/krebs3r/paygate-cli/internal/config"
 	"github.com/krebs3r/paygate-cli/internal/core"
@@ -88,5 +89,50 @@ func TestStartKeepsPaymentsAndResetForgetsThem(t *testing.T) {
 	Stop()
 	if _, err := os.Stat(filepath.Join(base, "paygate-cli", "config.toml")); !os.IsNotExist(err) {
 		t.Error("the demo must not create a real configuration")
+	}
+}
+
+func TestScenariosAreKeptAndApplied(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("PAYGATE_BASE_URL", "")
+	t.Cleanup(Stop)
+
+	var sc Scenarios
+	if err := sc.Set("checkout", "nope"); err == nil {
+		t.Error("unknown values are refused")
+	}
+	if err := sc.Set("fail-next", "401"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveScenarios(sc); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := lookup(t, "TX"); err == nil || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("the saved one-time error applies to the first call: %v", err)
+	}
+	if got, _ := LoadScenarios(); got.Get("fail-next") != "none" {
+		t.Errorf("after the call the error is used up, also on disk: %+v", got)
+	}
+
+	// Another paygate process changes a scenario; this one picks it up.
+	other := Scenarios{}
+	_ = other.Set("webhook", "off")
+	time.Sleep(20 * time.Millisecond)
+	scnMu.Lock()
+	_ = saveScenarios(other)
+	scnMu.Unlock()
+	_ = lookup(t, "TX")
+	if Running().Scenarios().Get("webhook") != "off" {
+		t.Error("a change on disk reaches the running demo Paygate")
+	}
+
+	if err := Reset(); err != nil {
+		t.Fatal(err)
+	}
+	if Running().Scenarios() != (Scenarios{}) {
+		t.Error("reset goes back to the default scenarios")
 	}
 }

@@ -80,6 +80,7 @@ func (m *model) paletteCommands() []paletteCmd {
 		add(fmt.Sprintf(t("pal.go"), s.Title()), "go open screen gehe öffnen "+id, func(*model) tea.Cmd { return switchTo(id, nil) })
 	}
 	if m.ctx.Demo() != nil {
+		add(t("act.scenarios"), "demo scenarios szenarien error fehler decline ablehnen webhook signature signatur 401 429 503", func(*model) tea.Cmd { return switchTo("settings", "scenarios") })
 		add(t("act.demo.stop"), "demo end stop quit leave beenden verlassen", func(m *model) tea.Cmd { return stopDemo(m.ctx) })
 	} else {
 		add(t("act.demo.start"), "demo start try without credentials sandbox ausprobieren ohne zugangsdaten", func(m *model) tea.Cmd { return startDemo(m.ctx) })

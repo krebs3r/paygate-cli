@@ -22,22 +22,34 @@ type setting struct {
 	id      string
 	label   string
 	profile bool
+	demo    bool // a demo scenario, shown in demo mode only
 }
 
 func settingsList() []setting {
 	return []setting{
-		{"ui_language", "set.language", false},
-		{"theme", "set.theme", false},
-		{"splash", "set.splash", false},
-		{"currency", "set.currency", true},
-		{"language", "set.pagelang", true},
-		{"return_url", "set.return", true},
-		{"cancel_url", "set.cancel", true},
-		{"webhook_url", "set.webhook", true},
-		{"hmac_key", "set.hmac", true},
-		{"customer_ip", "set.ip", true},
-		{"reset", "set.reset", false},
+		{id: "ui_language", label: "set.language", profile: false},
+		{id: "theme", label: "set.theme", profile: false},
+		{id: "splash", label: "set.splash", profile: false},
+		{id: "currency", label: "set.currency", profile: true},
+		{id: "language", label: "set.pagelang", profile: true},
+		{id: "return_url", label: "set.return", profile: true},
+		{id: "cancel_url", label: "set.cancel", profile: true},
+		{id: "webhook_url", label: "set.webhook", profile: true},
+		{id: "hmac_key", label: "set.hmac", profile: true},
+		{id: "customer_ip", label: "set.ip", profile: true},
+		{id: "scn_checkout", label: "scn.checkout", demo: true},
+		{id: "scn_3ds", label: "scn.3ds", demo: true},
+		{id: "scn_webhook", label: "scn.webhook", demo: true},
+		{id: "scn_signature", label: "scn.signature", demo: true},
+		{id: "scn_edcc", label: "scn.edcc", demo: true},
+		{id: "scn_fail-next", label: "scn.fail-next", demo: true},
+		{id: "reset", label: "set.reset", profile: false},
 	}
+}
+
+// scenario is the demo scenario of a setting ("scn_checkout" → checkout).
+func scenario(id string) (string, bool) {
+	return strings.CutPrefix(id, "scn_")
 }
 
 type settingsScreen struct {
@@ -77,6 +89,16 @@ func (s *settingsScreen) Hints(*Context) []Hint {
 
 // Receive opens the factory reset from the command palette.
 func (s *settingsScreen) Receive(ctx *Context, data any) tea.Cmd {
+	if data == "scenarios" {
+		// From Home or the palette: to the first demo scenario.
+		for i, st := range s.visible(ctx) {
+			if st.demo {
+				s.sel = i
+				break
+			}
+		}
+		return nil
+	}
 	if data != "reset" {
 		return nil
 	}
@@ -93,7 +115,7 @@ func (s *settingsScreen) Receive(ctx *Context, data any) tea.Cmd {
 func (s *settingsScreen) visible(ctx *Context) []setting {
 	var out []setting
 	for _, st := range settingsList() {
-		if st.profile && ctx.Session == nil {
+		if st.profile && ctx.Session == nil || st.demo && ctx.Demo() == nil {
 			continue
 		}
 		out = append(out, st)
@@ -102,6 +124,10 @@ func (s *settingsScreen) visible(ctx *Context) []setting {
 }
 
 func (s *settingsScreen) current(ctx *Context, id string) (value string, isDefault bool) {
+	if name, ok := scenario(id); ok {
+		v := ctx.Demo().Scenarios().Get(name)
+		return t("scn." + name + "." + v), v == demoDefault(name)
+	}
 	cfg := ctx.Cfg
 	switch id {
 	case "reset":
@@ -190,6 +216,23 @@ func (s *settingsScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 func (s *settingsScreen) edit(ctx *Context, st setting) tea.Cmd {
 	s.editing = st.id
 	var field huh.Field
+	if name, ok := scenario(st.id); ok {
+		s.value = ctx.Demo().Scenarios().Get(name)
+		var opts []huh.Option[string]
+		for _, sc := range demo.ScenarioList {
+			if sc.Name == name {
+				for _, v := range sc.Values {
+					opts = append(opts, huh.NewOption(t("scn."+name+"."+v), v))
+				}
+			}
+		}
+		sel := huh.NewSelect[string]().Title(t(st.label)).Options(opts...).Value(&s.value)
+		if d := t("scn." + name + ".d"); d != "scn."+name+".d" {
+			sel = sel.Description(d)
+		}
+		s.form = newForm(s.width, huh.NewGroup(sel))
+		return s.form.Init()
+	}
 	switch st.id {
 	case "reset":
 		s.confirm = false
@@ -275,6 +318,19 @@ func (s *settingsScreen) edit(ctx *Context, st setting) tea.Cmd {
 }
 
 func (s *settingsScreen) apply(ctx *Context) tea.Cmd {
+	if name, ok := scenario(s.editing); ok && ctx.Demo() != nil {
+		sc := ctx.Demo().Scenarios()
+		if err := sc.Set(name, s.value); err != nil {
+			return toast(err.Error(), ui.ToneDanger)
+		}
+		if err := demo.SaveScenarios(sc); err != nil {
+			return toast(err.Error(), ui.ToneDanger)
+		}
+		if name == "fail-next" && s.value != "none" {
+			return toast(fmt.Sprintf(t("scn.fail-next.armed"), s.value), ui.ToneWarning)
+		}
+		return toast(t("set.saved"), ui.ToneSuccess)
+	}
 	if s.editing == "reset" {
 		if !s.confirm {
 			return nil
@@ -389,17 +445,19 @@ func (s *settingsScreen) View(ctx *Context, w, h int) string {
 	}
 	items := s.visible(ctx)
 	s.sel = clamp(s.sel, len(items))
-	lastProfile := false
+	lastProfile, lastDemo := false, false
 	for i, st := range items {
 		switch {
 		case i == 0:
 			out += section(t("set.app")) + "\n"
 		case st.profile && !lastProfile:
 			out += "\n" + section(fmt.Sprintf(t("set.profile"), strings.ToUpper(ctx.Session.Name))) + "\n"
+		case st.demo && !lastDemo:
+			out += "\n" + section(t("set.scenarios")) + "  " + ui.Muted.Render(t("set.scenarios.note")) + "\n"
 		case st.id == "reset":
 			out += "\n" + section(t("set.data")) + "\n"
 		}
-		lastProfile = st.profile
+		lastProfile, lastDemo = st.profile, st.demo
 		val, def := s.current(ctx, st.id)
 		if def && st.id != "ui_language" && st.id != "splash" && st.id != "customer_ip" {
 			val += ui.Muted.Render("  " + t("set.default"))
@@ -419,4 +477,14 @@ func (s *settingsScreen) View(ctx *Context, w, h int) string {
 		out += "\n" + ui.Muted.Render(t("set.noprofile"))
 	}
 	return out
+}
+
+// demoDefault is the default value of a demo scenario.
+func demoDefault(name string) string {
+	for _, sc := range demo.ScenarioList {
+		if sc.Name == name {
+			return sc.Values[0]
+		}
+	}
+	return ""
 }

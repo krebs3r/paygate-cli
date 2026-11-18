@@ -59,6 +59,12 @@ type Server struct {
 	// Without it the mock sends them as Paygate was seen sending them.
 	DocsWebhooks bool
 
+	// Tamper breaks Enhanced webhooks on purpose; FailNext fails the next
+	// API call (see Behaviour).
+	Tamper   webhooks.Tamper
+	FailNext int
+	cfgMu    sync.RWMutex // guards the fields of Behaviour while serving
+
 	mu       sync.Mutex
 	byTrans  map[string]*record
 	byPayID  map[string]*record
@@ -132,9 +138,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v2/services/dcc/quote", s.auth(s.dccQuote))
 	mux.HandleFunc("GET /checkout", s.checkoutPage)
 	mux.HandleFunc("POST /checkout", s.checkoutAnswer)
+	api := s.faults(mux)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Correlation-ID", randHex(8))
-		mux.ServeHTTP(w, r)
+		api.ServeHTTP(w, r)
 	})
 }
 
@@ -353,7 +360,7 @@ func (s *Server) createPayment(w http.ResponseWriter, r *http.Request) {
 			}},
 		})
 		return
-	case (threeDSCards[card.Number] || s.Require3DS) && card.ThreeDsPolicy == nil:
+	case (threeDSCards[card.Number] || s.Behaviour().Require3DS) && card.ThreeDsPolicy == nil:
 		// Like Paygate: 3-D Secure versioning is done and the browser steps
 		// (3DS method, challenge) are up to the merchant. No redirect link.
 		rec.Status, rec.Code, rec.Desc = "REQUEST", "70000000", "AUTHENTICATION_REQUIRED"
@@ -454,7 +461,8 @@ func (s *Server) getByTransID(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	s.mu.Lock()
 	rec, ok := s.byTrans[id]
-	if ok && rec.Hosted && s.Checkout == CheckoutAsk {
+	beh := s.Behaviour()
+	if ok && rec.Hosted && beh.Checkout == CheckoutAsk {
 		// The customer decides on the checkout page; until it is opened, a
 		// session is unknown and a payment link answers with its own record.
 		var out map[string]any
@@ -501,6 +509,10 @@ func (s *Server) getByTransID(w http.ResponseWriter, r *http.Request) {
 			return
 		case n <= s.NotFoundPolls+s.PendingPolls:
 			rec.Status, rec.Code, rec.Desc = "AUTHORIZE_REQUEST", "60000000", "waiting for customer"
+		case beh.Checkout == CheckoutDecline:
+			rec.Status, rec.Code, rec.Desc = "FAILED", checkoutOutcomes["decline"].code, checkoutOutcomes["decline"].desc
+			snapshot := *rec
+			final = &snapshot
 		case rec.Sim != "" && rec.Sim != "0000":
 			rec.Status, rec.Code, rec.Desc = "FAILED", "21000"+rec.Sim[1:], "simulated decline"
 			snapshot := *rec
@@ -598,7 +610,8 @@ func (s *Server) sendWebhook(rec record) {
 	if s.WebhookTo != "" {
 		rec.WebhookURL = s.WebhookTo
 	}
-	if rec.WebhookURL == "" || (s.Webhook != "basic" && s.Webhook != "enhanced") {
+	beh := s.Behaviour()
+	if rec.WebhookURL == "" || (beh.Webhook != "basic" && beh.Webhook != "enhanced") {
 		return
 	}
 	if s.LocalWebhooksOnly && !localURL(rec.WebhookURL) {
@@ -609,7 +622,7 @@ func (s *Server) sendWebhook(rec record) {
 		id, _ := json.Marshal(rec.PayID)
 		msg.Body = []byte(`{"payId":` + string(id) + `}`)
 	}
-	if s.Webhook == "enhanced" {
+	if beh.Webhook == "enhanced" {
 		pl := webhooks.Payload{
 			PayID: rec.PayID, TransID: rec.TransID, Status: rec.Status, ResponseCode: rec.Code, ResponseDescription: rec.Desc,
 			Amount:         webhooks.Amount{Value: rec.Amount, Currency: rec.Currency},
@@ -617,7 +630,7 @@ func (s *Server) sendWebhook(rec record) {
 			CreationDate:   rec.Created.UTC().Format(time.RFC3339),
 		}
 		var err error
-		if msg, err = webhooks.NewEnhanced(s.HMACKey, pl, time.Now(), webhooks.TamperNone); err != nil {
+		if msg, err = webhooks.NewEnhanced(s.HMACKey, pl, time.Now(), beh.Tamper); err != nil {
 			s.webhookDone(rec.WebhookURL, 0, err)
 			return
 		}
@@ -651,15 +664,18 @@ func (s *Server) webhookDone(url string, status int, err error) {
 }
 
 func (s *Server) checkoutPage(w http.ResponseWriter, r *http.Request) {
-	if s.Checkout == CheckoutAsk {
+	if s.Behaviour().Checkout == CheckoutAsk {
 		s.askPage(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><title>Mock checkout</title>
-<body style="font-family:system-ui;background:#080b10;color:#dce8f5;display:grid;place-items:center;height:100vh;margin:0">
-<div style="text-align:center"><h1 style="font-weight:500">Mock Paygate checkout</h1>
-<p style="color:#8fa3bf">Transaction %s completes automatically. Return to your terminal.</p></div></body>`, htmlEscape(r.URL.Query().Get("transId")))
+	// The payment ends by itself, with the next status lookups.
+	key := "auto.pay"
+	if s.Behaviour().Checkout == CheckoutDecline {
+		key = "auto.decline"
+	}
+	body := fmt.Sprintf(`<div class="card result"><h1>%s</h1><p class="status">%s %s</p><p class="note">%s</p></div>`,
+		esc(s.text("title")), esc(s.text(key)), code(r.URL.Query().Get("transId")), esc(s.text("back")))
+	s.page(w, http.StatusOK, s.text("title"), `<main>`+body+`</main>`)
 }
 
 func problem(w http.ResponseWriter, errs map[string][]string) {
@@ -686,9 +702,4 @@ func randHex(n int) string {
 	b := make([]byte, n)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
-}
-
-func htmlEscape(s string) string {
-	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;")
-	return r.Replace(s)
 }

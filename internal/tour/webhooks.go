@@ -65,7 +65,7 @@ func webhooksTour() *Tour {
 func signatureStep(ctx context.Context, r *Run) *Outcome {
 	w := r.Webhook
 	if w == nil {
-		return &Outcome{Err: errEarlierStep}
+		return &Outcome{Skipped: T{"No webhook arrived, so there is nothing to check.", "Es ist kein Webhook angekommen, es gibt nichts zu prüfen."}.String()}
 	}
 	key := r.HMACKey()
 	c := w.Check(key)

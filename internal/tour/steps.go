@@ -10,6 +10,7 @@ import (
 	"github.com/pkg/browser"
 
 	"github.com/krebs3r/paygate-cli/internal/core"
+	"github.com/krebs3r/paygate-cli/internal/demo"
 	"github.com/krebs3r/paygate-cli/internal/ids"
 	"github.com/krebs3r/paygate-cli/internal/money"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
@@ -228,6 +229,11 @@ func waitWebhook(ctx context.Context, r *Run) *Outcome {
 	if r.PayID == "" {
 		return &Outcome{Err: errEarlierStep}
 	}
+	if r.Demo() && webhooksOff() {
+		return &Outcome{Skipped: T{
+			"The demo scenarios turn webhooks off (Settings, Demo scenarios), so none comes.",
+			"In den Demo-Szenarien sind Webhooks ausgeschaltet (Einstellungen, Demo-Szenarien), deshalb kommt keiner."}.String()}
+	}
 	if r.WebhookURL() == "" {
 		return &Outcome{Skipped: T{
 			"Paygate only sends webhooks to public HTTPS addresses. Start the webhook listener (Webhooks, space) and then restart the tour to see it here.",
@@ -239,6 +245,14 @@ func waitWebhook(ctx context.Context, r *Run) *Outcome {
 	}
 	r.Webhook = w
 	return &Outcome{Webhook: w, Status: webhookSummary(w, r.HMACKey())}
+}
+
+// webhooksOff reports whether the demo scenarios turn webhooks off.
+func webhooksOff() bool {
+	if p := demo.Running(); p != nil {
+		return p.Scenarios().Get("webhook") == "off"
+	}
+	return false
 }
 
 // webhookSummary says in one line what kind of webhook arrived and whether

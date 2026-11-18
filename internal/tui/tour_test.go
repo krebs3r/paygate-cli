@@ -292,3 +292,20 @@ func TestNewTourDropsTheFinishedToast(t *testing.T) {
 		t.Fatalf("a new tour must not show the toast of the last one:\n%s", m.View())
 	}
 }
+
+func TestDemoScenariosInSettings(t *testing.T) {
+	m := setup(t, nil, "")
+	send(m, enter)
+	i18n.Set(i18n.EN)
+	send(m, keys("h"), esc, keys("z")) // from the menu, where the keyboard starts
+	if m.current().ID() != "settings" || !strings.Contains(m.View(), "DEMO SCENARIOS") || !strings.Contains(m.View(), "asks in the browser") {
+		t.Fatalf("z opens the demo scenarios:\n%s", m.View())
+	}
+	send(m, enter, down, enter) // the checkout: pays by itself
+	if got := m.ctx.Demo().Scenarios().Get("checkout"); got != "pay" {
+		t.Fatalf("checkout = %q", got)
+	}
+	if !strings.Contains(m.View(), "pays by itself") {
+		t.Errorf("the setting shows the new value:\n%s", m.View())
+	}
+}

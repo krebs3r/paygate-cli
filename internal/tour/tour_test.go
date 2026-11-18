@@ -278,3 +278,27 @@ func TestEveryStepLinksToTheDocumentation(t *testing.T) {
 		}
 	}
 }
+
+func TestHostedTourWithoutWebhooks(t *testing.T) {
+	s := demoSession(t)
+	sc := demo.Scenarios{}
+	_ = sc.Set("webhook", "off")
+	_ = sc.Set("checkout", "pay")
+	if err := demo.SaveScenarios(sc); err != nil {
+		t.Fatal(err)
+	}
+	OpenURL = func(string) error { return nil } // the checkout pays by itself
+	defer func() { OpenURL = nil }()
+	r, err := Start(Find("hosted"), s, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	walk(t, r)
+	if o := r.Outcomes[4]; !strings.Contains(o.Skipped, "webhooks off") {
+		t.Errorf("the webhook step is skipped with the reason: %+v", o)
+	}
+	if o := r.Outcomes[6]; o.Skipped != "" || o.Exchange == nil {
+		t.Errorf("the payment that paid by itself can be captured: %+v", o)
+	}
+}

@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -50,7 +52,84 @@ made up: what counts is the real Paygate.`,
 		},
 	}
 	cmd.Flags().BoolVar(&reset, "reset", false, "delete the demo's payments, request log and webhooks")
+	cmd.AddCommand(newDemoScenarioCmd(app))
 	return cmd
+}
+
+func newDemoScenarioCmd(app *App) *cobra.Command {
+	var names []string
+	for _, sc := range demo.ScenarioList {
+		names = append(names, sc.Name)
+	}
+	return &cobra.Command{
+		Use:   "scenario [name [value]]",
+		Short: "Show or set how the demo Paygate behaves",
+		Long: `Show or set the demo scenarios: how hosted payments end, 3-D Secure,
+webhooks and their signature, eDCC, and a one-time error for the next API
+call. Without arguments, paygate demo scenario lists them with their values;
+the first value is the default. The app shows them under Settings in demo
+mode.
+
+The scenarios apply to the demo only and are kept in its folder; a demo
+that runs in the app picks a change up with its next request.`,
+		Example: `  paygate demo scenario
+  paygate demo scenario checkout pay        # hosted payments pay by themselves
+  paygate demo scenario signature wrong-key # webhooks signed with a wrong key
+  paygate demo scenario fail-next 503       # the next API call answers 503`,
+		Args:      cobra.MaximumNArgs(2),
+		ValidArgs: names,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			sc, err := demo.LoadScenarios()
+			if err != nil {
+				return err
+			}
+			if len(args) == 2 {
+				if err := sc.Set(args[0], args[1]); err != nil {
+					return err
+				}
+				if err := demo.SaveScenarios(sc); err != nil {
+					return err
+				}
+			}
+			if app.JSON() {
+				out := map[string]string{}
+				for _, s := range demo.ScenarioList {
+					out[s.Name] = sc.Get(s.Name)
+				}
+				b, err := json.Marshal(out)
+				if err != nil {
+					return err
+				}
+				printJSON(b)
+				return nil
+			}
+			if len(args) == 2 {
+				ui.Println(ui.OK(args[0] + " = " + sc.Get(args[0])))
+				return nil
+			}
+			ui.Println()
+			for _, s := range demo.ScenarioList {
+				if len(args) == 1 && args[0] != s.Name {
+					continue
+				}
+				v := sc.Get(s.Name)
+				var opts []string
+				for _, o := range s.Values {
+					if o == v {
+						opts = append(opts, ui.Bold.Render(o))
+					} else {
+						opts = append(opts, ui.Muted.Render(o))
+					}
+				}
+				ui.Println("  " + ui.Accent.Render(fmt.Sprintf("%-10s", s.Name)) + strings.Join(opts, ui.Muted.Render(" · ")))
+			}
+			if len(args) == 1 && sc.Get(args[0]) == "" {
+				return fmt.Errorf("unknown scenario %q (use %s)", args[0], strings.Join(names, ", "))
+			}
+			ui.Println()
+			return nil
+		},
+	}
 }
 
 // runDemoReset deletes the demo folder after asking.

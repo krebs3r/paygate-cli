@@ -210,3 +210,47 @@ func TestSnapshotRestore(t *testing.T) {
 		t.Error("Clear should forget the payments")
 	}
 }
+
+func TestBehaviourChangesWhileServing(t *testing.T) {
+	m, c, base := askMock(t)
+	ctx := context.Background()
+	hooks := make(chan received, 2)
+	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		hooks <- received{r.Header.Clone(), b}
+	}))
+	defer hook.Close()
+
+	b := m.Behaviour()
+	b.FailNext, b.Checkout, b.Tamper = 429, mockpaygate.CheckoutDecline, webhooks.TamperBody
+	m.SetBehaviour(b)
+	if _, err := c.GetByTransID(ctx, "TANY"); err == nil || !strings.Contains(err.Error(), "429") {
+		t.Fatalf("the next call fails with 429: %v", err)
+	}
+	if m.Behaviour().FailNext != 0 {
+		t.Error("the error applies to one call only")
+	}
+
+	if _, err := c.CreateSession(ctx, &paygate.PaymentRequest{TransID: "TAUTO", Amount: paygate.Amount{Value: 100, Currency: "EUR"},
+		URLs: &paygate.URLs{Return: "https://r", Cancel: "https://c", Webhook: hook.URL}}); err != nil {
+		t.Fatal(err)
+	}
+	var last *paygate.Result
+	for i := 0; i < 4; i++ {
+		last, _ = c.GetByTransID(ctx, "TAUTO")
+	}
+	if last == nil || last.Payment.Status != "FAILED" {
+		t.Fatalf("the checkout declines by itself: %+v", last)
+	}
+	select {
+	case w := <-hooks:
+		if check := webhooks.Verify(w.header, w.body, "demo-hmac-key", time.Now()); check.Valid {
+			t.Error("a webhook with a changed body must not verify")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no webhook")
+	}
+	if page, err := http.Get(base + "/checkout?transId=TAUTO"); err != nil || !strings.Contains(body(t, page), "declined by itself") {
+		t.Errorf("the checkout page says the payment ends by itself: %v", err)
+	}
+}

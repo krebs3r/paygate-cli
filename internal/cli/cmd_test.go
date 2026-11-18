@@ -650,3 +650,24 @@ func TestTourCommand(t *testing.T) {
 		t.Fatalf("tour --run: %v\n%s", err, out)
 	}
 }
+
+func TestDemoScenarioCommand(t *testing.T) {
+	setup(t)
+	if _, _, err := run(t, "demo", "scenario", "fail-next", "503"); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := run(t, "demo", "scenario", "-o", "json")
+	if err != nil || !strings.Contains(out, `"fail-next": "503"`) {
+		t.Fatalf("scenarios as JSON: %v\n%s", err, out)
+	}
+	if _, _, err := runDemo(t, "get", "TX"); err == nil || !strings.Contains(err.Error(), "503") {
+		t.Errorf("the next demo call answers 503: %v", err)
+	}
+	out, _, _ = run(t, "demo", "scenario", "-o", "json")
+	if !strings.Contains(out, `"fail-next": "none"`) {
+		t.Errorf("then the error is used up:\n%s", out)
+	}
+	if _, _, err := run(t, "demo", "scenario", "checkout", "sometimes"); err == nil {
+		t.Error("an unknown value is an error")
+	}
+}

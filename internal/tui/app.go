@@ -310,11 +310,12 @@ func (m *model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		case "enter", "right", "l":
 			m.focus = focusContent
 			return nil
-		case "x":
-			// On Home, x ends the demo also from the menu: in a small
-			// window the quick action may be cut off.
-			if m.current().ID() == "home" && m.ctx.Demo() != nil {
-				return stopDemo(m.ctx)
+		case "x", "z", "d":
+			// Home's own keys (end the demo, its scenarios, start it) work
+			// also from the menu: in a small window the quick action may be
+			// cut off, and the keyboard starts in the menu.
+			if m.current().ID() == "home" {
+				return m.current().Update(m.ctx, msg)
 			}
 		}
 		return nil

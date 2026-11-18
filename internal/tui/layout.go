@@ -253,7 +253,7 @@ func (m *model) renderFooter(w int) string {
 	case m.focus == focusMenu:
 		hints = []Hint{{"↑↓", t("key.navigate")}, {"enter", t("key.open")}}
 		if m.current().ID() == "home" && m.ctx.Demo() != nil {
-			hints = append(hints, Hint{"x", t("act.demo.stop")})
+			hints = append(hints, Hint{"z", t("act.scenarios")}, Hint{"x", t("act.demo.stop")})
 		}
 	default:
 		hints = m.current().Hints(m.ctx)

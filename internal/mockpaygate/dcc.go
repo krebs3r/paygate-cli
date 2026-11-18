@@ -94,7 +94,7 @@ func (s *Server) binCheck(w http.ResponseWriter, r *http.Request) {
 		problem(w, map[string][]string{"bin": {"The bin must be 10 digits."}})
 		return
 	}
-	if s.DCCOff {
+	if s.Behaviour().DCCOff {
 		// What a production merchant without eDCC got on 2026-11-03.
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
 			"responseCode": "20500077", "responseDescription": "NO VALID PAYMETHOD FOUND", "title": "Processing error",
@@ -125,7 +125,7 @@ func (s *Server) dccQuote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	card, ok := dccBINs[b.Bin]
-	ok = ok && !s.DCCOff
+	ok = ok && !s.Behaviour().DCCOff
 	from := strings.ToUpper(b.Amount.Currency)
 	// The made-up rates start in euros; cards in the shop's currency get
 	// no offer.

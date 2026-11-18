@@ -286,6 +286,27 @@ paygate demo --reset                             # delete the demo's data
 In the app, start the demo on the welcome screen, on Home (`d`) or from the
 command palette, and end it with `x` on Home.
 
+**Demo scenarios** change how the demo Paygate behaves, to show what your
+integration has to handle. In the app they are under Settings (`z` on Home
+in demo mode); in the terminal use `paygate demo scenario`.
+
+| Scenario | Values (first: default) |
+| --- | --- |
+| `checkout` | `ask` (pay, decline or cancel in the browser), `pay`, `decline` (hosted payments end by themselves) |
+| `3ds` | `cards` (only the 3DS test cards need 3-D Secure), `always` |
+| `webhook` | `enhanced` (signed), `basic` (payId only), `off` |
+| `signature` | `ok`, `wrong-key`, `changed-body`, `old-timestamp` (to see whether your check rejects it) |
+| `edcc` | `on`, `off` (a merchant without eDCC: 422 20500077) |
+| `fail-next` | `none`, `400`, `401`, `429`, `503`: the next API call fails once with it |
+
+```bash
+paygate demo scenario                            # list them
+paygate demo scenario checkout pay               # hosted payments pay by themselves
+paygate demo scenario fail-next 503              # the next call answers 503
+```
+
+`paygate demo --reset` also sets the scenarios back to their defaults.
+
 > [!NOTE]
 > The demo Paygate follows the Paygate API reference, but its answers are
 > made up. What counts is the real Paygate.
@@ -342,6 +363,7 @@ Single commands work without the app, for example in scripts:
 | `paygate` | Open the full-screen app | `paygate` |
 | `paygate init` | Add or update a merchant profile | `paygate init` |
 | `paygate demo` | Open the app in demo mode, without credentials | `paygate demo` |
+| `paygate demo scenario` | Show or set how the demo Paygate behaves | `paygate demo scenario checkout pay` |
 | `paygate tour` | Explain an integration step by step; `--run` sends the requests | `paygate --demo tour hosted --run` |
 | `paygate pay` | Create a payment (wizard without flags) | `paygate pay --card visa-ok --amount 12.99` |
 | `paygate pay --hosted` | Hosted payment page with all or selected methods | `paygate pay --hosted --methods card,paypal --open` |

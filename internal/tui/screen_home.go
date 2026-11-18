@@ -41,7 +41,7 @@ func actionsFor(ctx *Context) []homeAction {
 		out = append(out, a)
 	}
 	if ctx.Demo() != nil {
-		return append(out, homeAction{"x", "act.demo.stop", "demo:stop"})
+		return append(out, homeAction{"z", "act.scenarios", "settings:scenarios"}, homeAction{"x", "act.demo.stop", "demo:stop"})
 	}
 	return append(out, homeAction{"d", "act.demo.start", "demo:start"})
 }
@@ -98,6 +98,10 @@ func (s *homeScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 		s.sel = clamp(s.sel+1, len(actions))
 	case "x":
 		return stopDemo(ctx)
+	case "z":
+		if ctx.Demo() != nil {
+			return switchTo("settings", "scenarios")
+		}
 	case "d":
 		if ctx.Demo() == nil {
 			return startDemo(ctx)
@@ -112,6 +116,8 @@ func (s *homeScreen) Update(ctx *Context, msg tea.Msg) tea.Cmd {
 		case "demo:stop":
 			s.sel = 0
 			return stopDemo(ctx)
+		case "settings:scenarios":
+			return switchTo("settings", "scenarios")
 		}
 		if a.label == "act.lookup" {
 			return switchTo(a.target, "lookup")
