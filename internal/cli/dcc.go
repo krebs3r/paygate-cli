@@ -22,7 +22,7 @@ import (
 func newDCCCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "dcc",
-		Short: "eDCC (preview): whether eDCC answers, and the offer to pay in a card's currency",
+		Short: "eDCC: whether eDCC answers, and the offer to pay in a card's currency",
 		Long: `eDCC (dynamic currency conversion) lets a customer pay with a foreign card
 in the card's currency. Paygate identifies the card's country from its first
 10 digits (bin-check) and quotes the amount in the card's currency (quote).
@@ -36,11 +36,7 @@ no offer for them is no proof; check the first 10 digits of a real card as
 well. There, pay with them only simulated (--simulate ok); paygate insists
 on it for direct payments.
 
-To pay with an offer: paygate pay --card <alias> --dcc ask
-
-Preview: eDCC follows the Paygate API documentation but has not yet been
-verified against a merchant account with eDCC enabled. Behaviour and output
-may still change.`,
+To pay with an offer: paygate pay --card <alias> --dcc ask`,
 	}
 	complete := func(cmd *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
 		if len(args) > 0 {
@@ -55,7 +51,7 @@ may still change.`,
 	var checkAmount, checkCurrency string
 	check := &cobra.Command{
 		Use:   "check [card]",
-		Short: "eDCC (preview): does eDCC answer? All 28 test cards, or one card",
+		Short: "eDCC: does eDCC answer? All 28 test cards, or one card",
 		Example: "  paygate dcc check                  # all test cards of the Nexi test guide\n" +
 			"  paygate dcc check dcc-usd\n" +
 			"  paygate dcc check 4176662280 -o json",
@@ -74,7 +70,7 @@ may still change.`,
 	var amount, currency string
 	quote := &cobra.Command{
 		Use:   "quote <card>",
-		Short: "eDCC (preview): ask whether a card can pay an amount in its own currency",
+		Short: "eDCC: ask whether a card can pay an amount in its own currency",
 		Example: "  paygate dcc quote dcc-usd --amount 12.99\n" +
 			"  paygate dcc quote 4176662280 --amount 49 --currency EUR -o json",
 		Args:              cobra.ExactArgs(1),
@@ -162,7 +158,6 @@ func dccCheck(app *App, arg, amount, currency string) error {
 	if !app.JSON() {
 		app.PrintHeader(name, prof)
 		ui.Println(ui.Info(i18n.T("dcc.check.intro")))
-		ui.Println(ui.Info(i18n.T("dcc.preview")))
 		if prof.IsProd() {
 			ui.Println(ui.Warn(i18n.T("dcc.check.prodnote")))
 		}
@@ -340,6 +335,7 @@ func dccOutcome(client *paygate.Client, req *paygate.PaymentRequest, p *paygate.
 		ui.Println(ui.Warn("The eDCC outcome could not be loaded; paygate get " + req.TransID + " shows it."))
 		return p
 	}
+	core.KeepAnswer(res.Payment, p)
 	return res.Payment
 }
 
@@ -401,7 +397,6 @@ func askQuote(client *paygate.Client, number string, amount paygate.Amount) (*co
 // printOffer shows the BIN check and the quote with the details the eDCC
 // rules ask for.
 func printOffer(o *core.DCCOffer, amount paygate.Amount) {
-	ui.Println(ui.Info(i18n.T("dcc.preview")))
 	switch {
 	case o.Country != "":
 		ui.Println(ui.OK("BIN check   " + cards.ShortBIN(o.BIN) + ui.Muted.Render(" · card country ") + o.Country +
@@ -429,21 +424,21 @@ func printOffer(o *core.DCCOffer, amount paygate.Amount) {
 	ui.Println()
 }
 
-// decideDCC asks Paygate for an offer and returns the customer's answer
-// for a direct card payment: accept, decline, or "" when there is no
-// offer. want is ask, accept or decline.
-func decideDCC(app *App, client *paygate.Client, prof *config.Profile, in core.PaymentInput, want string) (string, string, error) {
-	number, err := core.CardNumber(in)
+// decideDCC asks Paygate for an offer and records the customer's answer
+// in the input of a direct card payment: accept, decline, or none when
+// there is no offer. want is ask, accept or decline.
+func decideDCC(app *App, client *paygate.Client, prof *config.Profile, in *core.PaymentInput, want string) error {
+	number, err := core.CardNumber(*in)
 	if err != nil {
-		return "", "", err
+		return err
 	}
-	amount, err := core.DCCAmount(in, prof)
+	amount, err := core.DCCAmount(*in, prof)
 	if err != nil {
-		return "", "", err
+		return err
 	}
 	offer, err := askQuote(client, number, amount)
 	if err != nil {
-		return "", "", err
+		return err
 	}
 	if !app.JSON() {
 		printOffer(offer, amount)
@@ -453,14 +448,15 @@ func decideDCC(app *App, client *paygate.Client, prof *config.Profile, in core.P
 			ui.Println(ui.Warn("No offer to accept: the payment goes on in " + amount.Currency + "."))
 			ui.Println()
 		}
-		return "", "", nil
+		in.AnswerDCC("", nil)
+		return nil
 	}
-	id := offer.Info().DCCRequestID
 	if want != dccAsk {
-		return want, id, nil
+		in.AnswerDCC(want, offer.Info())
+		return nil
 	}
 	if !ui.Interactive() || app.JSON() {
-		return "", "", errors.New("--dcc ask needs a terminal to ask in; in scripts use --dcc accept or --dcc decline")
+		return errors.New("--dcc ask needs a terminal to ask in; in scripts use --dcc accept or --dcc decline")
 	}
 	choice := core.DCCDecline // the shop's currency comes first, as the eDCC rules ask
 	ch := offer.Info().Amounts.Cardholder
@@ -471,9 +467,10 @@ func decideDCC(app *App, client *paygate.Client, prof *config.Profile, in core.P
 			huh.NewOption(ui.DCCAmount(ch)+"   in the card's currency", core.DCCAccept),
 		).Value(&choice)))
 	if err != nil {
-		return "", "", err
+		return err
 	}
-	return choice, id, nil
+	in.AnswerDCC(choice, offer.Info())
+	return nil
 }
 
 const dccAsk = "ask"

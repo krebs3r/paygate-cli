@@ -551,13 +551,13 @@ func (s *tourScreen) listView(ctx *Context, w int) string {
 	out := title(t("tour.title")) + "\n" + ui.Label.Render(wrap(t("tour.intro"), min(w, 80))) + "\n\n"
 	nameW := 0
 	for _, tr := range s.tours {
-		nameW = max(nameW, lipgloss.Width(tourName(tr)))
+		nameW = max(nameW, lipgloss.Width(tr.Title.String()))
 	}
 	nameW = max(nameW, lipgloss.Width(t("tour.col.flow"))) + 3
 	stepsW := lipgloss.Width(t("tour.col.steps")) + 3
 	out += ui.Muted.Render("  "+padTo(t("tour.col.flow"), nameW)+padTo(t("tour.col.steps"), stepsW)+t("tour.col.shows")) + "\n"
 	for i, tr := range s.tours {
-		row := padTo(tourName(tr), nameW) + padTo(fmt.Sprintf("%d", len(tr.Steps)), stepsW) + ui.Label.Render(tr.Shows.String())
+		row := padTo(tr.Title.String(), nameW) + padTo(fmt.Sprintf("%d", len(tr.Steps)), stepsW) + ui.Label.Render(tr.Shows.String())
 		out += selectable(ctx, ansi.Truncate(row, max(w-4, 10), "…"), i == s.sel, w) + "\n"
 	}
 	out += "\n" + section(t("tour.target")) + "  "
@@ -580,22 +580,9 @@ func (s *tourScreen) listView(ctx *Context, w int) string {
 	return out
 }
 
-// tourName is a tour's title with the preview badge of a tour not yet
-// verified against a real merchant account.
-func tourName(tr *tour.Tour) string {
-	if tr.Preview {
-		return tr.Title.String() + " " + ui.Badge(t("dcc.badge"), ui.ToneAccent)
-	}
-	return tr.Title.String()
-}
-
 // tourHead is the title line of a running tour.
 func tourHead(tr *tour.Tour) string {
-	head := title(t("tour.title") + " · " + tr.Title.String())
-	if tr.Preview {
-		head += " " + ui.Badge(t("dcc.badge"), ui.ToneAccent)
-	}
-	return head
+	return title(t("tour.title") + " · " + tr.Title.String())
 }
 
 func padTo(s string, w int) string {

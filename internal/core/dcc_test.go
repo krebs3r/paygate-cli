@@ -27,18 +27,26 @@ func TestBuildPaymentRequestDCC(t *testing.T) {
 	}
 	direct := PaymentInput{Flow: FlowDirect, Card: "dcc-usd", Amount: "12.99", IP: "127.0.0.1"}
 
+	offer := &paygate.DCCInfo{Status: "AVAILABLE", DCCRequestID: "q1", Amounts: &paygate.DCCAmounts{
+		Merchant:   &paygate.Amount{Value: 1299, Currency: "EUR"},
+		Cardholder: &paygate.CardholderAmount{Value: 1452, Currency: "usd", DecimalValue: "14.52"},
+	}}
+	// An accepted offer pays the quote's amount in the card's currency;
+	// Paygate refuses the shop's amount (20120006 INVALID CURRENCY).
 	accept := direct
-	accept.DCC, accept.DCCRequestID = DCCAccept, "q1"
-	if b := body(accept, test); !strings.Contains(b, `"dcc":{"selected":true,"dccRequestId":"q1"}`) {
+	accept.AnswerDCC(DCCAccept, offer)
+	if b := body(accept, test); !strings.Contains(b, `"dcc":{"selected":true,"dccRequestId":"q1"}`) ||
+		!strings.Contains(b, `"amount":{"value":1452,"currency":"USD"}`) {
 		t.Errorf("accept: %s", b)
 	}
 	decline := direct
-	decline.DCC, decline.DCCRequestID = DCCDecline, "q1"
-	if b := body(decline, test); !strings.Contains(b, `"dcc":{"selected":false,"dccRequestId":"q1"}`) {
+	decline.AnswerDCC(DCCDecline, offer)
+	if b := body(decline, test); !strings.Contains(b, `"dcc":{"selected":false,"dccRequestId":"q1"}`) ||
+		!strings.Contains(b, `"amount":{"value":1299,"currency":"EUR"}`) {
 		t.Errorf("decline: %s", b)
 	}
-	decline.DCCRequestID = "" // no offer: nothing to decline
-	if b := body(decline, test); strings.Contains(b, `"dcc"`) {
+	decline.AnswerDCC(DCCDecline, &paygate.DCCInfo{Status: "NOT_AVAILABLE"}) // no offer: nothing to decline
+	if b := body(decline, test); strings.Contains(b, `"dcc"`) || decline.DCC != "" {
 		t.Errorf("decline without offer: %s", b)
 	}
 	if b := body(direct, test); strings.Contains(b, "dcc") {
@@ -58,12 +66,13 @@ func TestBuildPaymentRequestDCC(t *testing.T) {
 	}
 
 	for name, bad := range map[string]PaymentInput{
-		"accept without quote": {Flow: FlowDirect, Card: "visa-ok", IP: "127.0.0.1", DCC: DCCAccept},
-		"unknown answer":       {Flow: FlowDirect, Card: "visa-ok", IP: "127.0.0.1", DCC: "maybe", DCCRequestID: "q"},
-		"switch on direct":     {Flow: FlowDirect, Card: "visa-ok", IP: "127.0.0.1", DCCEnabled: "on"},
-		"answer on hosted":     {Flow: FlowHosted, DCC: DCCAccept, DCCRequestID: "q"},
-		"paypal":               {Flow: FlowMethod, Method: "paypal", DCCEnabled: "on"},
-		"link":                 {Flow: FlowLink, DCCEnabled: "on"},
+		"accept without quote":  {Flow: FlowDirect, Card: "visa-ok", IP: "127.0.0.1", DCC: DCCAccept},
+		"accept without amount": {Flow: FlowDirect, Card: "visa-ok", IP: "127.0.0.1", DCC: DCCAccept, DCCRequestID: "q"},
+		"unknown answer":        {Flow: FlowDirect, Card: "visa-ok", IP: "127.0.0.1", DCC: "maybe", DCCRequestID: "q"},
+		"switch on direct":      {Flow: FlowDirect, Card: "visa-ok", IP: "127.0.0.1", DCCEnabled: "on"},
+		"answer on hosted":      {Flow: FlowHosted, DCC: DCCAccept, DCCRequestID: "q"},
+		"paypal":                {Flow: FlowMethod, Method: "paypal", DCCEnabled: "on"},
+		"link":                  {Flow: FlowLink, DCCEnabled: "on"},
 	} {
 		if _, _, err := BuildPaymentRequest(bad, test); err == nil {
 			t.Errorf("%s must fail", name)
@@ -230,4 +239,22 @@ func TestCheckProdTestCard(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
+}
+
+// While the capture runs the details say "0 REQUEST"; the receipt keeps
+// Paygate's answer to the payment. Later details are taken as they are.
+func TestKeepAnswer(t *testing.T) {
+	answer := &paygate.Payment{Status: "OK", ResponseCode: "00000000", ResponseDescription: "success"}
+	running := &paygate.Payment{Status: "CAPTURE_REQUEST", ResponseCode: "0", ResponseDescription: "REQUEST"}
+	KeepAnswer(running, answer)
+	if running.ResponseCode != "00000000" || running.ResponseDescription != "success" || running.Status != "CAPTURE_REQUEST" {
+		t.Errorf("capture running: %+v", running)
+	}
+	done := &paygate.Payment{Status: "OK", ResponseCode: "00000000", ResponseDescription: "captured"}
+	KeepAnswer(done, answer)
+	if done.ResponseDescription != "captured" {
+		t.Errorf("capture done: %+v", done)
+	}
+	KeepAnswer(nil, answer)
+	KeepAnswer(running, nil)
 }

@@ -263,7 +263,7 @@ func TestDCCQuoteAndPay(t *testing.T) {
 	setup(t)
 	mustInit(t)
 	out, _, err := run(t, "dcc", "quote", "dcc-usd", "--amount", "12.99")
-	for _, want := range []string{"eDCC is a preview", "card country USA", "eDCC available", "14.52 USD", "1 EUR = 1.1179 USD", "3.5 % markup", "Nets", "--dcc"} {
+	for _, want := range []string{"card country USA", "eDCC available", "14.52 USD", "1 EUR = 1.1179 USD", "3.5 % markup", "Nets", "--dcc"} {
 		if err != nil || !strings.Contains(out, want) {
 			t.Fatalf("dcc quote misses %q (%v):\n%s", want, err, out)
 		}
@@ -306,6 +306,11 @@ func TestDCCQuoteAndPay(t *testing.T) {
 	if info, ok := dccInfo(accepted).(map[string]any); !ok || info["dccSelected"] != true {
 		t.Errorf("accepted payment: %v", info)
 	}
+	// Like Paygate: the accepted offer pays the quote's amount in the
+	// card's currency, so the payment is in USD.
+	if a, ok := payJSON(t, "get", accepted["payId"].(string))["amount"].(map[string]any); !ok || a["currency"] != "USD" || a["value"] != float64(1452) {
+		t.Errorf("accepted payment amount: %v", a)
+	}
 	declined := payJSON(t, "pay", "--card", "dcc-chf", "--dcc", "decline")
 	if info, ok := dccInfo(declined).(map[string]any); !ok || info["dccSelected"] != false {
 		t.Errorf("declined payment: %v", info)
@@ -335,7 +340,7 @@ func TestDCCQuoteAndPay(t *testing.T) {
 	}
 	// Production: BIN check and offer with the test cards, a payment only
 	// simulated.
-	if out, _, err := run(t, "dcc", "check", "-p", "live"); err != nil || !strings.Contains(out, "lists these cards for the test system only") || !strings.Contains(out, "eDCC is a preview") {
+	if out, _, err := run(t, "dcc", "check", "-p", "live"); err != nil || !strings.Contains(out, "lists these cards for the test system only") {
 		t.Errorf("dcc check on production: %v\n%s", err, out)
 	}
 	if out, _, err := run(t, "dcc", "quote", "dcc-usd", "-p", "live"); err != nil || !strings.Contains(out, "eDCC available") {

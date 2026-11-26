@@ -197,10 +197,20 @@ const (
 )
 
 var (
-	successStatuses = map[string]bool{"OK": true, "AUTHORIZED": true, "SUCCESS": true, "CAPTURED": true, "COMPLETED": true, "PAID": true}
+	// CAPTURE_REQUEST: authorized, the automatic capture is still running.
+	// The payment details answer so right after the payment, with response
+	// code "0" and description "REQUEST"; later they say OK.
+	successStatuses = map[string]bool{"OK": true, "AUTHORIZED": true, "SUCCESS": true, "CAPTURED": true, "COMPLETED": true, "PAID": true, "CAPTURE_REQUEST": true}
 	failedStatuses  = map[string]bool{"FAILED": true, "DECLINED": true, "REJECTED": true, "CANCELLED": true, "CANCELED": true, "EXPIRED": true, "ERROR": true}
 	pendingStatuses = map[string]bool{"": true, "REQUEST": true, "PENDING": true, "AUTHORIZE_REQUEST": true, "AUTHORIZATION_REQUEST": true, "IN_PROGRESS": true, "INITIATED": true, "CREATED": true, "OPEN": true}
 )
+
+// CaptureRunning reports a successful payment whose automatic capture is
+// still running (CAPTURE_REQUEST). Paygate refuses other operations
+// meanwhile (22050062 OTHER TRX ACTIVE).
+func CaptureRunning(p *Payment) bool {
+	return p != nil && strings.EqualFold(strings.TrimSpace(p.Status), "CAPTURE_REQUEST")
+}
 
 // OutcomeOf classifies a payment by status first and response code second.
 func OutcomeOf(p *Payment) Outcome {

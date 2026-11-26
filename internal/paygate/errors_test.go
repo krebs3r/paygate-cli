@@ -36,6 +36,7 @@ func TestOutcomeOf(t *testing.T) {
 		{"AUTHORIZE_REQUEST", "60000000", OutcomePending},
 		{"OK", "70000001", OutcomePending},
 		{"REQUEST", "0", OutcomePending},
+		{"CAPTURE_REQUEST", "0", OutcomeSuccess}, // details right after an automatic capture
 		{"SOMETHING_NEW", "00000000", OutcomeSuccess},
 		{"SOMETHING_NEW", "21000100", OutcomeFailed},
 	}

@@ -422,7 +422,6 @@ func (s *newPaymentScreen) startDCCForm(ctx *Context) tea.Cmd {
 		// The test cards pay only simulated there; the check moves no money.
 		intro += " " + t("dcc.intro.prod")
 	}
-	intro += "\n\n" + t("dcc.preview")
 	var cardOpts []huh.Option[string]
 	for _, c := range cards.DCCCards {
 		label := fmt.Sprintf("%-10s  %-19s  %s", brandName(c.Brand), formatPAN(c.Number), fmt.Sprintf(t("new.card.dcc"), c.Currency))
@@ -722,7 +721,7 @@ func (s *newPaymentScreen) review(ctx *Context) tea.Cmd {
 	in := s.input()
 	in.TransID = ids.NewTransID()
 	if s.asksDCC() && s.offer.Available() {
-		in.DCC, in.DCCRequestID = s.dccChoice, s.offer.Info().DCCRequestID
+		in.AnswerDCC(s.dccChoice, s.offer.Info())
 	}
 	// Webhooks go to a paygate listen running in another terminal.
 	if st, ok := listen.For(ctx.Session.Name); ok && in.Flow != core.FlowDirect {
@@ -1001,6 +1000,7 @@ func (s *newPaymentScreen) onDCCDetails(msg dccDetailsMsg) {
 	if p.TransID == "" {
 		p.TransID = s.req.TransID
 	}
+	core.KeepAnswer(p, s.result)
 	s.result = p
 }
 
@@ -1101,11 +1101,11 @@ func (s *newPaymentScreen) succeeded() bool {
 }
 
 func (s *newPaymentScreen) canRelease() bool {
-	return s.succeeded() && s.capture == "manual" && s.opKind != "cancel"
+	return s.succeeded() && !paygate.CaptureRunning(s.result) && s.capture == "manual" && s.opKind != "cancel"
 }
 
 func (s *newPaymentScreen) canRefund() bool {
-	return s.succeeded() && s.capture == "auto" && s.opKind != "refund"
+	return s.succeeded() && !paygate.CaptureRunning(s.result) && s.capture == "auto" && s.opKind != "refund"
 }
 
 func (s *newPaymentScreen) confirmOperation(kind, question string) tea.Cmd {
@@ -1318,8 +1318,7 @@ func (s *newPaymentScreen) header(ctx *Context) string {
 	steps := []step{{"new.step.form", 0}, {"new.step.review", 2}, {"new.step.result", 3}}
 	name := title(t("new.title"))
 	if s.dcc {
-		// eDCC is not yet verified against an account with eDCC enabled.
-		name = title(t("menu.dcc")) + " " + ui.Badge(t("dcc.badge"), ui.ToneAccent)
+		name = title(t("menu.dcc"))
 	}
 	if s.dcc && s.flow == dccCheckFlow {
 		return name + "   " + ui.Link.Render("● "+t("dcc.check.title"))

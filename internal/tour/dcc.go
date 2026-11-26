@@ -40,11 +40,10 @@ func dccCard(r *Run) cards.DCCTestCard {
 
 func dccTour() *Tour {
 	return &Tour{
-		ID:      "dcc",
-		Title:   T{"eDCC in your own checkout", "eDCC im eigenen Checkout"},
-		Shows:   T{"BIN check, quote, the customer's choice, payment, details", "BIN-Check, Quote, Wahl des Kunden, Zahlung, Details"},
-		Preview: true,
-		Lanes:   []T{laneServer, lanePaygate, laneBrowser},
+		ID:    "dcc",
+		Title: T{"eDCC in your own checkout", "eDCC im eigenen Checkout"},
+		Shows: T{"BIN check, quote, the customer's choice, payment, details", "BIN-Check, Quote, Wahl des Kunden, Zahlung, Details"},
+		Lanes: []T{laneServer, lanePaygate, laneBrowser},
 		Steps: []*Step{
 			{
 				Short: T{"BIN check", "BIN-Check"},
@@ -144,8 +143,8 @@ func dccTour() *Tour {
 				Short: T{"Payment", "Zahlung"},
 				Title: T{"Pay with the customer's choice", "Zahlung mit der Wahl des Kunden"},
 				Explain: T{
-					"Your server sends the card payment as with DIRECT and adds the customer's choice: if they agreed, paymentMethods.card.dcc carries selected true and the dccRequestId from the quote. Without an offer, the payment runs as usual in your currency. You never work out the rate yourself; Paygate does.",
-					"Dein Server schickt die Kartenzahlung wie bei DIRECT und gibt die Wahl des Kunden mit: Hat er zugestimmt, steht unter paymentMethods.card.dcc selected true und die dccRequestId aus der Quote. Gab es kein Angebot, läuft die Zahlung ganz normal in deiner Währung. Den Kurs rechnest du nie selbst aus, das übernimmt Paygate.",
+					"Your server sends the card payment as with DIRECT and adds the customer's choice: if they agreed, paymentMethods.card.dcc carries selected true and the dccRequestId from the quote, and amount is the quote's amount in the card's currency. With your own amount, Paygate refuses the payment (20120006 INVALID CURRENCY). Without an offer, the payment runs as usual in your currency. You never work out the rate yourself; Paygate does.",
+					"Dein Server schickt die Kartenzahlung wie bei DIRECT und gibt die Wahl des Kunden mit: Hat er zugestimmt, steht unter paymentMethods.card.dcc selected true und die dccRequestId aus der Quote, und amount ist der Betrag aus der Quote in der Währung der Karte. Mit deinem eigenen Betrag lehnt Paygate die Zahlung ab (20120006 INVALID CURRENCY). Gab es kein Angebot, läuft die Zahlung ganz normal in deiner Währung. Den Kurs rechnest du nie selbst aus, das übernimmt Paygate.",
 				},
 				Doc:  docEDCC,
 				Kind: Request,
@@ -156,10 +155,12 @@ func dccTour() *Tour {
 				Plan: func(r *Run) (*Planned, error) {
 					card := dccCard(r)
 					in := core.PaymentInput{Flow: core.FlowDirect, CardNumber: card.Number, Capture: "auto", Amount: "49.90", Skip3DS: true}
-					if r.dcc != nil {
-						in.DCC, in.DCCRequestID = core.DCCAccept, r.dcc.DCCRequestID
-					}
+					in.AnswerDCC(core.DCCAccept, r.dcc)
 					notes := directNotes()
+					if in.DCC == core.DCCAccept {
+						notes["amount.value"] = T{"the quote's amount in the card's currency", "Betrag aus der Quote, in der Währung der Karte"}
+						notes["amount.currency"] = T{"the card's currency, from the quote", "Währung der Karte, aus der Quote"}
+					}
 					notes["paymentMethods.card.number"] = T{"eDCC test card, issued in " + card.Currency, "eDCC-Testkarte, ausgegeben in " + card.Currency}
 					notes["paymentMethods.card.threeDsPolicy.skip"] = T{"skip the 3DS check", "3DS-Prüfung auslassen"}
 					notes["paymentMethods.card.dcc.selected"] = T{"the customer's choice · true = the card's currency", "Wahl des Kunden · true = Währung der Karte"}

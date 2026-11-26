@@ -39,7 +39,7 @@ every request can be inspected or exported as `curl`.
 - [Commands](#commands)
 - [Configuration and security](#configuration-and-security)
 - [Payment links](#payment-links)
-- [eDCC (preview)](#edcc-preview)
+- [eDCC](#edcc)
 - [Test transactions on production](#test-transactions-on-production)
 - [Test data](#test-data)
 - [Testing webhooks](#testing-webhooks)
@@ -57,14 +57,14 @@ every request can be inspected or exported as `curl`.
   checkout page where you pay, decline or cancel.
 - **Integration tours**: guided flows (hosted payment page, hosted forms,
   direct card payment with 3-D Secure, Pay by Link, webhooks,
-  capture/refund/reversal, eDCC as a preview) with a sequence diagram, a
+  capture/refund/reversal, eDCC) with a sequence diagram, a
   short explanation per step and the real request and answer.
   A run can be saved as an HTML or Markdown log to send on, without
   credentials.
 - **All integration types**: hosted payment page, hosted single method (PayPal,
   iDEAL, SEPA, Klarna and more), direct card payments and payment links (Pay by
   Link).
-- **eDCC (preview)**: check whether eDCC answers on an account, and pay with
+- **eDCC**: check whether eDCC answers on an account, and pay with
   an offer in the card's currency, in the terminal or on the payment page.
 - **Safe on production**: simulation with `Test:0000` / `Test:0305`, 0.01 as
   default amount and manual capture with one-key release.
@@ -317,7 +317,7 @@ Paygate (test) account.
 | Home | Active profile, credential check, today's numbers, latest payments |
 | Tour | [Integration tours](#integration-tours): a flow step by step, with diagram, explanation, request, answer and curl |
 | New payment | Form, review (request JSON, copy as curl), send, receipt; QR code, live status and test cards for hosted pages |
-| eDCC (preview) | eDCC check for all 28 test cards or one card; a card payment with the offer here in the terminal or on the payment page |
+| eDCC | eDCC check for all 28 test cards or one card; a card payment with the offer here in the terminal or on the payment page |
 | Payments | Local history with filter (`/`), lookup by ID (`g`), details with capture, refund, reversal and refresh; the timeline lists every API call of the payment and its webhooks, and <kbd>Enter</kbd> shows a call's request and response side by side (`[` `]` step through them) |
 | Webhooks | Listen with <kbd>space</kbd> through a cloudflared tunnel (against the mock server without one); received webhooks with all checks, headers and body; send one again to your handler (`r`), open its payment (`g`) |
 | Inspector | The last 1000 requests to Paygate from the app and the command line: request and response with headers and JSON, timing, correlation ID; copy body or curl. A status lookup that gets the same answer as the one before is counted (`×14`) instead of listed again |
@@ -420,7 +420,7 @@ hosted forms, direct integration, eDCC and webhooks.
 | `operations` Capture, refund, reversal | authorize, partial capture, partial refund, a second authorization released again |
 | `link` Pay by Link | a payment link with an expiry, how it reaches the customer (shared by you, or sent by Paygate by e-mail or SMS), the customer pays, webhook, status |
 | `forms` Hosted Forms | a payment with the method the customer picked in your shop (`integrationType` `HOSTED`, credit card as the example), redirect to Paygate's credit card form, the customer pays, return with the payId, payment details by payId |
-| `dcc` eDCC in your own checkout (preview) | BIN check, quote, both currencies shown without a preselection, the payment with the customer's choice, the eDCC outcome from the payment details for the confirmation page |
+| `dcc` eDCC in your own checkout | BIN check, quote, both currencies shown without a preselection, the payment with the customer's choice, the eDCC outcome from the payment details for the confirmation page |
 
 In the app, open **Tour** (`t`, on Home of the demo the first quick action).
 A running tour hides the menu (focus mode), so diagram and request get the
@@ -441,8 +441,7 @@ paygate --demo tour hosted --run --export hosted.html
 ```
 
 Tours run against the active profile, best the demo. They do not run on
-production profiles. The eDCC tour carries the preview badge, like eDCC in
-the rest of paygate. Against a real test account, the webhook steps need the
+production profiles. Against a real test account, the webhook steps need the
 webhook listener (`paygate listen`, or Webhooks in the app); in the demo
 paygate receives the webhooks itself.
 
@@ -485,8 +484,8 @@ Single commands work without the app, for example in scripts:
 | `paygate pay --hosted` | Hosted payment page with all or selected methods | `paygate pay --hosted --methods card,paypal --open` |
 | `paygate pay --method` | Hosted form for a single method | `paygate pay --method ideal --amount 5` |
 | `paygate link` | Payment link to share, or for Paygate to send by e-mail or SMS | `paygate link --amount 49 --expires 24h` |
-| `paygate dcc check` | eDCC (preview): check whether eDCC answers on the account | `paygate dcc check` |
-| `paygate dcc quote` | eDCC (preview): the offer to pay in a card's currency | `paygate dcc quote dcc-usd --amount 12.99` |
+| `paygate dcc check` | eDCC: check whether eDCC answers on the account | `paygate dcc check` |
+| `paygate dcc quote` | eDCC: the offer to pay in a card's currency | `paygate dcc quote dcc-usd --amount 12.99` |
 | `paygate get` | Show a payment by payId or transId | `paygate get --trans-id TIDMVGGX4YZ9I9APE` |
 | `paygate history` | List payments created or looked up with paygate | `paygate history --limit 50` |
 | `paygate capture` | Capture an authorized payment | `paygate capture <payId>` |
@@ -581,13 +580,7 @@ your merchant at Paygate applies.
 In the app, New payment → Payment link does the same; the command palette
 (`ctrl+k`) starts a new payment link directly.
 
-## eDCC (preview)
-
-> [!NOTE]
-> **eDCC is a preview.** It follows the Paygate API documentation and is
-> covered by tests against the built-in mock server, but it has not yet been
-> verified against a merchant account with eDCC enabled. Behaviour and output
-> may still change once it has been.
+## eDCC
 
 With eDCC (dynamic currency conversion), a customer with a foreign card pays
 in the card's currency. Paygate identifies the card's country from its first 10
@@ -621,9 +614,11 @@ of a real card as well. To pay with an eDCC test card on production, simulate
 the payment (`--simulate ok`): paygate insists on it for direct payments, but
 cannot see a card typed in on the payment page.
 
-After an accepted offer, paygate loads the payment's details: the amount
-charged in the card's currency, the rate, the markup and their source are only
-there, not in the answer to the payment. Payment links have no eDCC setting;
+A direct payment that accepts the offer pays the quote's amount in the card's
+currency; Paygate refuses the shop's amount. After an accepted offer, paygate
+loads the payment's details: the amount charged in the card's currency, the
+rate, the markup and their source are only there, not in the answer to the
+payment. Payment links have no eDCC setting;
 their payment page follows the merchant's setting.
 
 In the app, the eDCC menu (`u`) runs the same check and both payments.

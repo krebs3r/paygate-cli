@@ -11,6 +11,26 @@ based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   describes them (Basic body with `payId`, signature in lower-case hex), like
   the demo mode. The README recording of the webhooks uses it.
 
+### Changed
+
+- eDCC is no longer a preview: BIN check, quote and direct card payments
+  with an accepted or declined offer have been checked against a merchant
+  account with eDCC enabled, with simulated payments. The preview badge and
+  notes are gone from the CLI, the app, the eDCC tour and the README.
+
+### Fixed
+
+- eDCC: a direct card payment that accepts the offer now pays the quote's
+  amount in the card's currency. Paygate refuses the shop's amount with
+  `20120006 INVALID CURRENCY`. The CLI, the app and the eDCC tour send it,
+  and the mock server refuses the shop's amount like Paygate.
+- A payment whose details say `CAPTURE_REQUEST` (authorized, the automatic
+  capture is still running) counts as successful, not as pending. Right
+  after an accepted eDCC offer the receipt therefore shows the amount
+  charged, the rate and the markup, with Paygate's answer to the payment.
+  While the capture runs, the app offers no capture, refund or cancel, and
+  the CLI suggests no refund.
+
 ## [0.9.0]
 
 ### Added

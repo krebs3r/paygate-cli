@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,7 +83,8 @@ func TestDCCQuoteAndPayment(t *testing.T) {
 		t.Errorf("a euro card gets no offer: %+v, %v", q.Info(), err)
 	}
 
-	pay := func(transID, number string, dcc *paygate.DCCDecision) (*paygate.Result, error) {
+	card := paygate.Amount{Value: 1452, Currency: "USD"} // the quote's amount in the card's currency
+	pay := func(transID, number string, amount paygate.Amount, dcc *paygate.DCCDecision) (*paygate.Result, error) {
 		return c.CreatePayment(ctx, &paygate.PaymentRequest{
 			TransID: transID, Amount: amount, BrowserInfo: &paygate.BrowserInfo{IPAddress: "127.0.0.1"},
 			PaymentMethods: &paygate.PaymentMethods{Type: "CARD", IntegrationType: "DIRECT", Card: &paygate.Card{
@@ -91,10 +93,19 @@ func TestDCCQuoteAndPayment(t *testing.T) {
 		})
 	}
 	accept := &paygate.DCCDecision{Selected: true, DCCRequestID: q.Info().DCCRequestID}
-	if _, err := pay("TWRONG", "4111111111111111", accept); err == nil {
+	if _, err := pay("TWRONG", "4111111111111111", card, accept); err == nil {
 		t.Error("a quote for another card must be refused")
 	}
-	created, err := pay("TDCC", "4176662280613305", accept)
+	// Like Paygate: accepting with the shop's amount fails, the details
+	// carry the accepted offer and no amount, and the quote still pays.
+	if _, err := pay("TSHOP", "4176662280613305", amount, accept); err == nil || !strings.Contains(err.Error(), "20120006") {
+		t.Errorf("accepting with the shop's amount: %v", err)
+	}
+	if res, err := c.GetByTransID(ctx, "TSHOP"); err != nil || res.Payment.Status != "FAILED" ||
+		!res.Payment.Method().DCC.Selected || res.Payment.Amount.Value != 0 {
+		t.Errorf("details of the refused payment: %+v, %v", res, err)
+	}
+	created, err := pay("TDCC", "4176662280613305", card, accept)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +119,10 @@ func TestDCCQuoteAndPayment(t *testing.T) {
 	if d := res.Payment.Method().DCC; d == nil || !d.Selected || d.Amounts.Cardholder.Value != 1452 || d.Rate.ExchangeRate.String() != "1.1179" {
 		t.Errorf("payment dccInfo = %+v", d)
 	}
-	if _, err := pay("TAGAIN", "4176662280613305", accept); err == nil {
+	if a := res.Payment.Amount; a == nil || a.Value != 1452 || a.Currency != "USD" {
+		t.Errorf("like Paygate, the payment is in the card's currency: %+v", a)
+	}
+	if _, err := pay("TAGAIN", "4176662280613305", card, accept); err == nil {
 		t.Error("a quote pays once")
 	}
 }

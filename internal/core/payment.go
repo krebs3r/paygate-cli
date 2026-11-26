@@ -68,11 +68,14 @@ type PaymentInput struct {
 	Expires  string
 	Partial  bool
 	// eDCC. DCC is the customer's answer to the quote DCCRequestID in a
-	// direct card payment (accept, decline); DCCEnabled switches the offer
+	// direct card payment (accept, decline); an accepted offer pays
+	// DCCCardholder, the quote's amount in the card's currency, instead of
+	// Amount. Set the three with AnswerDCC. DCCEnabled switches the offer
 	// on the payment page on or off (empty: the merchant's setting).
-	DCC          string
-	DCCRequestID string
-	DCCEnabled   string
+	DCC           string
+	DCCRequestID  string
+	DCCCardholder *paygate.Amount
+	DCCEnabled    string
 }
 
 var simCode = regexp.MustCompile(`^\d{4}$`)
@@ -248,6 +251,9 @@ func BuildPaymentRequest(in PaymentInput, prof *config.Profile) (*paygate.Paymen
 		}
 		if err := applyDCC(card, in, true); err != nil {
 			return nil, "", err
+		}
+		if card.DCC != nil && card.DCC.Selected {
+			req.Amount = *in.DCCCardholder
 		}
 		channel := strings.ToUpper(in.Channel)
 		if channel == "" {

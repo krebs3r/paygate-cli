@@ -90,9 +90,6 @@ type Tour struct {
 	// NeedsWebhooks: the tour only makes sense when paygate can receive
 	// the webhook (demo, local mock or a running listener).
 	NeedsWebhooks bool
-	// Preview marks a tour of a feature not yet verified against a real
-	// merchant account, such as eDCC.
-	Preview bool
 }
 
 // All returns the tours in the order of the menu.

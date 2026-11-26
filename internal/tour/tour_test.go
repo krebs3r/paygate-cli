@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"html"
 	"net/http"
 	"net/url"
@@ -270,9 +271,6 @@ func TestDCCTour(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.Close()
-	if !r.Tour.Preview {
-		t.Error("the eDCC tour is a preview")
-	}
 	walk(t, r)
 	if !strings.Contains(r.Outcomes[0].Status, "USA") {
 		t.Errorf("the BIN check names the card's country: %s", r.Outcomes[0].Status)
@@ -286,6 +284,9 @@ func TestDCCTour(t *testing.T) {
 	}
 	if x := r.Outcomes[3].Exchange; x == nil || !strings.Contains(string(x.Body), r.dcc.DCCRequestID) || !strings.Contains(compact(x.Body), `"selected":true`) {
 		t.Errorf("the payment carries the customer's choice: %+v", x)
+	}
+	if x, want := r.Outcomes[3].Exchange, fmt.Sprintf(`"amount":{"value":%d,"currency":"USD"}`, r.dcc.Amounts.Cardholder.Value); x == nil || !strings.Contains(compact(x.Body), want) {
+		t.Errorf("the payment pays the quote's amount in the card's currency (%s): %+v", want, x)
 	}
 	if got := strings.Join(r.Outcomes[4].Lines, "\n"); !strings.Contains(got, "USD") {
 		t.Errorf("the details show the eDCC outcome:\n%s", got)

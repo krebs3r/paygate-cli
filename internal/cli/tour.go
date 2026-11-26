@@ -98,10 +98,10 @@ func listTours() {
 	ui.Println()
 	w := 0
 	for _, t := range tour.All() {
-		w = max(w, lipgloss.Width(tourTitle(t)))
+		w = max(w, lipgloss.Width(t.Title.String()))
 	}
 	for _, t := range tour.All() {
-		title := tourTitle(t)
+		title := t.Title.String()
 		ui.Println("  " + ui.Accent.Render(fmt.Sprintf("%-11s", t.ID)) + ui.Bold.Render(title) + strings.Repeat(" ", w-lipgloss.Width(title)) +
 			ui.Muted.Render(fmt.Sprintf("  %d %s · %s", len(t.Steps), tt("steps", "Schritte"), t.Shows)))
 	}
@@ -109,25 +109,10 @@ func listTours() {
 	ui.Println(ui.Next("paygate tour hosted", "paygate --demo tour hosted --run"))
 }
 
-// tourTitle is a tour's title with the preview badge of a tour not yet
-// verified against a real merchant account.
-func tourTitle(t *tour.Tour) string { return t.Title.String() + previewBadge(t) }
-
-// printTourHead prints the title of a tour and, for a preview, what that
-// means.
+// printTourHead prints the title of a tour.
 func printTourHead(t *tour.Tour) {
-	ui.Println(" " + ui.Bold.Render(tt("Integration tour", "Integrations-Tour")+" · "+t.Title.String()) + previewBadge(t))
-	if t.Preview {
-		ui.Println(ui.Info(i18n.T("dcc.preview")))
-	}
+	ui.Println(" " + ui.Bold.Render(tt("Integration tour", "Integrations-Tour")+" · "+t.Title.String()))
 	ui.Println()
-}
-
-func previewBadge(t *tour.Tour) string {
-	if !t.Preview {
-		return ""
-	}
-	return " " + ui.Badge(i18n.T("dcc.badge"), ui.ToneAccent)
 }
 
 // tt picks the English or German text.

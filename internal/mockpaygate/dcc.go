@@ -146,29 +146,39 @@ func (s *Server) dccQuote(w http.ResponseWriter, r *http.Request) {
 }
 
 // acceptQuote checks the customer's answer to a quote in a direct card
-// payment. It returns the quote, or a problem for the request.
-func (s *Server) acceptQuote(b *paymentBody) (*quote, map[string][]string) {
+// payment. It returns the quote, a problem for the request, or refused when
+// Paygate refuses the payment: like Paygate on production (2026-11-26), an
+// accepted offer pays the quote's amount in the card's currency, and the
+// shop's currency gets 20120006 INVALID CURRENCY. Like Paygate, the value
+// is not compared with the quote's. A declined offer pays the shop's
+// amount of the quote.
+func (s *Server) acceptQuote(b *paymentBody) (q *quote, problem map[string][]string, refused bool) {
 	card := b.PaymentMethods.Card
 	if card.DCC == nil {
-		return nil, nil
+		return nil, nil, false
 	}
 	if card.DCC.DCCRequestID == "" {
 		if card.DCC.Selected {
-			return nil, map[string][]string{"paymentMethods.card.dcc.dccRequestId": {"Required if selected is true."}}
+			return nil, map[string][]string{"paymentMethods.card.dcc.dccRequestId": {"Required if selected is true."}}, false
 		}
-		return nil, nil
+		return nil, nil, false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	q, ok := s.quotes[card.DCC.DCCRequestID]
+	currency := strings.ToUpper(b.Amount.Currency)
 	switch {
 	case !ok:
-		return nil, map[string][]string{"paymentMethods.card.dcc.dccRequestId": {"Unknown or used DCC quote."}}
-	case !strings.HasPrefix(card.Number, q.BIN) || q.Merchant != b.Amount.Value || q.MerchantCurrency != strings.ToUpper(b.Amount.Currency):
-		return nil, map[string][]string{"paymentMethods.card.dcc.dccRequestId": {"The DCC quote is for another card or amount."}}
+		return nil, map[string][]string{"paymentMethods.card.dcc.dccRequestId": {"Unknown or used DCC quote."}}, false
+	case !strings.HasPrefix(card.Number, q.BIN):
+		return nil, map[string][]string{"paymentMethods.card.dcc.dccRequestId": {"The DCC quote is for another card."}}, false
+	case card.DCC.Selected && currency != q.Currency:
+		return q, nil, true
+	case !card.DCC.Selected && (q.Merchant != b.Amount.Value || q.MerchantCurrency != currency):
+		return nil, map[string][]string{"paymentMethods.card.dcc.dccRequestId": {"The DCC quote is for another amount."}}, false
 	}
 	if card.DCC.Selected {
 		delete(s.quotes, q.ID) // a quote pays once
 	}
-	return q, nil
+	return q, nil, false
 }

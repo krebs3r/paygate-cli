@@ -501,6 +501,9 @@ func (s *paymentsScreen) can(op paygate.Operation) bool {
 	if p.PayID == "" || paygate.OutcomeOf(p) != paygate.OutcomeSuccess {
 		return false
 	}
+	if paygate.CaptureRunning(p) {
+		return false
+	}
 	a := p.Amount
 	authorized := strings.EqualFold(p.Status, "AUTHORIZED")
 	switch op {

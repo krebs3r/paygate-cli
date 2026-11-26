@@ -337,7 +337,7 @@ func (s *Server) createPayment(w http.ResponseWriter, r *http.Request) {
 		problemTitle(w, "Validation failed", map[string][]string{"BrowserInfo.IpAddress": {"'Browser Info Ip Address' must not be empty."}})
 		return
 	}
-	q, errs := s.acceptQuote(b)
+	q, errs, refused := s.acceptQuote(b)
 	if errs != nil {
 		problem(w, errs)
 		return
@@ -345,6 +345,18 @@ func (s *Server) createPayment(w http.ResponseWriter, r *http.Request) {
 	rec := s.newRecord(b)
 	rec.Method, rec.Brand, rec.Last4 = "CARD", strings.ToUpper(card.Brand), card.Number[len(card.Number)-4:]
 	rec.DCC, rec.DCCSelected = q, card.DCC != nil && card.DCC.Selected
+	if refused {
+		// Like Paygate: a failed payment whose details carry the accepted
+		// offer and no amount.
+		rec.Status, rec.Code, rec.Desc, rec.Amount = "FAILED", "20120006", "INVALID CURRENCY", 0
+		s.store(rec)
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"merchantId": s.MerchantID, "payId": rec.PayID, "xId": randHex(16), "transId": rec.TransID, "refNr": "",
+			"responseCode": rec.Code, "responseDescription": rec.Desc, "title": "Processing error",
+			"status": "FAILED", "traceId": randHex(16),
+		})
+		return
+	}
 	simDecline := rec.Sim != "" && rec.Sim != "0000"
 	simOK := rec.Sim == "0000"
 	switch {

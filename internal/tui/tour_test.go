@@ -390,15 +390,15 @@ func TestEDCCTourInTheApp(t *testing.T) {
 	send(m, enter)
 	i18n.Set(i18n.EN)
 	send(m, keys("t"))
-	for _, want := range []string{"Pay by Link", "Hosted Forms", "eDCC in your own checkout", "PREVIEW"} {
+	for _, want := range []string{"Pay by Link", "Hosted Forms", "eDCC in your own checkout"} {
 		if !strings.Contains(ansi.Strip(m.View()), want) {
 			t.Fatalf("tour list misses %q:\n%s", want, m.View())
 		}
 	}
 	send(m, down, down, down, down, down, down, enter) // eDCC
 	s := m.current().(*tourScreen)
-	if s.run == nil || s.run.Tour.ID != "dcc" || !strings.Contains(ansi.Strip(m.View()), "PREVIEW") {
-		t.Fatalf("the eDCC tour starts with its preview badge:\n%s", m.View())
+	if s.run == nil || s.run.Tour.ID != "dcc" || !strings.Contains(ansi.Strip(m.View()), "eDCC in your own checkout") {
+		t.Fatalf("the eDCC tour starts:\n%s", m.View())
 	}
 	for !s.run.Finished() {
 		tourStep(t, m)

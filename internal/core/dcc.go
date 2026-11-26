@@ -328,6 +328,33 @@ func SummarizeDCC(ps []*DCCProbe) DCCSummary {
 	return s
 }
 
+// AnswerDCC records the customer's answer (accept, decline or "") to an
+// offer in a direct card payment. An accepted offer pays the quote's amount
+// in the card's currency: Paygate refuses the shop's amount with 20120006
+// INVALID CURRENCY, and its payment details then show the payment in the
+// card's currency, the shop's amount only in dccInfo. Without an offer
+// there is nothing to answer.
+func (in *PaymentInput) AnswerDCC(answer string, offer *paygate.DCCInfo) {
+	in.DCC, in.DCCRequestID, in.DCCCardholder = "", "", nil
+	if !offer.Available() {
+		return
+	}
+	ch := offer.Amounts.Cardholder
+	in.DCC, in.DCCRequestID = answer, offer.DCCRequestID
+	in.DCCCardholder = &paygate.Amount{Value: ch.Value, Currency: strings.ToUpper(ch.Currency)}
+}
+
+// KeepAnswer puts Paygate's answer to a payment (response code and
+// description) into its details while the automatic capture still runs:
+// the details say "0 REQUEST" then, while a receipt's HTTP row describes the
+// answer to the payment.
+func KeepAnswer(details, answer *paygate.Payment) {
+	if details == nil || answer == nil || !paygate.CaptureRunning(details) {
+		return
+	}
+	details.ResponseCode, details.ResponseDescription = answer.ResponseCode, answer.ResponseDescription
+}
+
 // DCCAccepted reports a direct payment that accepted an eDCC offer. Its
 // outcome (charged amount, rate) is in the payment details only, not in the
 // answer to the payment.
@@ -366,6 +393,9 @@ func applyDCC(card *paygate.Card, in PaymentInput, direct bool) error {
 		case DCCAccept:
 			if in.DCCRequestID == "" {
 				return errors.New("accepting eDCC needs the ID of a quote")
+			}
+			if a := in.DCCCardholder; a == nil || a.Value <= 0 || len(a.Currency) != 3 {
+				return errors.New("accepting eDCC needs the quote's amount in the card's currency")
 			}
 			card.DCC = &paygate.DCCDecision{Selected: true, DCCRequestID: in.DCCRequestID}
 		case DCCDecline:

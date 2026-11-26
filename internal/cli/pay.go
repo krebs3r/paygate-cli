@@ -16,7 +16,6 @@ import (
 	"github.com/krebs3r/paygate-cli/internal/cards"
 	"github.com/krebs3r/paygate-cli/internal/core"
 	"github.com/krebs3r/paygate-cli/internal/export"
-	"github.com/krebs3r/paygate-cli/internal/i18n"
 	"github.com/krebs3r/paygate-cli/internal/listen"
 	"github.com/krebs3r/paygate-cli/internal/money"
 	"github.com/krebs3r/paygate-cli/internal/paygate"
@@ -114,7 +113,7 @@ webhook and closes the tunnel again.`,
 	f.StringVar(&o.channel, "channel", "ECOM", "channel for direct payments: ECOM or MOTO")
 	f.BoolVar(&o.skip3DS, "skip-3ds", false, "direct card payments: ask Paygate to skip 3-D Secure (test cards without 3DS always do)")
 	f.StringVar(&o.ip, "ip", "", "customer IP for direct card payments (default: profile setting or this computer)")
-	f.StringVar(&o.dcc, "dcc", "", "eDCC (preview): with --card, ask, accept or decline the offer to pay in the card's currency; with --hosted or --method card, on or off")
+	f.StringVar(&o.dcc, "dcc", "", "eDCC: with --card, ask, accept or decline the offer to pay in the card's currency; with --hosted or --method card, on or off")
 	addPaymentFlags(cmd, o)
 	_ = cmd.RegisterFlagCompletionFunc("card", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return cards.Aliases(), cobra.ShellCompDirectiveNoFileComp
@@ -219,16 +218,9 @@ func runPay(app *App, o *payOptions, cmd *cobra.Command) error {
 			app.PrintHeader(name, prof)
 			headerShown = true
 		}
-		if in.DCC, in.DCCRequestID, err = decideDCC(app, client, prof, in, in.DCC); err != nil {
+		if err := decideDCC(app, client, prof, &in, in.DCC); err != nil {
 			return err
 		}
-	}
-	if in.DCCEnabled != "" && !app.JSON() && !app.Curl {
-		if !headerShown {
-			app.PrintHeader(name, prof)
-			headerShown = true
-		}
-		ui.Println(ui.Info(i18n.T("dcc.preview")))
 	}
 	var hook *payHook
 	listenNote := ""
@@ -317,18 +309,24 @@ func runPay(app *App, o *payOptions, cmd *cobra.Command) error {
 	if res.Payment.TransID == "" {
 		res.Payment.TransID = req.TransID
 	}
+	shown := res.Payment
 	if app.JSON() {
 		printJSON(res.Response.Body)
 	} else {
 		ui.Println(ui.OK("Payment processed " + ui.Muted.Render("in "+paygate.FormatDuration(res.Response.Duration))))
 		ui.Println()
-		ui.Println(paymentCard(dccOutcome(client, req, res.Payment), res.Response, cardOpts{Amount: amountStr}))
+		shown = dccOutcome(client, req, res.Payment)
+		ui.Println(paymentCard(shown, res.Response, cardOpts{Amount: amountStr}))
 		ui.Println()
 	}
 	switch paygate.OutcomeOf(res.Payment) {
 	case paygate.OutcomeSuccess:
 		if !app.JSON() {
-			ui.Println(ui.Next("paygate refund "+short(res.Payment.PayID), "paygate get "+short(res.Payment.PayID), "-o json"))
+			next := []string{"paygate refund " + short(res.Payment.PayID), "paygate get " + short(res.Payment.PayID), "-o json"}
+			if paygate.CaptureRunning(shown) { // Paygate refuses a refund until the capture is done
+				next = next[1:]
+			}
+			ui.Println(ui.Next(next...))
 			ui.Println()
 		}
 		return nil
@@ -491,7 +489,11 @@ func handleRedirect(app *App, profileName string, client *paygate.Client, req *p
 			ui.Println(paymentCard(p, nil, cardOpts{Title: title, Extra: []ui.Row{{Label: "Waited", Value: ui.Muted.Render(result.Elapsed.Round(time.Second).String())}}}))
 			ui.Println()
 			if paygate.OutcomeOf(p) == paygate.OutcomeSuccess {
-				ui.Println(ui.Next("paygate refund "+short(p.PayID), "paygate get "+short(p.PayID)))
+				next := []string{"paygate refund " + short(p.PayID), "paygate get " + short(p.PayID)}
+				if paygate.CaptureRunning(p) { // Paygate refuses a refund until the capture is done
+					next = next[1:]
+				}
+				ui.Println(ui.Next(next...))
 				ui.Println()
 			}
 		}

@@ -614,11 +614,11 @@ func TestDCCScreenOffer(t *testing.T) {
 	if !ok || m.current().ID() != "dcc" || !s.dcc {
 		t.Fatalf("u should open the eDCC screen, got %s", m.current().ID())
 	}
-	if v := ansi.Strip(m.View()); !strings.Contains(v, "eDCC  PREVIEW    ● eDCC check") || !strings.Contains(v, "What do you want to do?") {
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "eDCC   ● eDCC check") || !strings.Contains(v, "What do you want to do?") {
 		t.Fatalf("expected the eDCC form, starting with the check:\n%s", v)
 	}
 	send(m, down) // here, direct
-	if v := ansi.Strip(m.View()); !strings.Contains(v, "eDCC  PREVIEW    ● Card ─ ○ Offer ─ ○ Review ─ ○ Result") {
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "eDCC   ● Card ─ ○ Offer ─ ○ Review ─ ○ Result") {
 		t.Fatalf("expected the steps of a direct payment:\n%s", v)
 	}
 	send(m, enter)
@@ -799,8 +799,8 @@ func TestDCCDetailsArriveDuringRefundQuestion(t *testing.T) {
 		}
 	}
 	s.onPaid(m.ctx, paid)
-	if s.stage != stageResult || strings.Contains(ansi.Strip(m.View()), "14.52 USD") {
-		t.Fatalf("before the details the answer shows the shop's amount, stage %d:\n%s", s.stage, m.View())
+	if v := ansi.Strip(m.View()); s.stage != stageResult || !strings.Contains(v, "14.52 USD") || strings.Contains(v, "eDCC applied") {
+		t.Fatalf("before the details the answer shows the payment in the card's currency, without the eDCC outcome, stage %d:\n%s", s.stage, m.View())
 	}
 	send(m, keys("f"))
 	if s.stage != stageConfirmOp {
@@ -811,7 +811,7 @@ func TestDCCDetailsArriveDuringRefundQuestion(t *testing.T) {
 		t.Fatal(err)
 	}
 	send(m, dccDetailsMsg{seq: s.seq, res: res}, esc)
-	if v := ansi.Strip(m.View()); !strings.Contains(v, "14.52 USD") || !strings.Contains(v, "eDCC applied") {
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "14.52 USD") || !strings.Contains(v, "eDCC applied") || !strings.Contains(v, "12.99 EUR") {
 		t.Errorf("the details must not be lost:\n%s", v)
 	}
 }
@@ -971,7 +971,7 @@ func TestDCCCheckEdges(t *testing.T) {
 		m := setup(t, twoProfiles(), "shop-prod")
 		i18n.Set(i18n.EN)
 		send(m, tea.WindowSizeMsg{Width: 70, Height: 20}, keys("u"))
-		if v := ansi.Strip(m.View()); !strings.Contains(v, "PREVIEW") || !strings.Contains(v, "Pay · offer on Paygate's payment page") {
+		if v := ansi.Strip(m.View()); !strings.Contains(v, "Pay · offer on Paygate's payment page") {
 			t.Errorf("the intro must give way to the choice:\n%s", v)
 		}
 		// Where the intro just fits, the key help stays in view as well.
@@ -2177,5 +2177,18 @@ func TestWebhooksListColumnsLineUp(t *testing.T) {
 	}
 	if want == 0 || !strings.Contains(v, "AUTHORIZED  1,234,567.89 EUR") && !strings.Contains(v, "AUTHORIZED  1234567.89 EUR") {
 		t.Errorf("status and amount need a gap:\n%s", v)
+	}
+}
+
+// Right after an accepted eDCC offer the details say CAPTURE_REQUEST: the
+// payment succeeded, but Paygate refuses a refund until the capture is done.
+func TestNoRefundWhileCaptureRuns(t *testing.T) {
+	s := &newPaymentScreen{capture: "auto", result: &paygate.Payment{PayID: "p1", Status: "CAPTURE_REQUEST", ResponseCode: "0"}}
+	if !s.succeeded() || s.canRefund() {
+		t.Errorf("capture running: succeeded %v, canRefund %v", s.succeeded(), s.canRefund())
+	}
+	s.result.Status, s.result.ResponseCode = "OK", "00000000"
+	if !s.canRefund() {
+		t.Error("once the capture is done the refund is offered")
 	}
 }
